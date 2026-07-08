@@ -26,7 +26,7 @@ public class GetTemplateInformation {
 		return handleStart(args);
 	}
 	
-	public String processRequest(String plantilla, String negocio, String structureFeatures, String baseUrl, String encoded) throws ServiceUnavailableException {
+	public String processRequest(String plantilla, String negocio, String structureFeatures, String baseUrl, String encoded, String creationType) throws ServiceUnavailableException {
 		try {
 			RESTWorkshop rw = new RESTWorkshop();
 			if(baseUrl != null)
@@ -34,6 +34,10 @@ public class GetTemplateInformation {
 			if(encoded != null) {
 				rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
 			}
+			if (creationType == null)
+		    {
+		        creationType = this.creationType;
+		    }
 			log("Using baseUrl: " + rw.getBaseUrl());
 			rw.putParameter("dictionaryProxy", "'ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla'");
 			rw.putParameter("fields", 
@@ -51,6 +55,7 @@ public class GetTemplateInformation {
 			rw.putParameter("query", 
 					  "StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla\""
 					+ " and StandardizationValue.StructureGroup->LookupValue.Code equals \"" + plantilla + "\" and StandardizationValue.Characteristic->Characteristic.IsActive = true"
+					+ " and StandardizationValue.CreationType->LookupValue.Code equals \"" + creationType + "\""
 				);
 			rw.putParameter("orderBy", "2-ASC");
 			rw.putParameter("pageSize", "1200");

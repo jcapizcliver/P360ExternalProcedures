@@ -16,3 +16,6 @@ aeskey.bin
 
 *.tmp
 *.bak
+
+# Settings
+AGENTS.md
