@@ -856,7 +856,7 @@ public class AnotherXMLHandlerSecondOpinionOnSpecificProducts {
 	    					if(item.length() < 15) {
 	    						reqSuppressSKUAndEAN.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + item + "'@1" )).put("values", new org.json.JSONArray().put("").put("").put("").put("").put("")));
 	    					} else {
-	    						// Merge on P360 product data comming from there
+	    						// Merge on P360 product data coming from there
 	    						resuelveCombinación(item, externalId);
 	    						externalId = item;
 	    					}

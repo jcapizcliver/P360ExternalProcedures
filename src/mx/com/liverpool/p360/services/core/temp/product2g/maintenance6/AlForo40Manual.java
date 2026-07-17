@@ -79,18 +79,14 @@ public class AlForo40Manual {
 						qp00.put("qualificationFilter", "characteristic(SistemaOrigen)");
 						org.json.JSONObject jResp = rw.getRw().makeRequest("GET", "/object/Product2G/'" + externalId + "'@1", qp00, null);
 						org.json.JSONObject jd = jResp.getJSONObject("_data");
-						if(jd.has("_characteristicRecords")) {
-							String sistemaOrigen = jd.getJSONArray("_characteristicRecords").getJSONObject(0).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-							log("(tf40) SistemaOrigen: " + sistemaOrigen);
-							Object[] objs = getClientToECC();
-							try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
-								writeToSftp(sftpCli, "Código SKU|ESTADO|ORIGEN\n" + sku + "|" + ( "1007".equals(currentStatusNew) ? 1 : 3) + "|" + (sistemaOrigen == null || "".equals(sistemaOrigen) ? "1" : sistemaOrigen), REMOTE_DIR_ECC);
-							}catch(java.io.IOException e) {
-					        	log("No fue posible escribir a foro 40 " + externalId);
-					        }
-						}else {
-							log("(tf40) No SistemaOrigen for proposal. (" + externalId + ")");
-						}
+						String sistemaOrigen = jd.has("_characteristicRecords") ? jd.getJSONArray("_characteristicRecords").getJSONObject(0).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code") : "1";
+						log("(tf40) SistemaOrigen: " + sistemaOrigen);
+						Object[] objs = getClientToECC();
+						try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
+							writeToSftp(sftpCli, "Código SKU|ESTADO|ORIGEN\n" + sku + "|" + ( "1007".equals(currentStatusNew) ? 1 : 3) + "|" + (sistemaOrigen == null || "".equals(sistemaOrigen) ? "1" : sistemaOrigen), REMOTE_DIR_ECC);
+						}catch(java.io.IOException e) {
+				        	log("No fue posible escribir a foro 40 " + externalId);
+				        }
 					}else {
 						log("(tf40) Estaba vacío, por eso no se fue a foro 40");
 					}
@@ -108,31 +104,27 @@ public class AlForo40Manual {
 							log("Problem querying server: " + rw.getRw().getRawResponse());
 						}else {
 							org.json.JSONObject jd = jResp.getJSONObject("_data");
-							if(jd.has("_characteristicRecords")) {
-								String sistemaOrigen = jd.getJSONArray("_characteristicRecords").getJSONObject(0).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-								log("(tf40) SistemaOrigne: " + sistemaOrigen);
-								org.json.JSONArray jvars = new org.json.JSONArray();
-								for(int i=0; i<vars.size(); i++) {
-									jvars.put(vars.get(i));
-								}
-								rsp = dr.getArticleData(jvars);
-								jr = new org.json.JSONObject(rsp);
-								items = jr.getJSONArray("items");
-								Object[] objs = getClientToECC();
-								try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
-									StringBuilder ssb = new StringBuilder();
-									for(int i=0; i<items.length(); i++) {
-										j0 = items.getJSONObject(i);
-										sku = j0.getString("SKU");
-										ssb.append(ssb.length() == 0 ? "" : "\n").append( sku + "|" + ( "1007".equals(currentStatusNew) ? 1 : 3) + "|" + (sistemaOrigen == null || "".equals(sistemaOrigen) ? "1" : sistemaOrigen) );
-									}
-									writeToSftp(sftpCli, "Código SKU|ESTADO|ORIGEN\n" + ssb.toString(), REMOTE_DIR_ECC);
-								}catch(java.io.IOException e) {
-						        	log("No fue posible escribir a foro 40 " + externalId);
-						        }
-							}else {
-								log("(tf40) No SistemaOrigen for proposal. (" + externalId + ")");
+							String sistemaOrigen = jd.has("_characteristicRecords") ? jd.getJSONArray("_characteristicRecords").getJSONObject(0).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code") : "1";
+							log("(tf40) SistemaOrigne: " + sistemaOrigen);
+							org.json.JSONArray jvars = new org.json.JSONArray();
+							for(int i=0; i<vars.size(); i++) {
+								jvars.put(vars.get(i));
 							}
+							rsp = dr.getArticleData(jvars);
+							jr = new org.json.JSONObject(rsp);
+							items = jr.getJSONArray("items");
+							Object[] objs = getClientToECC();
+							try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
+								StringBuilder ssb = new StringBuilder();
+								for(int i=0; i<items.length(); i++) {
+									j0 = items.getJSONObject(i);
+									sku = j0.getString("SKU");
+									ssb.append(ssb.length() == 0 ? "" : "\n").append( sku + "|" + ( "1007".equals(currentStatusNew) ? 1 : 3) + "|" + (sistemaOrigen == null || "".equals(sistemaOrigen) ? "1" : sistemaOrigen) );
+								}
+								writeToSftp(sftpCli, "Código SKU|ESTADO|ORIGEN\n" + ssb.toString(), REMOTE_DIR_ECC);
+							}catch(java.io.IOException e) {
+					        	log("No fue posible escribir a foro 40 " + externalId);
+					        }
 						}
 					}else {
 						log("(tf40) Estaba vacío, por eso no se fue a foro 40");
@@ -165,24 +157,20 @@ public class AlForo40Manual {
 					org.json.JSONObject jResp = rw.getRw().makeRequest("GET", "/object/Product2G/'" + externalId + "'@1", qp00, null);
 					org.json.JSONObject jd = jResp.getJSONObject("_data");
 					String fda = jd.has("firstDateApproved") ? jd.getString("firstDateApproved").replace("T", " ") : "1007".equals(currentStatusNew) ? new java.util.Date().toInstant().atZone(java.time.ZoneId.systemDefault()).format( java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss") ) : "" ;
-					if(jd.has("_characteristicRecords")) {
-						Object[] objs = getClientToS4H();
-						try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
-							if("1007".equals(currentStatusNew)) {
-								writeToSftp(sftpCli, "Código SKU,Estado,Responsabilidad de fotos,Fecha Primera Aprobación\n" +  sku + "," + 1 + "," + fotoTomadaLiverpool + "," + fda, REMOTE_DIR_S4H);
+					Object[] objs = getClientToS4H();
+					try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
+						if("1007".equals(currentStatusNew)) {
+							writeToSftp(sftpCli, "Código SKU,Estado,Responsabilidad de fotos,Fecha Primera Aprobación\n" +  sku + "," + 1 + "," + fotoTomadaLiverpool + "," + fda, REMOTE_DIR_S4H);
+						}else {
+							if("Y".equals(fotoTomadaLiverpool)) {
+								writeToSftp(sftpCli, "Código SKU,Estado,Responsabilidad de fotos,Fecha Primera Aprobación\n" +  sku + "," + 3 + "," + fotoTomadaLiverpool + "," + fda, REMOTE_DIR_S4H);
 							}else {
-								if("Y".equals(fotoTomadaLiverpool)) {
-									writeToSftp(sftpCli, "Código SKU,Estado,Responsabilidad de fotos,Fecha Primera Aprobación\n" +  sku + "," + 3 + "," + fotoTomadaLiverpool + "," + fda, REMOTE_DIR_S4H);
-								}else {
-									writeToSftp(sftpCli, "Código SKU,Estado,Responsabilidad de fotos,Fecha Primera Aprobación\n" +  sku + "," + 2 + "," + "N" + "," + fda, REMOTE_DIR_S4H);
-								}
+								writeToSftp(sftpCli, "Código SKU,Estado,Responsabilidad de fotos,Fecha Primera Aprobación\n" +  sku + "," + 2 + "," + "N" + "," + fda, REMOTE_DIR_S4H);
 							}
-						}catch(java.io.IOException e) {
-				        	log("No fue posible escribir a foro 40 " + externalId);
-				        }
-					}else {
-						log("(tf40) No SistemaOrigen for proposal. (" + externalId + ")");
-					}
+						}
+					}catch(java.io.IOException e) {
+			        	log("No fue posible escribir a foro 40 " + externalId);
+			        }
 				}else {
 					log("(tf40) Estaba vacío, por eso no se fue a foro 40");
 				}
@@ -196,40 +184,36 @@ public class AlForo40Manual {
 					org.json.JSONObject jResp = rw.getRw().makeRequest("GET", "/object/Product2G/'" + externalId + "'@1", qp00, null);
 					org.json.JSONObject jd = jResp.getJSONObject("_data");
 					String fda = jd.has("firstDateApproved") ? jd.getString("firstDateApproved").replace("T", " ") : "1007".equals(currentStatusNew) ? new java.util.Date().toInstant().atZone(java.time.ZoneId.systemDefault()).format( java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss") ) : "";
-					if(jd.has("_characteristicRecords")) {
-						org.json.JSONArray jvars = new org.json.JSONArray();
-						for(int i=0; i<vars.size(); i++) {
-							jvars.put(vars.get(i));
-						}
-						rsp = dr.getArticleData(jvars);
-						jr = new org.json.JSONObject(rsp);
-						items = jr.getJSONArray("items");
-						log("(tf40) About to send to sbb");
-						Object[] objs = getClientToS4H();
-						StringBuilder sb = new StringBuilder();
-						sb.append("Código SKU,Estado,Responsabilidad de fotos,Fecha Primera Aprobación\n");
-						try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
-							for(int i=0; i<items.length(); i++) {
-								j0 = items.getJSONObject(i);
-								sku = j0.getString("SKU");
-								if("1007".equals(currentStatusNew)) {
-									sb.append(sku + "," + 1 + "," + fotoTomadaLiverpool + "," + fda).append("\n");
+					org.json.JSONArray jvars = new org.json.JSONArray();
+					for(int i=0; i<vars.size(); i++) {
+						jvars.put(vars.get(i));
+					}
+					rsp = dr.getArticleData(jvars);
+					jr = new org.json.JSONObject(rsp);
+					items = jr.getJSONArray("items");
+					log("(tf40) About to send to sbb");
+					Object[] objs = getClientToS4H();
+					StringBuilder sb = new StringBuilder();
+					sb.append("Código SKU,Estado,Responsabilidad de fotos,Fecha Primera Aprobación\n");
+					try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
+						for(int i=0; i<items.length(); i++) {
+							j0 = items.getJSONObject(i);
+							sku = j0.getString("SKU");
+							if("1007".equals(currentStatusNew)) {
+								sb.append(sku + "," + 1 + "," + fotoTomadaLiverpool + "," + fda).append("\n");
+							}else {
+								if("Y".equals(fotoTomadaLiverpool)) {
+									sb.append(sku + "," + 3 + "," + fotoTomadaLiverpool + "," + fda).append("\n");
 								}else {
-									if("Y".equals(fotoTomadaLiverpool)) {
-										sb.append(sku + "," + 3 + "," + fotoTomadaLiverpool + "," + fda).append("\n");
-									}else {
-										sb.append(sku + "," + 2 + "," + "N" + "," + fda);
-									}
+									sb.append(sku + "," + 2 + "," + "N" + "," + fda);
 								}
 							}
-							writeToSftp(sftpCli, sb.toString(), REMOTE_DIR_S4H);
-						}catch(java.io.IOException e) {
-				        	log("No fue posible escribir a foro 40 " + externalId);
-				        	e.printStackTrace();
-				        }
-					}else {
-						log("No SistemaOrigen for proposal. (" + externalId + ")");
-					}
+						}
+						writeToSftp(sftpCli, sb.toString(), REMOTE_DIR_S4H);
+					}catch(java.io.IOException e) {
+			        	log("No fue posible escribir a foro 40 " + externalId);
+			        	e.printStackTrace();
+			        }
 				}else {
 					log("Estaba vacío, por eso no se fue a foro 40");
 				}

@@ -222,7 +222,7 @@ public class ProductArticleCharacteristicValueChangeProcessor {
 								}
 								log(charId + ", PrevValue: " + prevValue + ", currentValue: " + valueChange + ". " + ("ProcessingRepublish".equals(charId)) + " _ " + (Boolean.parseBoolean(valueChange)));
 								
-								String sendResponse = null;
+//								String sendResponse = null;
 								if("ProcessingRepublish".equals(charId) && Boolean.parseBoolean(valueChange)) {
 									appendAtgPendingId(externalId);
 
@@ -569,43 +569,11 @@ public class ProductArticleCharacteristicValueChangeProcessor {
 								}
 							}
 							if(toSend) {
-								
-//						    	String coloursLiverpoolAtt = getValue("ColoursLiverpoolAtt", characteristicRecordsMap);
-//						    	String tamanoUnico = getValue("TamanoUnico", characteristicRecordsMap);
-//						    	String assignTakeNoTake = getSimpleValue("AssignTakeNoTake", characteristicRecordsMap);
-//						    	String[] productImageUrl = new String[1];
-//						    	productImageUrl[0] = "";
-//						    	qp.clear();
-//						    	qp.put("fields", 
-//						 			"ArticleCharacteristicValueLang.Value('ProductImage',\"0000.0000.RK\",\"0000.0000.RK\",'ProductImage_URL',-1)"
-//						 		);
-//						    	qp.put("items", "'" + externalId + "'@1");
-//						    	RESTWrapper rw = new RESTWrapper();
-//						    	log("Gonna query: " + externalId);
-//						 		rw.collectData("list", "Article", null, "byItems", qp, row->{
-//						 			org.json.JSONArray values = row.getJSONArray("values");
-//						 			log("Values: " + values);
-//						 			productImageUrl[0] = values.getJSONArray(0).getString(0);
-//						 		}, this::log);
-//						 		log("Found productImage: " + productImageUrl[0]);
 								if(jp != null) {
 									for(java.util.Map.Entry<String, String> entry : datas.entrySet()) {
 										jp.put(entry.getKey(), entry.getValue());
 									}
-//							 		String higherLevelProduct = grabHigherLevelProduct(data);
-							 		org.json.JSONArray items = new org.json.JSONArray().put(
-							 				jp
-	//						 				new org.json.JSONObject()
-	//							 				.put("variant", externalId)
-	//							 				.put("ColoursLiverpoolAtt", coloursLiverpoolAtt == null ? "" : coloursLiverpoolAtt)
-	//							 				.put("TamanoUnico", tamanoUnico == null ? "" : tamanoUnico)
-	//							 				.put("ProductImage", productImageUrl[0])
-	//							 				.put("AssignTakeNoTake", assignTakeNoTake == null ? "" : assignTakeNoTake)
-	//							 				.put("SKU", sku == null ? "" : sku)
-	//							 				.put("MainBarCode", ean == null ? "" : ean)
-	//							 				.put("MainBarCodeS4H", ean2 == null ? "" : ean2)
-	//							 				.put("ProductNo", higherLevelProduct == null ? "" : higherLevelProduct)
-							 				);
+							 		org.json.JSONArray items = new org.json.JSONArray().put( jp );
 									dr.putArticleData( items );
 									log("Sending data to admin (article): " + items.getJSONObject(0));
 								}
