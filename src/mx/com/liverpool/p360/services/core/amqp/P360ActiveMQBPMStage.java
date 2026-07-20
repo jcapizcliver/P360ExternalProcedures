@@ -696,18 +696,14 @@ public class P360ActiveMQBPMStage extends Thread {
 												qp00.put("qualificationFilter", "characteristic(SistemaOrigen)");
 												org.json.JSONObject jResp = rw.getRw().makeRequest("GET", "/object/Product2G/'" + externalId + "'@1", qp00, null);
 												org.json.JSONObject jd = jResp.getJSONObject("_data");
-												if(jd.has("_characteristicRecords")) {
-													String sistemaOrigen = jd.getJSONArray("_characteristicRecords").getJSONObject(0).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-													log("(tf40) SistemaOrigen: " + sistemaOrigen);
-													Object[] objs = getClientToECC();
-													try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
-														writeToSftp(sftpCli, "Código SKU|ESTADO|ORIGEN\n" + sku + "|" + ( "1007".equals(currentStatusNew) ? 1 : 3) + "|" + (sistemaOrigen == null || "".equals(sistemaOrigen) ? "1" : sistemaOrigen), REMOTE_DIR_ECC);
-													}catch(java.io.IOException e) {
-											        	log("No fue posible escribir a foro 40 " + externalId);
-											        }
-												}else {
-													log("(tf40) No SistemaOrigen for proposal. (" + externalId + ")");
-												}
+												String sistemaOrigen = jd.has("_characteristicRecords") ? jd.getJSONArray("_characteristicRecords").getJSONObject(0).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code") : "1";
+												log("(tf40) SistemaOrigen: " + sistemaOrigen);
+												Object[] objs = getClientToECC();
+												try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
+													writeToSftp(sftpCli, "Código SKU|ESTADO|ORIGEN\n" + sku + "|" + ( "1007".equals(currentStatusNew) ? 1 : 3) + "|" + (sistemaOrigen == null || "".equals(sistemaOrigen) ? "1" : sistemaOrigen), REMOTE_DIR_ECC);
+												}catch(java.io.IOException e) {
+										        	log("No fue posible escribir a foro 40 " + externalId);
+										        }
 											}else {
 												log("(tf40) Estaba vacío, por eso no se fue a foro 40");
 											}
@@ -725,31 +721,27 @@ public class P360ActiveMQBPMStage extends Thread {
 													log("Problem querying server: " + rw.getRw().getRawResponse());
 												}else {
 													org.json.JSONObject jd = jResp.getJSONObject("_data");
-													if(jd.has("_characteristicRecords")) {
-														String sistemaOrigen = jd.getJSONArray("_characteristicRecords").getJSONObject(0).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-														log("(tf40) SistemaOrigne: " + sistemaOrigen);
-														org.json.JSONArray jvars = new org.json.JSONArray();
-														for(int i=0; i<vars.size(); i++) {
-															jvars.put(vars.get(i));
-														}
-														rsp = dr.getArticleData(jvars);
-														jr = new org.json.JSONObject(rsp);
-														items = jr.getJSONArray("items");
-														Object[] objs = getClientToECC();
-														try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
-															StringBuilder ssb = new StringBuilder();
-															for(int i=0; i<items.length(); i++) {
-																j0 = items.getJSONObject(i);
-																sku = j0.getString("SKU");
-																ssb.append(ssb.length() == 0 ? "" : "\n").append( sku + "|" + ( "1007".equals(currentStatusNew) ? 1 : 3) + "|" + (sistemaOrigen == null || "".equals(sistemaOrigen) ? "1" : sistemaOrigen) );
-															}
-															writeToSftp(sftpCli, "Código SKU|ESTADO|ORIGEN\n" + ssb.toString(), REMOTE_DIR_ECC);
-														}catch(java.io.IOException e) {
-												        	log("No fue posible escribir a foro 40 " + externalId);
-												        }
-													}else {
-														log("(tf40) No SistemaOrigen for proposal. (" + externalId + ")");
+													String sistemaOrigen = jd.has("_characteristicRecords") ? jd.getJSONArray("_characteristicRecords").getJSONObject(0).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code") : "1";
+													log("(tf40) SistemaOrigne: " + sistemaOrigen);
+													org.json.JSONArray jvars = new org.json.JSONArray();
+													for(int i=0; i<vars.size(); i++) {
+														jvars.put(vars.get(i));
 													}
+													rsp = dr.getArticleData(jvars);
+													jr = new org.json.JSONObject(rsp);
+													items = jr.getJSONArray("items");
+													Object[] objs = getClientToECC();
+													try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
+														StringBuilder ssb = new StringBuilder();
+														for(int i=0; i<items.length(); i++) {
+															j0 = items.getJSONObject(i);
+															sku = j0.getString("SKU");
+															ssb.append(ssb.length() == 0 ? "" : "\n").append( sku + "|" + ( "1007".equals(currentStatusNew) ? 1 : 3) + "|" + (sistemaOrigen == null || "".equals(sistemaOrigen) ? "1" : sistemaOrigen) );
+														}
+														writeToSftp(sftpCli, "Código SKU|ESTADO|ORIGEN\n" + ssb.toString(), REMOTE_DIR_ECC);
+													}catch(java.io.IOException e) {
+											        	log("No fue posible escribir a foro 40 " + externalId);
+											        }
 												}
 											}else {
 												log("(tf40) Estaba vacío, por eso no se fue a foro 40");
@@ -766,24 +758,26 @@ public class P360ActiveMQBPMStage extends Thread {
 									String fotoTomadaLiverpool = j0.getString("FotoTomadaLiverpool");
 									java.util.List<String> vars = java.util.Arrays.asList( dr.getVariants(externalId).toArray(new String[] {}) );
 									log("(tf40) SBB: " + j0);
-									if("00".equals(j0.getString("SAPObjectType"))) {
-										sku = j0.getString("SKU");
-										if("".equals(sku)) {
-											rsp = dr.getArticleData(new org.json.JSONArray().put(vars.get(0)));
-											jr = new org.json.JSONObject(rsp);
-											items = jr.getJSONArray("items");
-											j0 = items.getJSONObject(0);
+									if(vars.isEmpty()) {
+										log("No variants found for " + externalId);
+									}else {
+										if("00".equals(j0.getString("SAPObjectType"))) {
 											sku = j0.getString("SKU");
-										}
-										if(!"".equals(sku)) {
-											java.util.Map<String, String> qp00 = new java.util.HashMap<>();
-											qp00.put("includeLabels", "true");
-											qp00.put("includeIds", "true");
-											qp00.put("entityFilter", "Product2G");
-											org.json.JSONObject jResp = rw.getRw().makeRequest("GET", "/object/Product2G/'" + externalId + "'@1", qp00, null);
-											org.json.JSONObject jd = jResp.getJSONObject("_data");
-											String fda = jd.has("firstDateApproved") ? jd.getString("firstDateApproved").replace("T", " ") : "1007".equals(currentStatusNew) ? new java.util.Date().toInstant().atZone(java.time.ZoneId.systemDefault()).format( java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss") ) : "" ;
-											if(jd.has("_characteristicRecords")) {
+											if("".equals(sku)) {
+												rsp = dr.getArticleData(new org.json.JSONArray().put(vars.get(0)));
+												jr = new org.json.JSONObject(rsp);
+												items = jr.getJSONArray("items");
+												j0 = items.getJSONObject(0);
+												sku = j0.getString("SKU");
+											}
+											if(!"".equals(sku)) {
+												java.util.Map<String, String> qp00 = new java.util.HashMap<>();
+												qp00.put("includeLabels", "true");
+												qp00.put("includeIds", "true");
+												qp00.put("entityFilter", "Product2G");
+												org.json.JSONObject jResp = rw.getRw().makeRequest("GET", "/object/Product2G/'" + externalId + "'@1", qp00, null);
+												org.json.JSONObject jd = jResp.getJSONObject("_data");
+												String fda = jd.has("firstDateApproved") ? jd.getString("firstDateApproved").replace("T", " ") : "1007".equals(currentStatusNew) ? new java.util.Date().toInstant().atZone(java.time.ZoneId.systemDefault()).format( java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss") ) : "" ;
 												Object[] objs = getClientToS4H();
 												try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
 													if("1007".equals(currentStatusNew)) {
@@ -799,22 +793,18 @@ public class P360ActiveMQBPMStage extends Thread {
 										        	log("No fue posible escribir a foro 40 " + externalId);
 										        }
 											}else {
-												log("(tf40) No SistemaOrigen for proposal. (" + externalId + ")");
+												log("(tf40) Estaba vacío, por eso no se fue a foro 40");
 											}
 										}else {
-											log("(tf40) Estaba vacío, por eso no se fue a foro 40");
-										}
-									}else {
-										sku = j0.getString("SKU");
-										if(!"".equals(sku)) {
-											java.util.Map<String, String> qp00 = new java.util.HashMap<>();
-											qp00.put("includeLabels", "true");
-											qp00.put("includeIds", "true");
-											qp00.put("entityFilter", "Product2G");
-											org.json.JSONObject jResp = rw.getRw().makeRequest("GET", "/object/Product2G/'" + externalId + "'@1", qp00, null);
-											org.json.JSONObject jd = jResp.getJSONObject("_data");
-											String fda = jd.has("firstDateApproved") ? jd.getString("firstDateApproved").replace("T", " ") : "1007".equals(currentStatusNew) ? new java.util.Date().toInstant().atZone(java.time.ZoneId.systemDefault()).format( java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss") ) : "";
-											if(jd.has("_characteristicRecords")) {
+											sku = j0.getString("SKU");
+											if(!"".equals(sku)) {
+												java.util.Map<String, String> qp00 = new java.util.HashMap<>();
+												qp00.put("includeLabels", "true");
+												qp00.put("includeIds", "true");
+												qp00.put("entityFilter", "Product2G");
+												org.json.JSONObject jResp = rw.getRw().makeRequest("GET", "/object/Product2G/'" + externalId + "'@1", qp00, null);
+												org.json.JSONObject jd = jResp.getJSONObject("_data");
+												String fda = jd.has("firstDateApproved") ? jd.getString("firstDateApproved").replace("T", " ") : "1007".equals(currentStatusNew) ? new java.util.Date().toInstant().atZone(java.time.ZoneId.systemDefault()).format( java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss") ) : "";
 												org.json.JSONArray jvars = new org.json.JSONArray();
 												for(int i=0; i<vars.size(); i++) {
 													jvars.put(vars.get(i));
@@ -847,13 +837,10 @@ public class P360ActiveMQBPMStage extends Thread {
 										        	e.printStackTrace();
 										        }
 											}else {
-												log("No SistemaOrigen for proposal. (" + externalId + ")");
+												log("Estaba vacío, por eso no se fue a foro 40");
 											}
-										}else {
-											log("Estaba vacío, por eso no se fue a foro 40");
 										}
 									}
-									
 									
 								}
 							}
@@ -951,17 +938,19 @@ public class P360ActiveMQBPMStage extends Thread {
 								log("About to send the request to ATG,OMS,MKT: " + externalId + " (" + workshop.getBaseUrl() + ")");
 								try {
 									if(Boolean.parseBoolean(PropertiesManager.get("p360.contingency.send_to_atg"))) {
-										toPublish.add(externalId);
-										if(toPublish.size() == 10) {
-											sendToPublication();
-										}
+//										toPublish.add(externalId);
+//										if(toPublish.size() == 10) {
+//											sendToPublication();
+											appendAtgPendingId(externalId);
+//										}
 									}
 									if(!"SBB".equals(business)) {
 										if(Boolean.parseBoolean(PropertiesManager.get("p360.contingency.send_to_mkt"))) {
-											toMkt.add(externalId);
-											if(toMkt.size() == 10) {
-												sendToMkt();
-											}
+//											toMkt.add(externalId);
+//											if(toMkt.size() == 10) {
+//												sendToMkt();
+												appendMktPendingId(externalId);
+//											}
 										}
 									}
 								}catch(Exception e) {
@@ -2012,6 +2001,43 @@ public class P360ActiveMQBPMStage extends Thread {
 			}catch(JMSException e){
 				e.printStackTrace();
 			}
+		}
+	}
+	
+
+	private static final java.nio.file.Path ATG_PENDING_IDS_FILE =
+			java.nio.file.Paths.get("../logs/amqp/productArticleCharactChange/P360AMQ_ATG_PENDING_IDS.txt");
+
+	private static synchronized void appendAtgPendingId(String externalId) {
+		try {
+			java.nio.file.Files.createDirectories(ATG_PENDING_IDS_FILE.getParent());
+
+			java.nio.file.Files.write(
+					ATG_PENDING_IDS_FILE,
+					(externalId + System.lineSeparator()).getBytes(StandardCharsets.UTF_8),
+					java.nio.file.StandardOpenOption.CREATE,
+					java.nio.file.StandardOpenOption.APPEND
+			);
+		} catch (java.io.IOException e) {
+			LOGGER.log(Level.SEVERE, "No pude escribir ID pendiente de ATG: " + externalId, e);
+		}
+	}
+	
+	private static final java.nio.file.Path MKT_PENDING_IDS_FILE =
+			java.nio.file.Paths.get("../logs/amqp/productArticleCharactChange/P360AMQ_MKT_PENDING_IDS.txt");
+
+	private static synchronized void appendMktPendingId(String externalId) {
+		try {
+			java.nio.file.Files.createDirectories(MKT_PENDING_IDS_FILE.getParent());
+
+			java.nio.file.Files.write(
+					MKT_PENDING_IDS_FILE,
+					(externalId + System.lineSeparator()).getBytes(StandardCharsets.UTF_8),
+					java.nio.file.StandardOpenOption.CREATE,
+					java.nio.file.StandardOpenOption.APPEND
+			);
+		} catch (java.io.IOException e) {
+			LOGGER.log(Level.SEVERE, "No pude escribir ID pendiente de MKT: " + externalId, e);
 		}
 	}
 

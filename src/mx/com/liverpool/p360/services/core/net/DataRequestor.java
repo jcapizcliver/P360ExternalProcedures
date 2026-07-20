@@ -143,14 +143,18 @@ public class DataRequestor {
 		java.util.Set<String> s = new java.util.TreeSet<>();
 		org.json.JSONArray items = null;
 		String resp = sendRequest( new org.json.JSONObject().put("action", "getProductVariants").put("product", productNo).toString() );
-		try {
-			org.json.JSONObject jr = new org.json.JSONObject(resp);
-			items = jr.getJSONArray("items");
-			for(int i=0; i<items.length(); i++) {
-				s.add(items.getString(i));
+		if(resp == null) {
+			System.out.println("#######################\t\tTried with: " + new org.json.JSONObject().put("action", "getProductVariants").put("product", productNo).toString());
+		}else {
+			try {
+				org.json.JSONObject jr = new org.json.JSONObject(resp);
+				items = jr.getJSONArray("items");
+				for(int i=0; i<items.length(); i++) {
+					s.add(items.getString(i));
+				}
+			}catch(org.json.JSONException e) {
+				e.printStackTrace();
 			}
-		}catch(org.json.JSONException e) {
-			e.printStackTrace();
 		}
 		return s;
 	}

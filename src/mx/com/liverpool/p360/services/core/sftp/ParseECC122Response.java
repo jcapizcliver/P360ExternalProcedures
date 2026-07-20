@@ -716,7 +716,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 					info = tools.checkArticle(znprst);
 					if( info != null ) {
 						resuelveEmpateDeArticulo(sku, znprst);
-						if(!"".equals(satnr)) {
+						if(!"".equals(satnr) && satnr != null) {
 							conciliaRelacionArticuloProducto(
 							        znprst,
 							        sku,
@@ -730,7 +730,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 						sendArticleSKUToAdmin(znprst, sku, dr);
 						log("PeléPe. SAPObjectType: " + info[1] + ", Business: " + info[2]);
 						if("00".equals(info[1]) && !"MKP".equals(info[2])) {
-							entity = "Article";
+							entity = "Individual";
 							addValue("MensajeCreacionSKU", "Article", znprst, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()) );
 							sendWriteRequest("Product2G", info[0], product2GCharacteristicRecords, info[3], info[4]);
 							newAttributeValues.put(info[0], attributeValues);
@@ -2164,8 +2164,8 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	
 	private String chooseProperArticleZNPRST(String sku, String znprst) {
 		String chosenOne = znprst;
-		String externalId = tools.checkArticleBySKU(sku);
-		if(externalId != null && !znprst.equals(externalId)) {
+		String externalId = tools.checkArticleBySKU(sku); log("Between " + znprst + " and " + externalId);
+		if(externalId != null && !znprst.equals(externalId) && (znprst.length() != 16 && externalId.length() == 16)) {
 			return externalId;
 		}
 		return chosenOne;
@@ -2388,6 +2388,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 		}
 		if(rowsArticle.length() > 0) { 
 			log("sending bloc (article, " + rowsArticle.length() + ")");
+			log("sending bloc (article BODY, " + requestArticle + ")");
 			rw.writeData("list", "Article", null, qp, requestArticle, this::log);
 		}
 		if(requestStatus.getJSONArray("rows").length() > 0) {
@@ -2407,6 +2408,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 		for(java.util.Map.Entry<String, org.json.JSONObject> entry : peticionesArticles.entrySet()) {
 			if(entry.getValue().getJSONArray("rows").length() > 0) {
 				log("La esa (art): " + entry.getKey());
+//				log("La esa (art body): " + entry.getValue());
 				rw.writeData("list", "Article", null, qp, entry.getValue(), this::log);
 			}
 		}

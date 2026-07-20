@@ -22,8 +22,6 @@ import com.google.api.client.http.javanet.NetHttpTransport;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
-import mx.com.liverpool.p360.services.core.temp.product2g.maintenance4.ProductNameResolver;
-import mx.com.liverpool.p360.services.core.temp.product2g.maintenance4.ProductNameResolver.ResolvedName;
 
 public class NameAndProductName extends RESTDQRuleImpl {
 
@@ -32,6 +30,7 @@ public class NameAndProductName extends RESTDQRuleImpl {
 	private final String orderOfAttributesForName;
 	private final org.json.JSONArray genericFieldErrors;
 	private String sourceTemplate = null;
+	private String productImageURL = null;
 	
 	public NameAndProductName(String proposalId, String orderOfAttributesForName, long myId, org.json.JSONArray genericFieldErrors) {
 		this.myId = myId;
@@ -42,6 +41,10 @@ public class NameAndProductName extends RESTDQRuleImpl {
 	
 	public void setSourceTemplate(String sourceTemplate) {
 		this.sourceTemplate = sourceTemplate;
+	}
+	
+	public void setProductImageURL(String productImageURL) {
+		this.productImageURL = productImageURL;
 	}
 	
 	@Override
@@ -143,7 +146,7 @@ public class NameAndProductName extends RESTDQRuleImpl {
 							}
 					}
 					String productName = sb.toString().replaceAll(", +?,", ",").replaceAll(",(?! )", ", ").replaceAll(" ,", ",").replaceAll(",", "").replaceAll(" {2,}", " ").trim();
-					ResolvedName rn = ProductNameResolver.resolve(productName, prevPN);
+//					ResolvedName rn = ProductNameResolver.resolve(productName, prevPN);
 //					productName = rn.value();
 					if("Marketplace".equals(negocio)) {
 						try {
@@ -318,7 +321,7 @@ public class NameAndProductName extends RESTDQRuleImpl {
 					.put("pim_template_id", template)
 					.put("product_type_sap", productTypeSAP == null ? "" : productTypeSAP.toLowerCase())
 					.put("product_description", productDescription == null || "".equals(productDescription) ? templateName : productDescription)
-					.put("image", "")));
+					.put("image", productImageURL == null ? "" : productImageURL)));
             HttpContent content = new ByteArrayContent("application/json", 
             		body.toString().getBytes());
             log("Using body for AI ItemGroup request: " + body);
