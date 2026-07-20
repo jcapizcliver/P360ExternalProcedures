@@ -1,22 +1,20 @@
 package mx.com.liverpool.p360.services.core;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.URISyntaxException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import java.time.LocalDate;
+import java.util.Properties;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.json.JSONObject;
-
-import com.google.api.client.http.ByteArrayContent;
-import com.google.api.client.http.GenericUrl;
-import com.google.api.client.http.HttpContent;
-import com.google.api.client.http.HttpRequest;
-import com.google.api.client.http.HttpRequestFactory;
-import com.google.api.client.http.HttpResponse;
-import com.google.api.client.http.HttpTransport;
-import com.google.api.client.http.javanet.NetHttpTransport;
 
 import mx.com.liverpool.p360.services.core.dq.NameAndProductName;
 import mx.com.liverpool.p360.services.core.dq.NumberOfVariants;
@@ -668,6 +666,121 @@ public class CreateProposal {
 			logE(e);
 		}
 	}
+	
+	private String fetchImagesForProduct(String productId) {
+		try {
+			JdbcConfig cng = initJdbcConfig();
+			try(java.sql.Connection con = openConnection(cng, false)){
+				try(java.sql.PreparedStatement pstmnt = con.prepareStatement("select /*+ leading(aa bb) use_nl(bb) */ bb.\"Res_Text250_02\",aa.\"ArticleRevisionID\" from \"ArticleReference\" aa inner join \"ArticleDetail\" bb on aa.\"ArticleRevisionID\" = bb.\"ArticleRevisionID\" where aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' and \"RefExtArtIdentifier\" = ?")){
+					pstmnt.setString(1, productId);
+					try(java.sql.ResultSet rs = pstmnt.executeQuery()){
+						while(rs.next()) {
+							log("Returning productImageURL from variant here. (ARID: " + rs.getInt(2) + ")");
+							return rs.getString(1);
+						}
+					}
+				}
+			}catch(java.sql.SQLException e) {
+				log("Couldn't retrieve an image for product " + productId);
+				logE(e);
+			}catch(ClassNotFoundException e) {
+				log("Couldn't retrieve an image for product " + productId);
+				logE(e);
+			}
+		} catch (java.io.IOException e) {
+			log("Couldn't retrieve an image for product " + productId);
+			logE(e);
+		}
+		return null;
+	}
+	
+	private JdbcConfig initJdbcConfig() throws IOException {
+    	JdbcConfig config = new JdbcConfig();
+    	Path propertiesPath = resolveServerPropertiesPath();
+        Properties raw = new Properties();
+        try (InputStream in = Files.newInputStream(propertiesPath))
+        {
+          raw.load(in);
+		}
+        config.jdbcDriver = resolveRequiredProperty(raw, "db.master.pool.jdbcDriver");
+        config.jdbcUrl = resolveRequiredProperty(raw, "db.master.pool.jdbcUrl");
+        config.user = resolveRequiredProperty(raw, "db.master.user");
+        config.password = resolveRequiredProperty(raw, "db.master.password");
+        return config;
+    }
+	
+	private static Path resolveServerPropertiesPath(){
+		String path = System.getenv("P360_SERVER_PROPERTIES");
+		if (path == null || path.trim().isEmpty()){
+			path = "/u01/Informatica/server.properties";
+		}
+		Path resolved = Paths.get(path).toAbsolutePath().normalize();
+		if (!Files.exists(resolved)){
+			throw new IllegalArgumentException("No existe server.properties en: " + resolved);
+		}
+		if (!Files.isRegularFile(resolved)){
+			throw new IllegalArgumentException("La ruta no es archivo: " + resolved);
+		}
+		return resolved;
+	}
+		
+	private static String resolveRequiredProperty(Properties raw, String key){
+		String value = resolvePropertyValue(raw, key, new java.util.HashSet<String>());
+		if (value == null || value.trim().isEmpty()){
+			throw new IllegalArgumentException("No se encontró la property requerida: " + key);
+		}
+		return value.trim();
+	}
+	
+	private static String resolvePropertyValue(Properties raw, String key, java.util.Set<String> visiting){
+		if (visiting.contains(key)){
+			throw new IllegalArgumentException("Referencia circular detectada en properties para la clave: " + key);
+		}
+		
+		String value = raw.getProperty(key);
+			if (value == null){
+			return null;
+		}
+		
+		visiting.add(key);
+		Matcher matcher = PLACEHOLDER_PATTERN.matcher(value);
+		StringBuffer sb = new StringBuffer();
+		
+		while (matcher.find()){
+			String referencedKey = matcher.group(1);
+			String referencedValue = resolvePropertyValue(raw, referencedKey, visiting);
+			if (referencedValue == null){
+				throw new IllegalArgumentException("No se pudo resolver la property referenciada: " + referencedKey);
+			}
+			
+			matcher.appendReplacement(sb, Matcher.quoteReplacement(referencedValue));
+		}
+		
+		matcher.appendTail(sb);
+		visiting.remove(key);
+		
+		return sb.toString();
+	}
+	
+    private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
+	
+	private java.sql.Connection openConnection(JdbcConfig jdbcConfig, boolean autoCommit) throws java.sql.SQLException, ClassNotFoundException{
+		Class.forName(jdbcConfig.jdbcDriver);
+		java.sql.Connection connection = java.sql.DriverManager.getConnection(
+		jdbcConfig.jdbcUrl,
+		jdbcConfig.user,
+		jdbcConfig.password
+		);
+		connection.setAutoCommit(autoCommit);
+		return connection;
+	}
+	
+	private final class JdbcConfig{
+		private String jdbcDriver;
+		private String jdbcUrl;
+		private String user;
+		private String password;
+	}
 
 	public void computeGeneric(
 			  String proposalId
@@ -677,11 +790,10 @@ public class CreateProposal {
 			, String negocio
 			, String itemGroup
 			, java.util.List<String> sections
-			, int variantsWithMe
+			, org.json.JSONArray variantsWithMe
 			, boolean unMasiosare
 	) throws KeyManagementException, NoSuchAlgorithmException, URISyntaxException, IOException, ServiceUnavailableException {
 		log("Ya venimos aquí a ver que Chao");
-//		characteristicsThatAreLookups = getCharacteristicsThatAreLookups();
 		org.json.JSONArray characteristicRecords = characteristics; //dt.getJSONArray("_characteristicRecords");
 		String rr = null;
 		org.json.JSONObject resp = null;
@@ -721,7 +833,6 @@ public class CreateProposal {
 							+ java.net.URLEncoder.encode("StructureGroup.Identifier equals \"" + template + "\"", "UTF-8")
 							+ "&fields=" + java.net.URLEncoder.encode(
 									"StructureGroupAttributeValue.Value(\"NameGuide\",es,DEFAULT),StructureGroupAttributeValue.Value(\"OrderOfAtributesForName\",es,DEFAULT),StructureGroupLang.Name(es)", "UTF-8"), null);
-//					log("GOT: " + rr);
 					org.json.JSONObject j = new org.json.JSONObject(rr);
 					if(j.has("rows") && j.getJSONArray("rows").length() > 0) {
 						org.json.JSONArray values = j.getJSONArray("rows").getJSONObject(0).getJSONArray("values");
@@ -739,6 +850,31 @@ public class CreateProposal {
 				NameAndProductName nameAndProductName = new NameAndProductName(proposalId, templateMD[1], myId, genericFieldErrors);
 				log("Processing neim... and product neim...");
 				nameAndProductName.setSourceTemplate(template);
+				String productImageURL = null;
+				org.json.JSONArray photos = null;
+				boolean breakingBad = false;
+				for(int i=0; i<variantsWithMe.length(); i++) {
+					if(variantsWithMe.getJSONObject(i).has("photos")) {
+						photos = variantsWithMe.getJSONObject(i).getJSONArray("photos");
+						for(int j=0; j<photos.length(); j++) {
+							if(photos.getJSONObject(j).has("PhotoAssetType")) {
+								if("ProductImage".equals(photos.getJSONObject(j).getString("PhotoAssetType"))) {
+									productImageURL = photos.getJSONObject(j).getString("PhotoAssetURL");
+									breakingBad = true;
+									log("Breaking bad: " + productImageURL + " (" + proposalId + ")");
+									break;
+								}
+							}
+						}
+						if(breakingBad) {
+							break;
+						}
+					}
+				}
+				if(!breakingBad) {
+					productImageURL = fetchImagesForProduct(proposalId);
+				}
+				nameAndProductName.setProductImageURL(productImageURL);
 				nameAndProductName.processData( dataMap , newCharacteristicRecords);
 				TituloSinMarca tituloSinMarca = new TituloSinMarca( getCharacteristicValue( characteristicsMap.get("Name") ) );
 				tituloSinMarca.processData(characteristicsMap, newCharacteristicRecords);
@@ -749,7 +885,7 @@ public class CreateProposal {
 				NumberOfVariants nov = new NumberOfVariants(proposalId);
 				nov.processData(null, characteristicRecords);
 			}else {
-				newCharacteristicRecords.put( createCharacteristicValueObject("ZNUMV", variantsWithMe) );
+				newCharacteristicRecords.put( createCharacteristicValueObject("ZNUMV", variantsWithMe.length()) );
 			}
 		}
 		org.json.JSONArray values = null;
@@ -799,9 +935,11 @@ public class CreateProposal {
 		newCharacteristicRecords.put( createCharacteristicValueObject("Status", new org.json.JSONObject().put("_code", "01")) );
 		String wherl = getCharacteristicValue( characteristicsMap.get("WHERL") );
 		String supplier = getCharacteristicValue( characteristicsMap.get("SupplierID") );
+		String ean = getCharacteristicValue( characteristicsMap.get("MainBarCode") );
 //		String monedaExtranjera = getCharacteristicValue( characteristicsMap.get("CostoEnMonedaExtranjera") );
 		// Si el proveedor es nacional, CostoEnMonedaExtranjera no debe tener valor.
 		// KONWA -> Nombre en SAP para la denominación del CostoEnMonedaExtranjera
+		log("WHERL: " + wherl + ", SupplierID: " + supplier + ", negocio: " + negocio + ", proposalId: " + proposalId + ", EAN: " + ean );
 		if(wherl != null && !"".equals(wherl) && supplier != null && !"".equals(supplier)) {
 			if(!"Marketplace".equals(negocio)) {
 				if("México".equals(wherl)) {
@@ -820,9 +958,17 @@ public class CreateProposal {
 							}else if("PEX".equals(tipoDeProveedor)) {
 								newCharacteristicRecords.put( createCharacteristicValueObject("TImportacion", new org.json.JSONObject().put("_code", "D")) );
 							} else {
+								/*
+								, String template
+								, String status
+								, String negocio
+								, String itemGroup
+								*/
+								log("No good data for supplier: " + template + "|" + status + "|" + negocio + "|" + itemGroup + "WHERL: " + wherl + ", SupplierID: " + supplier + ", proposalId: " + proposalId + ", EAN: " + ean);
 								genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "No es un proveedor válido para catalogación. (Verificar el tipo de proveedor SAP así como el país de origen y el negocio)").put("fields", new org.json.JSONArray().put("TImportacion")));
 							}
 						} else {
+							log("No good data for supplier (no response): " + template + "|" + status + "|" + negocio + "|" + itemGroup + "WHERL: " + wherl + ", SupplierID: " + supplier + ", proposalId: " + proposalId + ", EAN: " + ean);
 							genericFieldErrors
 								.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message"
 									, "No es un proveedor válido para catalogación. (Verificar el tipo de proveedor SAP así como el país de origen y el negocio)").put("fields", new org.json.JSONArray().put("TImportacion")));
@@ -843,6 +989,8 @@ public class CreateProposal {
 						}else if("PNA".equals(tipoDeProveedor) && !"México".equals(wherl)) {
 							newCharacteristicRecords.put( createCharacteristicValueObject("TImportacion", new org.json.JSONObject().put("_code", "I")) );
 						}else {
+							
+							log("No good data for supplier: " + template + "|" + status + "|" + negocio + "|" + itemGroup + "WHERL: " + wherl + ", SupplierID: " + supplier + ", proposalId: " + proposalId + ", EAN: " + ean);
 							genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "No es un proveedor válido para catalogación. (Verificar el tipo de proveedor SAP así como el país de origen y el negocio)").put("fields", new org.json.JSONArray().put("TImportacion")));
 						}
 					}
@@ -1574,68 +1722,52 @@ public class CreateProposal {
 		
 	}
 	
-	public void getItemGroupFromIA(String productName, String template, String productTypeSAP, String productDescription, String templateName, org.json.JSONArray newCharacteristicRecords) throws IOException {
-		long init = System.currentTimeMillis();
-		String itemGroup = null;
-//		String jsonKeyPath = PropertiesManager.get("p360.contingency.gcp.ia_itemgroup_sa"); // "/u01/stage/dev.json";// "/P360shared/IDMC/dev.json";
-        String targetAudience = PropertiesManager.get("p360.contingency.gcp.ia_itemgroup_url_ta"); // "https://service-idga-prediction-335803992526.us-central1.run.app/api/post_iga_prediction";
-        
-		try {
-			// Transporte HTTP
-            HttpTransport transport = new NetHttpTransport();
-
-            // Carga credenciales y crea ID token (para Cloud Run personalizado)
-//            IdTokenCredentials credentials = IdTokenCredentials.newBuilder()
-//                .setIdTokenProvider((IdTokenProvider) GoogleCredentials.fromStream(new FileInputStream(jsonKeyPath)))
-//                .setTargetAudience(PropertiesManager.get("p360.contingency.gcp.ia_itemgroup_url"))
-//                .build();
-
-//            credentials.refresh();
-//            String idToken = credentials.getAccessToken().getTokenValue();
-
-            // Construye URL destino
-            GenericUrl url = new GenericUrl(targetAudience);
-            log("Querying IA for Item group with: ProductName: " + productName + ", Template: " + template + ", ProductTypeSAP: " + productTypeSAP + ", Desc: " + productDescription);
-			org.json.JSONObject body = new org.json.JSONObject().put("input", new org.json.JSONArray().put( new org.json.JSONObject()
-					.put("pim_product_name", productName)
-					.put("pim_template_id", template)
-					.put("product_type_sap", productTypeSAP)
-					.put("product_description", productDescription == null || "".equals(productDescription) ? templateName : productDescription)
-					.put("image", "")));
-            HttpContent content = new ByteArrayContent("application/json", 
-            		body.toString().getBytes());
-            log("Using body for AI ItemGroup request: " + body);
-            // Construye request
-            HttpRequestFactory requestFactory = transport.createRequestFactory();
-            HttpRequest request = requestFactory.buildPostRequest(url, content);
-//            request.getHeaders().setAuthorization("Bearer " + idToken);
-            // Timeouts opcionales
-            request.setConnectTimeout(Integer.parseInt( PropertiesManager.get("p360.contingency.gcp.ia_itemgroup_connect_timeout") ));
-            request.setReadTimeout( Integer.parseInt( PropertiesManager.get("p360.contingency.gcp.ia_itemgroup_read_timeout") ) );
-
-            // Ejecuta la petición
-            HttpResponse response = request.execute();
-            log("Response status: " + response.getStatusCode());
-            String rsp = response.parseAsString();
-            log("Response body: " + rsp);
-            org.json.JSONObject jsonResponse = null;
-            jsonResponse = new org.json.JSONArray( rsp ).getJSONObject(0);
-			
-			String direction = String.valueOf( jsonResponse.get("direction") );
-			String section = String.valueOf( jsonResponse.get("section") );
-			itemGroup = String.valueOf( jsonResponse.get("item_group") );
-			newCharacteristicRecords.put( createCharacteristicValueObject("ItemGroup",  new org.json.JSONObject().put("_code", itemGroup) ) );
-			newCharacteristicRecords.put( createCharacteristicValueObject("Section",  new org.json.JSONObject().put("_code", section) ) );
-			newCharacteristicRecords.put( createCharacteristicValueObject("Direction",  new org.json.JSONObject().put("_code", direction) ) );
-			newCharacteristicRecords.put( createCharacteristicValueObject("ItemGroupIAConfidenceDir", String.valueOf( jsonResponse.getDouble("direction_confidence") ) ) );
-			newCharacteristicRecords.put( createCharacteristicValueObject("ItemGroupIAConfidenceSec", String.valueOf( jsonResponse.getDouble("section_confidence") ) ) );
-			newCharacteristicRecords.put( createCharacteristicValueObject("ItemGroupIAConfidenceIG",  String.valueOf( jsonResponse.getDouble("item_group_confidence") ) ) );
-		}catch(Exception e) {
-			genericFieldErrors.put(new org.json.JSONObject().put("message", "Error al calcular grupo de artículos desde la IA.").put("fields", new org.json.JSONArray() /* .put("ProductTypeSAP").put("Name") */ ));
-			logE(e);
-		}
-		log("La IA took: " + workshop.formatTime(System.currentTimeMillis() - init));
-	}
+//	public void getItemGroupFromIA(String productName, String template, String productTypeSAP, String productDescription, String templateName, org.json.JSONArray newCharacteristicRecords) throws IOException {
+//		long init = System.currentTimeMillis();
+//		String itemGroup = null;
+//        String targetAudience = PropertiesManager.get("p360.contingency.gcp.ia_itemgroup_url_ta"); // "https://service-idga-prediction-335803992526.us-central1.run.app/api/post_iga_prediction";
+//        
+//		try {
+//            HttpTransport transport = new NetHttpTransport();
+//
+//            GenericUrl url = new GenericUrl(targetAudience);
+//            log("Querying IA for Item group with: ProductName: " + productName + ", Template: " + template + ", ProductTypeSAP: " + productTypeSAP + ", Desc: " + productDescription);
+//			org.json.JSONObject body = new org.json.JSONObject().put("input", new org.json.JSONArray().put( new org.json.JSONObject()
+//					.put("pim_product_name", productName)
+//					.put("pim_template_id", template)
+//					.put("product_type_sap", productTypeSAP)
+//					.put("product_description", productDescription == null || "".equals(productDescription) ? templateName : productDescription)
+//					.put("image", "")));
+//            HttpContent content = new ByteArrayContent("application/json", 
+//            		body.toString().getBytes());
+//            log("Using body for AI ItemGroup request: " + body);
+//            HttpRequestFactory requestFactory = transport.createRequestFactory();
+//            HttpRequest request = requestFactory.buildPostRequest(url, content);
+//            request.setConnectTimeout(Integer.parseInt( PropertiesManager.get("p360.contingency.gcp.ia_itemgroup_connect_timeout") ));
+//            request.setReadTimeout( Integer.parseInt( PropertiesManager.get("p360.contingency.gcp.ia_itemgroup_read_timeout") ) );
+//
+//            HttpResponse response = request.execute();
+//            log("Response status: " + response.getStatusCode());
+//            String rsp = response.parseAsString();
+//            log("Response body: " + rsp);
+//            org.json.JSONObject jsonResponse = null;
+//            jsonResponse = new org.json.JSONArray( rsp ).getJSONObject(0);
+//			
+//			String direction = String.valueOf( jsonResponse.get("direction") );
+//			String section = String.valueOf( jsonResponse.get("section") );
+//			itemGroup = String.valueOf( jsonResponse.get("item_group") );
+//			newCharacteristicRecords.put( createCharacteristicValueObject("ItemGroup",  new org.json.JSONObject().put("_code", itemGroup) ) );
+//			newCharacteristicRecords.put( createCharacteristicValueObject("Section",  new org.json.JSONObject().put("_code", section) ) );
+//			newCharacteristicRecords.put( createCharacteristicValueObject("Direction",  new org.json.JSONObject().put("_code", direction) ) );
+//			newCharacteristicRecords.put( createCharacteristicValueObject("ItemGroupIAConfidenceDir", String.valueOf( jsonResponse.getDouble("direction_confidence") ) ) );
+//			newCharacteristicRecords.put( createCharacteristicValueObject("ItemGroupIAConfidenceSec", String.valueOf( jsonResponse.getDouble("section_confidence") ) ) );
+//			newCharacteristicRecords.put( createCharacteristicValueObject("ItemGroupIAConfidenceIG",  String.valueOf( jsonResponse.getDouble("item_group_confidence") ) ) );
+//		}catch(Exception e) {
+//			genericFieldErrors.put(new org.json.JSONObject().put("message", "Error al calcular grupo de artículos desde la IA.").put("fields", new org.json.JSONArray() /* .put("ProductTypeSAP").put("Name") */ ));
+//			logE(e);
+//		}
+//		log("La IA took: " + workshop.formatTime(System.currentTimeMillis() - init));
+//	}
 	
 	public String getCodigoSBB(String cammelCase) throws ServiceUnavailableException {
 		RESTWorkshop rw = new RESTWorkshop();
@@ -3452,7 +3584,7 @@ public class CreateProposal {
 							characteristicArray.put( createCharacteristicValueObject("Suburbia".equals(business) ? "SB_0002" : "ProductTypeSAP", new org.json.JSONObject().put("_code", productFromItemGroup ) ) );
 						}
 						if(!sections.isEmpty() || unMasiosare) {
-							computeGeneric(externalProductId, characteristicArray, templateId, internalStatus, business, itemGroup == null || "".equals(itemGroup) ? itemGroupS4H : itemGroup, sections, variantes.length(), unMasiosare);
+/*************************/ computeGeneric(externalProductId, characteristicArray, templateId, internalStatus, business, itemGroup == null || "".equals(itemGroup) ? itemGroupS4H : itemGroup, sections, variantes, unMasiosare); /*****************************************/
 							boolean fnd = false;
 							if("00".equals( sapObjectType ) ){
 								for(int p=0; p<characteristicArray.length(); p++) {
@@ -4567,7 +4699,7 @@ public class CreateProposal {
 			}
 			reqObj.put("externalStatus", new org.json.JSONObject().put("_code", externalStatus));
 			log("Cocqiutus: " + proposalStatus + ", business: " + business);
-			if(("Liverpool".equals(business) || "Suburbia".equals(business)) && "1020".equals(proposalStatus)) {
+			if(("Liverpool".equals(business) || "Suburbia".equals(business)) && ("1020".equals(proposalStatus) || "1008".equals(proposalStatus))) {
 				String[] supplierData = parties.get(supplier);
 				log("Parties: " + rw.getRw().serializeChunk(supplierData));
 				String supplierType = supplierData[2];

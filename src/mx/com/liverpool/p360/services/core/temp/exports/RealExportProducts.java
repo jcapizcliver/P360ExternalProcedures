@@ -1432,6 +1432,7 @@ public class RealExportProducts {
 	        				brandNameLabel = brandNameLabel == null || "".equals(brandNameLabel) ? characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label") : brandNameLabel;
 	        			}else if("ProductType".equals(charId)){
 							pt = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+							ptl = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
 							if("1".equals(pt)) {
 								lst = dataMap.get("ItemGroupS4H");
 								if(lst != null) {
@@ -2091,6 +2092,10 @@ public class RealExportProducts {
 									charId = entr.getKey();
 									characteristic = entr.getValue();
 									if("LOOKUP".equals(characteristic.getString("_datatype"))){
+										if(!characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).has("_label")) {
+											System.out.println("\n\t--->" + characteristic + "<---\n");
+											System.exit(0);
+										}
 			        					appendPlainElementValue(
 			        							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
 			        							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),

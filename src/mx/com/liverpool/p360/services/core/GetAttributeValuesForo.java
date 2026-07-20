@@ -345,7 +345,9 @@ public class GetAttributeValuesForo {
 					String vs = null;
 					String ve = null;
 					for(String internalArticleId : internalArticleIds) {
-						if(!"".equals(internalArticleId)) { 
+						if(!"".equals(internalArticleId)) {
+							vs = null;
+							ve = null;
 							rawResponse = rc.getRequest("GET", rw.getRw().getBaseUrl() + "/object/Article/" + rw.getRw().encode("'" + internalArticleId + "'@1") + "?includeIds=true&includeLabels=true&entityFilter=Article,ArticleCharacteristicValue", null);
 							product = new org.json.JSONObject(rawResponse);
 							characteristicRecords = product.getJSONObject("_data").has("_characteristicRecords") ? product.getJSONObject("_data").getJSONArray("_characteristicRecords") : new org.json.JSONArray();
@@ -551,9 +553,9 @@ public class GetAttributeValuesForo {
 				}
 			}
 			// [ "222221", "111112", "3333332", "444442", "555554" ]
-			log("About to request data: " + skus.length() + " for SKUs");
-			skusResponse = dr.articleBySKUsWithSKUs(skus);
-			log("Got a response of: " + skusResponse.size() + " products in total. Now iterating...");
+			log("About to request data: " + skus.length() + " for SKUs ||");
+			skusResponse = articleBySKUsWithSKUs(skus); // dr.articleBySKUsWithSKUs(skus);
+			log("Got a response of: " + skusResponse.size() + " products in total. Now iterating... ||");
 			org.json.JSONArray responses = new org.json.JSONArray();
 			org.json.JSONArray variants = null;
 			for(java.util.Map.Entry<String, java.util.Set<String>> entry : skusResponse.entrySet()) {
@@ -572,11 +574,69 @@ public class GetAttributeValuesForo {
 		return generalResponse;
 	}
 	
+
+	
+	public java.util.Map<String, java.util.Set<String>> articleBySKUsWithSKUs(org.json.JSONArray skus) {
+		log("Hola");
+		String resp = sendRequest(
+				new org.json.JSONObject()
+					.put("action", "variantBySKU")
+					.put("skus", skus)
+				.toString()
+			);
+		org.json.JSONObject jsonObject = null;
+		java.util.Map<String, java.util.Set<String>> parentChild = new java.util.TreeMap<>();
+		java.util.Set<String> lst = null;
+		try {
+			org.json.JSONObject response = new org.json.JSONObject(resp);
+			org.json.JSONArray items = response.getJSONArray("items");
+			log("RESP: " + resp);
+			for(int i = 0; i<items.length(); i++) {
+				jsonObject = items.getJSONObject(i);
+				if(!"".equals(jsonObject.getString("product_sku")) && !"".equals(jsonObject.getString("article_sku"))) {
+					lst = parentChild.get(jsonObject.getString("product_sku"));
+					if(lst == null) {
+						lst = new java.util.TreeSet<>();
+						parentChild.put(jsonObject.getString("product_sku"), lst);
+					}
+					lst.add(jsonObject.getString("article_sku")); // < SKU_Papá, [ SKU_Hijo_1, SKU_Hijo_2, ... ] >
+				}else if(!"".equals(jsonObject.getString("article_sku"))) {
+					lst = parentChild.get(jsonObject.getString("article_sku"));
+					if(lst == null) {
+						lst = new java.util.TreeSet<>();
+						parentChild.put(jsonObject.getString("article_sku"), lst);
+					}
+					lst.add(jsonObject.getString("article_sku"));
+				}
+			}
+		}catch(org.json.JSONException e) {
+			logE(e);
+		}
+		return parentChild;
+	}
+	
+
+	protected String sendRequest(String message) {
+		String response = null;
+		try(
+			java.net.Socket socket = new java.net.Socket(PropertiesManager.get("p360.contingency.pvia.host", "localhost"), Integer.parseInt( PropertiesManager.get("p360.contingency.pvia.port", "23540")) );
+			java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(socket.getOutputStream()), true);
+			java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(socket.getInputStream()));
+		){
+			pw.println(message);
+			response = br.readLine();
+		}catch(java.io.IOException e) {
+			e.printStackTrace();
+		}
+		return response;
+	}
+	
 	public Object procesamelo(String rawRequest, String baseURL, String encoded) {
 		long init = System.currentTimeMillis();
 		org.json.JSONObject generalResponse = null;
 		org.json.JSONObject request = null;
 		try{
+			log("Parsing: " + rawRequest);
 			org.json.JSONObject hola = new org.json.JSONObject(rawRequest);
 			request = hola.has("root") ? hola.getJSONObject("root") : hola;
 		}catch(org.json.JSONException e) {
@@ -610,7 +670,7 @@ public class GetAttributeValuesForo {
 				}
 			}
 			log("About to request data: " + skus.length() + " for SKUs");
-			skusResponse = dr.articleBySKUs(skus);
+			skusResponse = articleBySKUs(skus);// dr.articleBySKUs(skus);
 			log("Got a response of: " + skusResponse.size() + " products in total. Now iterating...");
 //			int nap = Runtime.getRuntime().availableProcessors();
 //			nap = nap <= 0 ? 2 : nap;
@@ -648,6 +708,39 @@ public class GetAttributeValuesForo {
 		}
 		log("Done. " + rw.getRw().formatTime(System.currentTimeMillis() - init));
 		return generalResponse;
+	}
+	
+	public java.util.Map<String, java.util.Set<String>> articleBySKUs(org.json.JSONArray skus) {
+		log("Holitas");
+		String resp = sendRequest(
+				new org.json.JSONObject()
+					.put("action", "variantBySKU")
+					.put("skus", skus)
+				.toString()
+			);
+		log("Resp: " + resp);
+		org.json.JSONObject jsonObject = null;
+		java.util.Map<String, java.util.Set<String>> parentChild = new java.util.TreeMap<>();
+		java.util.Set<String> lst = null;
+		try {
+			org.json.JSONObject response = new org.json.JSONObject(resp);
+			log("Response: " + response);
+			org.json.JSONArray items = response.getJSONArray("items");
+			for(int i = 0; i<items.length(); i++) {
+				jsonObject = items.getJSONObject(i);
+				if(!"".equals(jsonObject.getString("product")) && !"".equals(jsonObject.getString("article"))) {
+					lst = parentChild.get(jsonObject.getString("product"));
+					if(lst == null) {
+						lst = new java.util.TreeSet<>();
+						parentChild.put(jsonObject.getString("product"), lst);
+					}
+					lst.add(jsonObject.getString("article"));
+				}
+			}
+		}catch(org.json.JSONException e) {
+			logE(e);
+		}
+		return parentChild;
 	}
 	
 	private String getPrimaryProductTaxonomyTemplate(org.json.JSONArray classifications){
@@ -742,7 +835,7 @@ public class GetAttributeValuesForo {
 	}
 
 	private void logE(Exception ex){
-		try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream("../logs/data_read_from_foro.log", true)))){
+		try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream("../logs/getProposalsForo.err", true)))){
 		  ex.printStackTrace(pw);
 		}catch(java.io.IOException e){}
 	}

@@ -1220,13 +1220,19 @@ public class CrearArchivosParaSKU {
 	private String dqGeneralTreatment(String input) {
 		return input == null || "".equals(input) ? input : 
 			input
-				.replaceAll("[ÁÄÂ]+", "A")
-				.replaceAll("[ÉËÊ]+", "E")
-				.replaceAll("[ÍÏÎ]+", "I")
-				.replaceAll("[ÓÖÔ]+", "O")
-				.replaceAll("[ÚÜÛ]+", "U")
+				.replaceAll("[ÁÀÄÂ]+", "A")
+				.replaceAll("[ÉÈËÊ]+", "E")
+				.replaceAll("[ÍÌÏÎ]+", "I")
+				.replaceAll("[ÓÒÖÔ]+", "O")
+				.replaceAll("[ÚÙÜÛ]+", "U")
 				.replaceAll("[Ñ]+", "N")
-				.replaceAll("[^A-Z0-9a-z ]+", " ")
+				.replaceAll("[áâäà]+", "a")
+				.replaceAll("[éèëê]+", "e")
+				.replaceAll("[íìïî]+", "i")
+				.replaceAll("[óöôò]+", "o")
+				.replaceAll("[úüù]+", "u")
+				.replaceAll("[ñ]+", "n")
+				.replaceAll("[^A-Z0-9a-z\\. ]+", " ")
 				.replaceAll(" {2,}", " ")
 				.trim()
 				;

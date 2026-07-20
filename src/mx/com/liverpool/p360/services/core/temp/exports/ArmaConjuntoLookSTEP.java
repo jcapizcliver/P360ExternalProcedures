@@ -5,9 +5,11 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
+import mx.com.liverpool.p360.services.core.RESTWrapper;
 
 public class ArmaConjuntoLookSTEP {
 
+	private final RESTWrapper rw = new RESTWrapper();
 	private final java.util.Map<String, String> mapaDeAtributosFechas;
 	
 	public ArmaConjuntoLookSTEP(java.util.Map<String, String> mapaDeAtributosFechas) {
@@ -334,10 +336,10 @@ public class ArmaConjuntoLookSTEP {
 	}
 	
 	private org.json.JSONObject collectCharacteristicProperties(String charId, String baseUrl){
-		RESTWorkshop rw = new RESTWorkshop();
-		if(baseUrl != null) {
-			rw.setBaseUrl(baseUrl);
-		}
+		RESTWorkshop rw = new RESTWrapper().getRw();
+//		if(baseUrl != null) {
+//			rw.setBaseUrl(baseUrl);
+//		}
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
 		qp.put("fields", 
 				    "Characteristic.Identifier"
@@ -509,10 +511,10 @@ public class ArmaConjuntoLookSTEP {
 	}
 
 	private String[] checkProductBySKU(String sku, String baseUrl) {
-		RESTWorkshop workshop = new RESTWorkshop();
-		if(baseUrl != null) {
-			workshop.setBaseUrl(baseUrl);
-		}
+		RESTWorkshop workshop = rw.getRw();
+//		if(baseUrl != null) {
+//			workshop.setBaseUrl(baseUrl);
+//		}
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
 		qp.put("query",  "characteristic('SKU',-1) equals \"" + sku + "\"");
 		qp.put("fields", 
