@@ -14,23 +14,15 @@ import mx.com.liverpool.p360.services.core.net.DataRequestor;
 
 public class GetProposals{
 
-  private final RESTWorkshop workshop;
-  private final RestClient rc; // = new RestClient("Accept: application/json", "Content-Type: application/json", "Authorization: Basic " + "cmVzdDpoZWlsZXI=");
+	private final RESTWrapper rw = new RESTWrapper();
   private final java.util.Map<String, java.util.Map<String, String>> atributosValidosPorPlantilla = new java.util.TreeMap<>();
   private final long myId;
 
   private final String baseURL; // = "http://172.18.237.162:1512/rest/V2.0";
 
   public GetProposals(String baseUrl, String encoded, long myId) {
-	  this.baseURL = baseUrl;
-	  this.workshop = new RESTWorkshop();
+	  this.baseURL = rw.getRw().getBaseUrl();
 	  this.myId = myId;
-	  if(this.baseURL != null) {
-		  workshop.setBaseUrl(baseUrl);
-	  }
-	  rc = workshop.getRc();
-	  if(encoded != null)
-		  rc.getHeader().put("Authorization", "Basic: " + encoded);
   }
   
   public static void main(String[] args){
@@ -62,7 +54,7 @@ public class GetProposals{
     java.util.Map<String, String> headers = new java.util.HashMap<>();
     headers.put( "Content-Type", "application/json" );
     headers.put( "Accept", "application/json" );
-    headers.put( "Authorization", this.rc.getHeader().get("Authorization") );
+    headers.put( "Authorization", this.rw.getRw().getRc().getHeader().get("Authorization") );
     headers.put( "Accept-Language", "es");
 
     String business;
@@ -90,12 +82,12 @@ public class GetProposals{
         productId = json.has("proposalId") ? json.getString("proposalId") : null;
 //        long a = System.currentTimeMillis();
         if(sku != null && !"".equals( sku )) {
-        	rawResponse = this.rc.getRequest( "GET", baseURL + "/list/Product2G/bySearch?query=" + java.net.URLEncoder.encode("Product2G.SKU = \"" + sku + "\"", "UTF-8") + "&metaData=true&fields=Product2G.ProductNo", null, headers );
+        	rawResponse = this.rw.getRw().getRc().getRequest( "GET", baseURL + "/list/Product2G/bySearch?query=" + java.net.URLEncoder.encode("Product2G.SKU = \"" + sku + "\"", "UTF-8") + "&metaData=true&fields=Product2G.ProductNo", null, headers );
             response = new JSONObject(rawResponse);
             if(response.getInt( "rowCount" ) > 0) {
               productId = response.getJSONArray( "rows" ).getJSONObject( 0 ).getJSONArray( "values" ).getString( 0 );
             }else {
-	            rawResponse = this.rc.getRequest( "GET", baseURL + "/list/Article/bySearch?query=" + java.net.URLEncoder.encode("Article.SKU = \"" + sku + "\"", "UTF-8") + "&metaData=true&fields=Article.SupplierAID", null, headers );
+	            rawResponse = this.rw.getRw().getRc().getRequest( "GET", baseURL + "/list/Article/bySearch?query=" + java.net.URLEncoder.encode("Article.SKU = \"" + sku + "\"", "UTF-8") + "&metaData=true&fields=Article.SupplierAID", null, headers );
 	            response = new JSONObject(rawResponse);
 	            if(response.getInt( "rowCount" ) > 0) {
 	              productId = response.getJSONArray( "rows" ).getJSONObject( 0 ).getJSONArray( "values" ).getString( 0 );
@@ -103,7 +95,7 @@ public class GetProposals{
             }
         }
         if(product == null && productId != null && !"".equals( productId )) {
-			rawResponse = this.rc.getRequest( "GET", baseURL + "/list/Product2G/byItems?items=" 
+			rawResponse = this.rw.getRw().getRc().getRequest( "GET", baseURL + "/list/Product2G/byItems?items=" 
         + java.net.URLEncoder.encode("'" + productId + "'@1", "UTF-8") 
         + "&metaData=true&fields=" 
         + java.net.URLEncoder.encode(
@@ -135,7 +127,7 @@ public class GetProposals{
           responses.put( new JSONObject().put( "status", "Not found" ).put( "sku", sku == null ? "" : sku ).put( "productId", productId == null ? "" : productId ) );
         }else {
 //          a = System.currentTimeMillis();
-          rawResponse = this.rc.getRequest( "GET", baseURL + "/object/Product2G/'" + java.net.URLEncoder.encode( product, "UTF-8" ) + "'@'MASTER'?includeLabels=true&includeIds=true", null, headers );
+          rawResponse = this.rw.getRw().getRc().getRequest( "GET", baseURL + "/object/Product2G/'" + java.net.URLEncoder.encode( product, "UTF-8" ) + "'@'MASTER'?includeLabels=true&includeIds=true", null, headers );
 //          log("Retrieving data took: " + formatMillis(System.currentTimeMillis() - a) + " -- " + rawResponse);
           response = new JSONObject(rawResponse);
           business = getBusinessValueFromObject(response, "Business");
@@ -146,7 +138,7 @@ public class GetProposals{
 //          log("Adding template metadata data took: " + formatMillis(System.currentTimeMillis() - a));
           if(losQueSi.isEmpty()) {
 //        	  a = System.currentTimeMillis();
-        	  addGlobalData("Liverpool", losQueSi, baseURL, workshop.getRc().getHeader().get("Authorization"));
+        	  addGlobalData("Liverpool", losQueSi, baseURL, rw.getRw().getRc().getHeader().get("Authorization"));
 //        	  log("Adding global meta data took: " + formatMillis(System.currentTimeMillis() - a));
           }
           try{
@@ -159,7 +151,7 @@ public class GetProposals{
 	          int ci = 0;
 	          int tz = 0;
 	          do {
-		          rr = rc.getRequest("GET", baseURL + "/list/Characteristic/bySearch?query="
+		          rr = rw.getRw().getRc().getRequest("GET", baseURL + "/list/Characteristic/bySearch?query="
 		        		  + java.net.URLEncoder.encode("Characteristic.UpperBound > 1", "UTF-8")
 		        		  + "&pageSize=5000"
 		        		  + "&fields=Characteristic.Identifier"
@@ -499,7 +491,7 @@ public class GetProposals{
 				);
 		qp.put("items", "'" + id + "'@1");
 		org.json.JSONObject response = null;
-		response = workshop.makeRequest("GET", "/list/Article/ProductReference/byItems", qp, null);
+		response = rw.getRw().makeRequest("GET", "/list/Article/ProductReference/byItems", qp, null);
 		if(response != null && response.getJSONArray("rows").length() > 0) {
 			return new String[] { response.getJSONArray("rows").getJSONObject(0).getJSONArray("values").getString(0)
 					, response.getJSONArray("rows").getJSONObject(0).getJSONArray("values").getJSONArray(1).getString(0)
@@ -507,7 +499,7 @@ public class GetProposals{
 					, response.getJSONArray("rows").getJSONObject(0).getJSONArray("values").getJSONArray(3).getString(0)
 					, response.getJSONArray("rows").getJSONObject(0).getJSONArray("values").getString(4) };
 		}else if(response == null){
-			System.out.println("ERROR: " + workshop.getRawResponse());
+			System.out.println("ERROR: " + rw.getRw().getRawResponse());
 		}else {
 			System.out.println("Unknown article id: " + id);
 		}
@@ -682,7 +674,7 @@ public class GetProposals{
       String rawResponse = null;
       JSONObject response = null;
       for(String article : articles) {
-        rawResponse = this.rc.getRequest( "GET", baseURL + "/object/Article/'" + java.net.URLEncoder.encode( article, "UTF-8" ) + "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData", null, headers );
+        rawResponse = this.rw.getRw().getRc().getRequest( "GET", baseURL + "/object/Article/'" + java.net.URLEncoder.encode( article, "UTF-8" ) + "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData", null, headers );
         response = new JSONObject(rawResponse);
         if(!response.getJSONObject( "_data" ).has( "_characteristicRecords" )) {
         	return null;
@@ -899,7 +891,7 @@ public class GetProposals{
       JSONObject response = null;
       org.json.JSONArray rows = null;
       String url = baseURL + "/list/Article/bySearch?query=ProductReference.ReferencedSupplierAid(%22" + productId + "%22)%20equals%20%22" + productId + "%22&metaData=true&fields=Article.SupplierAID";
-      rawResponse = this.rc.getRequest( "GET", url, null, header );
+      rawResponse = this.rw.getRw().getRc().getRequest( "GET", url, null, header );
       response = new JSONObject(rawResponse);
       rows = response.getJSONArray( "rows" );
       for(int i=0; i<rows.length(); i++) {
@@ -1037,7 +1029,7 @@ public class GetProposals{
 		sentToVendorCenter = null;
 		cBusiness = null;
 		*/
-		addGlobalData(business, losQueSi, baseURL, this.rc.getHeader().get("Authorization"));
+		addGlobalData(business, losQueSi, baseURL, this.rw.getRw().getRc().getHeader().get("Authorization"));
 //        log("Los que sí: " + losQueSi);
         this.atributosValidosPorPlantilla.put( template, losQueSi );
 //      }catch(Exception e) {

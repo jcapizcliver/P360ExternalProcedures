@@ -25,7 +25,7 @@ public class SimpleDelimitedFileParser {
 	
 	private final char delim;
 	private final char sep;
-	private final char esc;
+	private final Character esc;
 	private final char[] endLine;
 	private final java.nio.charset.Charset charset;
 	private final LineProcessor lp;
@@ -122,7 +122,7 @@ public class SimpleDelimitedFileParser {
 		this.lp = lp;
 	}
 	
-	public SimpleDelimitedFileParser(char delim, char sep, char esc, String endLine, java.nio.charset.Charset charset, LineProcessor lp) {
+	public SimpleDelimitedFileParser(char delim, char sep, Character esc, String endLine, java.nio.charset.Charset charset, LineProcessor lp) {
 		this.delim = delim;
 		this.sep = sep;
 		this.esc = esc;
@@ -188,7 +188,7 @@ public class SimpleDelimitedFileParser {
 						throw fail("Malformed: delimiter not at start of value");
 					}
 				}else {
-					if( index > 0 && (elements[index-1] == esc) ) {
+					if( index > 0 && esc != null && (elements[index-1] == esc) ) {
 //						index--;
 //						add(c);
 						if(escapes % 2 == 0) {
@@ -243,12 +243,12 @@ public class SimpleDelimitedFileParser {
 				if(endLineIndex == endLine.length) {
 					endLineIndex = 0;
 				}
-			} else if(c == esc) {
+			} else if(esc != null && c == esc) {
 //				if(index > 0 && (elements[index-1] == esc)) {
 //					index--;
 //					add(c);
 //				}
-				if(index > 0 && (elements[index-1] == esc)) {
+				if(index > 0 && esc != null && (elements[index-1] == esc)) {
 					if(cola == 0) {
 						index--;
 						cola++;
@@ -276,7 +276,7 @@ public class SimpleDelimitedFileParser {
 							add(c);
 					}
 				}
-				if(c != esc && cola == 1) {
+				if(esc != null && c != esc && cola == 1) {
 					cola--;
 				}
 			}
@@ -314,7 +314,7 @@ public class SimpleDelimitedFileParser {
 							throw fail("Malformed: delimiter not at start of value");
 						}
 					}else {
-						if( index > 0 && (elements[index-1] == esc) ) {
+						if( index > 0 && esc != null && (elements[index-1] == esc) ) {
 							if(escapes % 2 == 0) {
 								isDelim = true;
 							}else {
@@ -367,7 +367,7 @@ public class SimpleDelimitedFileParser {
 					if(endLineIndex == endLine.length) {
 						endLineIndex = 0;
 					}
-				} else if(c == esc) {
+				} else if(esc != null && c == esc) {
 					if(index > 0 && (elements[index-1] == esc)) {
 						if(cola == 0) {
 							index--;
@@ -399,7 +399,7 @@ public class SimpleDelimitedFileParser {
 						if( resolveCP(c, br) == -1 )
 							break;
 				}
-				if(c != esc && cola == 1) {
+				if(esc != null && c != esc && cola == 1) {
 					cola--;
 				}
 			}

@@ -27,7 +27,7 @@ public class SetTituloSinMarca {
 //		1754611681357938
 //		1754611681367311
 		qp.put("query", 
-				"Product2G.ProductNo in (\"1754611681367311\",\"1754611681357938\")"
+				"Product2G.ProductNo in (\"LVP1197212355\",\"LVP1200330711\")"
 //				"Product2G.ProductNo in (\"1754611648785764\",\"1754611648785879\",\"1754611648785939\")"
 //				"Product2G.ProductNo = \"1698767481648622\""
 //				"not characteristic('ProductName',-1) is empty"

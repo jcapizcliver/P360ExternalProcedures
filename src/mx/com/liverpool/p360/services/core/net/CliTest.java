@@ -95,7 +95,7 @@ public class CliTest {
 			}else if("addContenidoDeDiccionario".equals(args[0])) {
 				System.out.println( dr.addContenidoDeDiccionario(new org.json.JSONArray().put( new org.json.JSONObject().put("diccionario", args[1]).put("idValor", args[2]).put(args[3], args[4]))) );
 			}else if("addTemplateCharacteristicMetaData".equals(args[0])) {
-				System.out.println( dr.addTemplateCharacteristicMetaData(new org.json.JSONArray().put( new org.json.JSONObject().put("template", args[1]).put("characteristic", args[2]).put("property", args[3]).put("propertyValue", args[4]))) );
+				System.out.println( dr.addTemplateCharacteristicMetaData(new org.json.JSONArray().put( new org.json.JSONObject().put("template", args[1]).put("characteristic", args[2]).put("property", args[3]).put("propertyValue", args[4]).put("creationType", args.length > 5 ? args[5] : "CreateProposal"))) );
 			} else if("sendContenidoDeDiccionario".equals(args[0])) {
 				String r = dr.getContenidoDeDiccionario(new org.json.JSONArray().put(new org.json.JSONObject().put("diccionario", args[1]).put("idValor", args[2])));
 				System.out.println(r);
@@ -308,11 +308,12 @@ public class CliTest {
 				+ ",StandardizationValue.Characteristic->Characteristic.Identifier"
 				+ ",StandardizationValue.Property->LookupValueIdentifier.Code(EUCat)"
 				+ ",StandardizationValue.PropertyValue"
+				+ ",StandardizationValue.CreationType->LookupValue.Code"
 			);
 		org.json.JSONArray items = new org.json.JSONArray();
 		rw.collectData("list", "StandardizationValue", null, "byDictionary", qp, row -> {
 			org.json.JSONArray values = row.getJSONArray("values");
-			items.put(new org.json.JSONObject().put("template", values.getString(0)).put("characteristic", values.getString(1)).put("property", values.getString(2)).put("propertyValue", values.getString(3)) );
+			items.put(new org.json.JSONObject().put("template", values.getString(0)).put("characteristic", values.getString(1)).put("property", values.getString(2)).put("propertyValue", values.getString(3)).put("creationType", values.getString(4)) );
 			if(items.length() == 5000) {
 				System.out.println( "+" + items.length() + ", got: " + dr.addTemplateCharacteristicMetaData(items) );
 				while(items.length() > 0) {
