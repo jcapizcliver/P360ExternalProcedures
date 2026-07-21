@@ -8,7 +8,6 @@ import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 
-import javax.jms.Connection;
 import javax.jms.ConnectionFactory;
 import javax.jms.Destination;
 import javax.jms.JMSException;
@@ -20,6 +19,7 @@ import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
 
+import org.apache.activemq.ActiveMQConnection;
 import org.apache.activemq.ActiveMQConnectionFactory;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -43,11 +43,15 @@ public class LookupsAndDictionariesProcessor {
 	private final XMLMisc xmm;
 
 	private ConnectionFactory connectionFactory = null;
-	private Connection connection;
+	private ActiveMQConnection connection;
 	private Session session;
 	private Destination responseQueue;
 	private MessageConsumer consumer;
 	private Message responseMessage;
+	
+	private String host = null;
+	private Integer port = null;
+	private String qName = null;
 	
 	public LookupsAndDictionariesProcessor() {
 		rw = new RESTWrapper();
@@ -261,7 +265,7 @@ public class LookupsAndDictionariesProcessor {
 													}
 												} else if(pvcn != null && pvon != null) {
 													try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "characteristic_vendor_center_sections").toFile()), java.nio.charset.StandardCharsets.UTF_8))){
-	//													sections = java.nio.file.Files.lines(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "characteristic_vendor_center_sections")).parallel().map(rw.getRw()::parseLine).collect(java.util.stream.Collectors.toConcurrentMap(a -> a[0], a -> a[1]));
+														
 														String line = null;
 														sections = new java.util.HashMap<>();
 														String[] pieces = null;
@@ -781,12 +785,21 @@ public class LookupsAndDictionariesProcessor {
 	
 	public void connect(String host, int port, String qName) {
 		try{
-			connectionFactory = new ActiveMQConnectionFactory("tcp://" + host + ":" + port + "?wireFormat.maxInactivityDuration=60000&keepAlive=true");
-			connection = connectionFactory.createConnection();
+			connectionFactory = new ActiveMQConnectionFactory(
+					"tcp://" + host + ":" + port + 
+				    "?wireFormat.maxInactivityDuration=0" + 
+				    "&wireFormat.maxInactivityDurationInitalDelay=30000" +
+				    "&keepAlive=true" +
+				    "&connectionTimeout=10000"
+				);
+			connection = (ActiveMQConnection) connectionFactory.createConnection();
 			connection.start();
 			session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
 	        responseQueue = session.createQueue(qName);
 	        consumer = session.createConsumer(responseQueue);
+	        this.host = host;
+	        this.port = port;
+	        this.qName = qName;
 		}catch(JMSException e){
 			e.printStackTrace();
 		}
@@ -796,7 +809,10 @@ public class LookupsAndDictionariesProcessor {
 		try{
 			log("Start listening for messages...");
 			while(running){
-				responseMessage = consumer.receive(30);
+				if (connection == null || !connection.isStarted()) {
+	                connect(host, port, qName);
+	            }
+				responseMessage = consumer.receive(5000);
 			    if (responseMessage != null && responseMessage instanceof TextMessage) {
 			     	try{
 			     		messageProcessor(((TextMessage) responseMessage).getText());
@@ -812,9 +828,10 @@ public class LookupsAndDictionariesProcessor {
     		logE(e);
     	} catch (JMSException e) {
     		logE(e);
-		}finally {
-			disconnect();
+    		try { Thread.sleep(3000); } catch (InterruptedException ie) {}
+            disconnect();
 		}
+		disconnect();
 	}
 	
 	public void setRunning(boolean running) {

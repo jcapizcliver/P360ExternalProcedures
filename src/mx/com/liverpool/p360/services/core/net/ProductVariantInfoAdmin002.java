@@ -2,15 +2,15 @@ package mx.com.liverpool.p360.services.core.net;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
-import java.sql.SQLException;
 import java.util.logging.FileHandler;
 import java.util.logging.Formatter;
 import java.util.logging.Level;
 import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.DBAccessDataStub.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
-import mx.com.liverpool.p360.services.core.QuickJdbcConnectionManager;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 import mx.com.liverpool.p360.services.core.SimpleDelimitedFileParser;
@@ -308,41 +308,14 @@ public class ProductVariantInfoAdmin002 extends Thread {
 	
 	private class Worker implements Runnable {
 		
-		private final int id;
-		
 		private final ProductVariantInfoAdmin002 host;
 		private final java.util.concurrent.ArrayBlockingQueue<java.net.Socket> clientes;
-		private final QuickJdbcConnectionManager cm = new QuickJdbcConnectionManager();
-		
-		private java.sql.Connection con = null;
-		
-		private void handleRefreshConnection() {
-			if(con != null) {
-				try {
-					if(con.isValid(5))
-						return;
-				} catch (java.sql.SQLException e) {
-					logE(e);
-				}
-				try{
-					con.close();
-				}catch(java.sql.SQLException e) {
-					logE(e);
-				}
-			}
-			try {
-				con = cm.openConnection(true);
-			} catch (ClassNotFoundException | java.sql.SQLException | java.io.IOException e) {
-				logE(e);
-			}
-		}
+		private DBAccessDataStub dastub = new DBAccessDataStub(new ELog() { @Override public void log(String message){ ProductVariantInfoAdmin002.this.log(message); } @Override public void logE(Exception e) { ProductVariantInfoAdmin002.this.logE(e); } });
 		
 		public Worker(
-				int id
-				,ProductVariantInfoAdmin002 host
+				 ProductVariantInfoAdmin002 host
 				,java.util.concurrent.ArrayBlockingQueue<java.net.Socket> clientes
 		) {
-			this.id = id;
 			this.host = host;
 			this.clientes = clientes;
 		}
@@ -354,14 +327,12 @@ public class ProductVariantInfoAdmin002 extends Thread {
 				try {
 					socket = clientes.poll(10, java.util.concurrent.TimeUnit.MILLISECONDS);
 					if(socket != null) {
-//						log("# " + id + " Handling connection");
 						loAtiendo(socket);
 					}
 				}catch(java.lang.InterruptedException e) {
 					logE(e);
 				}
 			}
-//			log("Thread finnishing... (" + id + ")");
 		}
 		
 		public void setRunning(boolean running) {
@@ -372,474 +343,8 @@ public class ProductVariantInfoAdmin002 extends Thread {
 				} catch (IOException e) {
 					logE(e);
 				}
-				close();
+				dastub.close();
 			}
-//			log("Setting running to: " + running);
-		}
-		
-		public void close() {
-			if(con != null) {
-				try {
-					con.close();
-				} catch (SQLException e) {
-					logE(e);
-				}
-			}
-		}
-		
-		private String getSkuProductNo(String sku) {
-			long init = System.currentTimeMillis();
-			if("".equals(sku) || sku == null)
-				return null;
-			handleRefreshConnection();
-			try(java.sql.PreparedStatement pstmnt = con.prepareStatement("select /*+ leading(aa bb) use_nl(bb) */ bb.\"Identifier\" from \"ArticleDetail\" aa inner join \"ArticleRevision\" bb on aa.\"ArticleRevisionID\" = bb.ID and aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' and bb.\"RevisionID\" = 1 and bb.\"EntityID\" = 1100 where aa.\"Res_Int_02\" = ?")){
-				pstmnt.setLong(1, Long.parseLong(sku));
-				try(java.sql.ResultSet rs = pstmnt.executeQuery()){
-					if(rs.next()) {
-						log("From getSkuProductNo: " + rw.formatTime(System.currentTimeMillis() - init));
-						return rs.getString(1);
-					}
-				}
-			}catch(java.sql.SQLException e) {
-				logE(e);
-			}catch(NumberFormatException e) {
-				log("Invalid SKU: " + sku);
-			}
-			log("From getSkuProductNo: " + rw.formatTime(System.currentTimeMillis() - init));
-			return null;
-		}
-		
-		private String getSkuSupplierAid(String sku) {
-			long init = System.currentTimeMillis();
-			if("".equals(sku) || sku == null)
-				return null;
-			handleRefreshConnection();
-			try(java.sql.PreparedStatement pstmnt = con.prepareStatement("select /*+ leading(aa bb) use_nl(bb) */ bb.\"Identifier\" from \"ArticleDetail\" aa inner join \"ArticleRevision\" bb on aa.\"ArticleRevisionID\" = bb.ID and aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' and bb.\"RevisionID\" = 1 and bb.\"EntityID\" = 1000 where aa.\"Res_Int_02\" = ?")){
-				pstmnt.setLong(1, Long.parseLong(sku));
-				try(java.sql.ResultSet rs = pstmnt.executeQuery()){
-					if(rs.next()) {
-						log("From getSkuSupplierAid: " + rw.formatTime(System.currentTimeMillis() - init));
-						return rs.getString(1);
-					}
-				}
-			}catch(java.sql.SQLException e) {
-				logE(e);
-			}catch(NumberFormatException e) {
-				log("Invalid SKU: " + sku);
-			}
-			log("From getSkuSupplierAid: " + rw.formatTime(System.currentTimeMillis() - init));
-			return null;
-		}
-		
-		private String getEanProductNo(String ean) {
-			long init = System.currentTimeMillis();
-			if("".equals(ean) || ean == null)
-				return null;
-			handleRefreshConnection();
-
-			String sql =
-					"select /*+ leading(aa bb) use_nl(bb) index(aa XIE3_ArticleDetail) first_rows(1) */ "
-				  + "       bb.\"Identifier\" "
-				  + "from \"ArticleDetail\" aa "
-				  + "inner join \"ArticleRevision\" bb "
-				  + "   on aa.\"ArticleRevisionID\" = bb.ID "
-				  + "  and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
-				  + "  and bb.\"RevisionID\" = 1 "
-				  + "  and bb.\"EntityID\" = 1100 "
-				  + "where aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
-				  + "  and aa.\"EAN\" = ? "
-				  + "  and rownum = 1";
-
-			try (java.sql.PreparedStatement pstmnt = con.prepareStatement(sql)) {
-				pstmnt.setNString(1, ean);
-				pstmnt.setQueryTimeout(30);
-
-				try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
-					if (rs.next()) {
-						log("From getEanProductNo: "
-								+ rw.formatTime(System.currentTimeMillis() - init));
-
-						return rs.getString(1);
-					}
-				}
-			} catch (java.sql.SQLException e) {
-				logE(e);
-			}
-
-			log("From getEanProductNo: "
-					+ rw.formatTime(System.currentTimeMillis() - init));
-
-			return null;
-		}
-		
-		private String getEanSupplierAid(String ean) {
-			long init = System.currentTimeMillis();
-			if("".equals(ean) || ean == null)
-				return null;
-			handleRefreshConnection();
-			String sql =
-					"select /*+ leading(aa bb) use_nl(bb) index(aa XIE3_ArticleDetail) first_rows(1) */ "
-				  + "       bb.\"Identifier\" "
-				  + "from \"ArticleDetail\" aa "
-				  + "inner join \"ArticleRevision\" bb "
-				  + "   on aa.\"ArticleRevisionID\" = bb.ID "
-				  + "  and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
-				  + "  and bb.\"RevisionID\" = 1 "
-				  + "  and bb.\"EntityID\" = 1000 "
-				  + "where aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
-				  + "  and aa.\"EAN\" = ? "
-				  + "  and rownum = 1";
-			try (java.sql.PreparedStatement pstmnt = con.prepareStatement(sql)) {
-				pstmnt.setNString(1, ean);
-				pstmnt.setQueryTimeout(30);
-				try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
-					if (rs.next()) {
-						log("From getEanSupplierAid: "
-								+ rw.formatTime(System.currentTimeMillis() - init));
-
-						return rs.getString(1);
-					}
-				}
-			} catch (java.sql.SQLException e) {
-				logE(e);
-			}
-			log("From getEanSupplierAid: "
-					+ rw.formatTime(System.currentTimeMillis() - init));
-
-			return null;
-		}
-		
-		private String getProductByVariant(String supplierAid) {
-			long init = System.currentTimeMillis();
-			handleRefreshConnection();
-			try(java.sql.PreparedStatement pstmnt = con.prepareStatement("select /*+ leading(aa bb) use_nl(bb) */ bb.\"RefExtArtIdentifier\" from \"ArticleRevision\" aa inner join \"ArticleReference\" bb on aa.ID = bb.\"ArticleRevisionID\" and aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' and aa.\"RevisionID\" = 1 and aa.\"EntityID\" = 1000 where aa.\"Identifier\" = ?")){
-				pstmnt.setString(1, supplierAid);
-				try(java.sql.ResultSet rs = pstmnt.executeQuery()){
-					if(rs.next()) {
-						log("From getProductByVariant: " + rw.formatTime(System.currentTimeMillis() - init));
-						return rs.getString(1);
-					}
-				}
-			}catch(java.sql.SQLException e) {
-				logE(e);
-			}
-			log("From getProductByVariant: " + rw.formatTime(System.currentTimeMillis() - init));
-			return null;
-		}
-		
-		private String[] variantBySKU(String sku) {
-			long init = System.currentTimeMillis();
-			handleRefreshConnection();
-			try(java.sql.PreparedStatement pstmnt = con.prepareStatement("select /*+ leading(aa bb) use_nl(bb) */ "
-					+ "   bb.\"Identifier\" \"ArticleIdentifier\" "
-					+ " , dd.\"Identifier\" \"ProductIdentifier\" "
-					+ " , ee.\"Res_Int_02\" \"ProductSKU\" "
-					+ " from "
-					+ " 	\"ArticleDetail\" aa "
-					+ " inner join "
-					+ " 	\"ArticleRevision\" bb "
-					+ "  on "
-					+ " 	    bb.ID = aa.\"ArticleRevisionID\" "
-					+ " 	and aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
-					+ " 	and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
-					+ " 	and bb.\"RevisionID\" = 1 "
-					+ " 	and bb.\"EntityID\" = 1000 "
-					+ " inner join "
-					+ " 	\"ArticleReference\" cc "
-					+ " on "
-					+ " 	    bb.ID = cc.\"ArticleRevisionID\" "
-					+ " 	and cc.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
-					+ " inner join "
-					+ " 	\"ArticleRevision\" dd "
-					+ " on "
-					+ " 	    cc.\"RefIntArtID\" = dd.\"ArticleID\" "
-					+ " 	and cc.\"RefExtArtIdentifier\" = dd.\"Identifier\" "
-					+ " 	and dd.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
-					+ " 	and dd.\"EntityID\" = 1100 "
-					+ " 	and dd.\"RevisionID\" = 1 "
-					+ " inner join "
-					+ " 	\"ArticleDetail\" ee "
-					+ " on "
-					+ " 	    dd.ID = ee.\"ArticleRevisionID\" "
-					+ " 	and ee.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
-					+ " where "
-					+ " 	aa.\"Res_Int_02\" = ?")){
-				pstmnt.setLong(1, Long.parseLong(sku));
-				try(java.sql.ResultSet rs = pstmnt.executeQuery()){
-					if(rs.next()) {
-						log("From variantBySKU: " + rw.formatTime(System.currentTimeMillis() - init));
-						return new String[] { sku, rs.getString(1), rs.getString(2), rs.getString(3) };
-					}
-				}
-			}catch(java.sql.SQLException e) {
-				logE(e);
-			}catch(NumberFormatException e) {
-				log("Invalid SKU: " + sku);
-			}
-			log("From variantBySKU: " + rw.formatTime(System.currentTimeMillis() - init));
-			return new String[] { sku, null, null, null };
-		}
-		
-		public java.util.Set<String> getProductVariants(String identifier){
-			long init = System.currentTimeMillis();
-			java.util.Set<String> variants = new java.util.TreeSet<>();
-			handleRefreshConnection();
-			try(java.sql.PreparedStatement pstmnt = con.prepareStatement(
-					  " select /*+ leading(aa bb) use_nl(bb) */ "
-					+ "   cc.\"Identifier\" \"ArticleIdentifier\" "
-					+ " from "
-					+ " 	\"ArticleRevision\" aa "
-					+ " inner join "
-					+ " 	\"ArticleReference\" bb "
-					+ "  on "
-					+ " 	    aa.\"ArticleID\" = bb.\"RefIntArtID\" "
-					+ " 	and	aa.\"Identifier\" = bb.\"RefExtArtIdentifier\" "
-					+ " 	and aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
-					+ " 	and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
-					+ " 	and aa.\"RevisionID\" = 1 "
-					+ " 	and aa.\"EntityID\" = 1100 "
-					+ " inner join "
-					+ " 	\"ArticleRevision\" cc "
-					+ " on "
-					+ " 		bb.\"ArticleRevisionID\" = cc.ID "
-					+ " 	and cc.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
-					+ " 	and cc.\"RevisionID\" = 1 "
-					+ " 	and cc.\"EntityID\" = 1000 "
-					+ " where "
-					+ " 	aa.\"Identifier\" = ?")){
-				pstmnt.setString(1, identifier);
-				try(java.sql.ResultSet rs = pstmnt.executeQuery()){
-					while(rs.next()) {
-						variants.add(rs.getString(1));
-					}
-				}
-			}catch(java.sql.SQLException e) {
-				logE(e);
-			}
-			log("From getProductVariants: " + rw.formatTime(System.currentTimeMillis() - init));
-			return variants;
-		}
-		
-		public org.json.JSONObject getProductData(String identifier) {
-			long init = System.currentTimeMillis();
-			org.json.JSONObject productData = new org.json.JSONObject()
-					.put("product", identifier)
-					.put("Section", "")
-					.put("ItemGroup", "")
-					.put("ItemGroupS4H", "")
-					.put("BrandName", "")
-					.put("BRAND_ID_S4H", "")
-					.put("Business", "")
-					.put("SKU", "")
-					.put("SupplierID", "")
-					.put("Template", "")
-					.put("CurrentStatus", "")
-					.put("AssignTakeNoTake", "")
-					.put("SAPObjectType", "")
-					.put("FotoTomadaLiverpool", "")
-					.put("MainBarCode", "")
-					.put("MainBarCodeS4H", "")
-					.put("SupplierPartNumber", "")
-					;
-			handleRefreshConnection();
-			try(java.sql.PreparedStatement pstmnt = con.prepareStatement(
-					  " SELECT /*+ leading(aa bb) use_nl(bb foto_cv assign_cv) index(aa IX_AR_TUNE_01) index(foto_cv XAK1_ArticleCharactValue) index(assign_cv XAK1_ArticleCharactValue) */\r\n"
-					  + "       aa.\"Identifier\" AS \"ProductNo\",\r\n"
-					  + "       bb.\"EAN\",\r\n"
-					  + "       bb.\"Res_Int_02\" AS \"SKU\",\r\n"
-					  + "       bb.\"CurrentStatus\",\r\n"
-					  + "       bus_lvr.\"Code\" AS \"Business\",\r\n"
-					  + "       sec_lvr.\"Code\" AS \"Section\",\r\n"
-					  + "       ig_lvr.\"Code\" AS \"ItemGroup\",\r\n"
-					  + "       igs4h_lvr.\"Code\" AS \"ItemGroupS4H\",\r\n"
-					  + "       brand_lvr.\"Code\" AS \"BrandName\",\r\n"
-					  + "       brand_s4h_lvr.\"Code\" AS \"BRAND_ID_S4H\",\r\n"
-					  + "       sap_lvr.\"Code\" AS \"SAPObjectType\",\r\n"
-					  + "       sup_lvr.\"Code\" AS \"SupplierID\",\r\n"
-					  + "       foto_lvr.\"Code\" AS \"FotoTomadaLiverpool\",\r\n"
-					  + "       assign_lvr.\"Code\" AS \"AssignTakeNoTake\",\r\n"
-					  + "       cc.\"Res_Text250_01\" AS \"SupplierPartNumber\",\r\n"
-					  + "       dd.\"StructureGroupIdentifier\"\r\n"
-					  + "FROM \"ArticleRevision\" aa\r\n"
-					  + "INNER JOIN \"ArticleDetail\" bb\r\n"
-					  + "        ON bb.\"ArticleRevisionID\" = aa.\"ID\"\r\n"
-					  + "       AND bb.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-					  + "LEFT JOIN \"ArticleDomain\" cc\r\n"
-					  + "       ON cc.\"ArticleRevisionID\" = aa.\"ID\"\r\n"
-					  + "      AND cc.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-					  + "LEFT JOIN \"ArticleStructureMap\" dd\r\n"
-					  + "       ON dd.\"ArticleRevisionID\" = aa.\"ID\"\r\n"
-					  + "      AND dd.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-					  + "      AND dd.\"StructureID\" = 10000\r\n"
-					  + "LEFT JOIN \"ArticleCharactValue\" foto_cv\r\n"
-					  + "       ON foto_cv.\"ArticleRevisionID\" = aa.\"ID\"\r\n"
-					  + "      AND foto_cv.\"CharacteristicID\" = 4473\r\n"
-					  + "      AND foto_cv.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-					  + "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" foto_lvr\r\n"
-					  + "       ON foto_lvr.\"LookupValueID\" = foto_cv.\"LookupValueID\"\r\n"
-					  + "      AND foto_lvr.\"RevisionID\" = 1\r\n"
-					  + "      AND foto_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-					  + "LEFT JOIN \"ArticleCharactValue\" assign_cv\r\n"
-					  + "       ON assign_cv.\"ArticleRevisionID\" = aa.\"ID\"\r\n"
-					  + "      AND assign_cv.\"CharacteristicID\" = 3227\r\n"
-					  + "      AND assign_cv.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-					  + "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" assign_lvr\r\n"
-					  + "       ON assign_lvr.\"LookupValueID\" = assign_cv.\"LookupValueID\"\r\n"
-					  + "      AND assign_lvr.\"RevisionID\" = 1\r\n"
-					  + "      AND assign_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-					  + "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" bus_lvr\r\n"
-					  + "       ON bus_lvr.\"LookupValueID\" = bb.\"Res_Int_01\"\r\n"
-					  + "      AND bus_lvr.\"RevisionID\" = 1\r\n"
-					  + "      AND bus_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-					  + "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" sec_lvr\r\n"
-					  + "       ON sec_lvr.\"LookupValueID\" = cc.\"Res_Int_02\"\r\n"
-					  + "      AND sec_lvr.\"RevisionID\" = 1\r\n"
-					  + "      AND sec_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-					  + "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" ig_lvr\r\n"
-					  + "       ON ig_lvr.\"LookupValueID\" = cc.\"Res_Int_03\"\r\n"
-					  + "      AND ig_lvr.\"RevisionID\" = 1\r\n"
-					  + "      AND ig_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-					  + "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" igs4h_lvr\r\n"
-					  + "       ON igs4h_lvr.\"LookupValueID\" = cc.\"Res_Int_04\"\r\n"
-					  + "      AND igs4h_lvr.\"RevisionID\" = 1\r\n"
-					  + "      AND igs4h_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-					  + "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" brand_lvr\r\n"
-					  + "       ON brand_lvr.\"LookupValueID\" = cc.\"Res_Int_05\"\r\n"
-					  + "      AND brand_lvr.\"RevisionID\" = 1\r\n"
-					  + "      AND brand_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-					  + "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" brand_s4h_lvr\r\n"
-					  + "       ON brand_s4h_lvr.\"LookupValueID\" = cc.\"Res_Int_06\"\r\n"
-					  + "      AND brand_s4h_lvr.\"RevisionID\" = 1\r\n"
-					  + "      AND brand_s4h_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-					  + "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" sap_lvr\r\n"
-					  + "       ON sap_lvr.\"LookupValueID\" = cc.\"Res_Int_08\"\r\n"
-					  + "      AND sap_lvr.\"RevisionID\" = 1\r\n"
-					  + "      AND sap_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-					  + "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" sup_lvr\r\n"
-					  + "       ON sup_lvr.\"LookupValueID\" = cc.\"Std_Int_10\"\r\n"
-					  + "      AND sup_lvr.\"RevisionID\" = 1\r\n"
-					  + "      AND sup_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-					  + "WHERE aa.\"Identifier\" = ?\r\n"
-					  + "  AND aa.\"EntityID\" = 1100\r\n"
-					  + "  AND aa.\"RevisionID\" = 1\r\n"
-					  + "  AND aa.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'")){
-				pstmnt.setString(1, identifier);
-				try(java.sql.ResultSet rs = pstmnt.executeQuery()){
-					if(rs.next()) {
-						Object currentStatus = rs.getObject("CurrentStatus");
-						productData
-							.put("product", identifier)
-							.put("Section", java.util.Objects.toString(rs.getString("Section"), ""))
-							.put("ItemGroup", java.util.Objects.toString(rs.getString("ItemGroup"), ""))
-							.put("ItemGroupS4H", java.util.Objects.toString(rs.getString("ItemGroupS4H"), ""))
-							.put("BrandName", java.util.Objects.toString(rs.getString("BrandName"), ""))
-							.put("BRAND_ID_S4H", java.util.Objects.toString(rs.getString("BRAND_ID_S4H"), ""))
-							.put("Business", java.util.Objects.toString(rs.getString("Business"), ""))
-							.put("SKU", java.util.Objects.toString(rs.getString("SKU"), ""))
-							.put("SupplierID", java.util.Objects.toString(rs.getString("SupplierID"), ""))
-							.put("Template", java.util.Objects.toString(rs.getString("StructureGroupIdentifier"), ""))
-							.put("CurrentStatus", currentStatus == null ? "" : currentStatus)
-							.put("AssignTakeNoTake", java.util.Objects.toString(rs.getString("AssignTakeNoTake"), ""))
-							.put("SAPObjectType", java.util.Objects.toString(rs.getString("SAPObjectType"), ""))
-							.put("FotoTomadaLiverpool", java.util.Objects.toString(rs.getString("FotoTomadaLiverpool"), ""))
-							.put("MainBarCode", java.util.Objects.toString(rs.getString("EAN"), ""))
-							.put("MainBarCodeS4H", "")
-							.put("SupplierPartNumber", java.util.Objects.toString(rs.getString("SupplierPartNumber"), ""))
-							;
-					}
-				}
-			}catch(java.sql.SQLException e) {
-				logE(e);
-			}
-			log("From getProductData: " + rw.formatTime(System.currentTimeMillis() - init));
-			return productData;
-		}
-		
-		public org.json.JSONObject getArticleData(String identifier) {
-			long init = System.currentTimeMillis();
-		    org.json.JSONObject productData = new org.json.JSONObject()
-		    		.put("variant", identifier)
-		    		.put("ProductNo", "")
-		    		.put("ColoursLiverpoolAtt", "")
-		    		.put("TamanoUnico", "")
-		    		.put("ProductImage", "")
-		    		.put("AssignTakeNoTake", "")
-		    		.put("SKU", "")
-		    		.put("MainBarCode", "")
-		    		.put("MainBarCodeS4H", "")
-		    		.put("SupplierPartNumber", "");
-		    handleRefreshConnection();
-
-		    try (java.sql.PreparedStatement pstmnt = con.prepareStatement(
-		            "SELECT /*+ leading(aa) "
-		          + "use_nl(bb cc assign_cv assign_lvr sec_lvr ig_lvr ar) "
-		          + "index(aa IX_AR_TUNE_01) "
-		          + "index(assign_cv XAK1_ArticleCharactValue) "
-		          + "index(ar XAK1_ArticleReference) */ "
-		          + "       aa.\"Identifier\" AS \"VariantIdentifier\", "
-		          + "       bb.\"EAN\", "
-		          + "       bb.\"Res_Int_02\" AS \"SKU\", "
-		          + "       bb.\"Res_Text250_02\" AS \"ProductImageURL\", "
-		          + "       sec_lvr.\"Code\" AS \"TamanoUnico\", "
-		          + "       ig_lvr.\"Code\" AS \"Color\", "
-		          + "       assign_lvr.\"Code\" AS \"AssignTakeNoTake\", "
-		          + "       cc.\"Res_Text250_01\" AS \"SupplierPartNumber\", "
-		          + "       ar.\"RefExtArtIdentifier\" AS \"ProductNo\" "
-		          + "FROM \"ArticleRevision\" aa "
-		          + "INNER JOIN \"ArticleDetail\" bb "
-		          + "        ON bb.\"ArticleRevisionID\" = aa.\"ID\" "
-		          + "       AND bb.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
-		          + "LEFT JOIN \"ArticleDomain\" cc "
-		          + "       ON cc.\"ArticleRevisionID\" = aa.\"ID\" "
-		          + "      AND cc.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
-		          + "LEFT JOIN \"ArticleCharactValue\" assign_cv "
-		          + "       ON assign_cv.\"ArticleRevisionID\" = aa.\"ID\" "
-		          + "      AND assign_cv.\"CharacteristicID\" = 3227 "
-		          + "      AND assign_cv.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
-		          + "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" assign_lvr "
-		          + "       ON assign_lvr.\"LookupValueID\" = assign_cv.\"LookupValueID\" "
-		          + "      AND assign_lvr.\"RevisionID\" = 1 "
-		          + "      AND assign_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
-		          + "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" sec_lvr "
-		          + "       ON sec_lvr.\"LookupValueID\" = cc.\"Res_Int_01\" "
-		          + "      AND sec_lvr.\"RevisionID\" = 1 "
-		          + "      AND sec_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
-		          + "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" ig_lvr "
-		          + "       ON ig_lvr.\"LookupValueID\" = cc.\"Res_Int_02\" "
-		          + "      AND ig_lvr.\"RevisionID\" = 1 "
-		          + "      AND ig_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
-		          + "LEFT JOIN \"ArticleReference\" ar "
-		          + "       ON ar.\"ArticleRevisionID\" = aa.\"ID\" "
-		          + "      AND ar.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
-		          + "WHERE aa.\"Identifier\" = ? "
-		          + "  AND aa.\"EntityID\" = 1000 "
-		          + "  AND aa.\"RevisionID\" = 1 "
-		          + "  AND aa.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'")) {
-
-		        pstmnt.setString(1, identifier);
-
-		        try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
-		            if (rs.next()) {
-		            	productData
-			            	.put("variant", identifier)
-			            	.put("ProductNo", java.util.Objects.toString(rs.getString("ProductNo"), ""))
-			            	.put("SKU", java.util.Objects.toString(rs.getString("SKU"), ""))
-			            	.put("ColoursLiverpoolAtt", java.util.Objects.toString(rs.getString("Color"), ""))
-			            	.put("TamanoUnico", java.util.Objects.toString(rs.getString("TamanoUnico"), ""))
-			            	.put("ProductImage", java.util.Objects.toString(rs.getString("ProductImageURL"), ""))
-			            	.put("MainBarCode", java.util.Objects.toString(rs.getString("EAN"), ""))
-			            	.put("MainBarCodeS4H", "")
-			            	.put("AssignTakeNoTake", java.util.Objects.toString(rs.getString("AssignTakeNoTake"), ""))
-			            	.put("SupplierPartNumber", java.util.Objects.toString(rs.getString("SupplierPartNumber"), ""))
-		            	;
-		            }
-		        }
-		    } catch (java.sql.SQLException e) {
-		        logE(e);
-		    }
-
-			log("From getArticleData: " + rw.formatTime(System.currentTimeMillis() - init));
-		    return productData;
 		}
 		
 		private void loAtiendo(java.net.Socket socket) {
@@ -889,7 +394,7 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							responseArray = new org.json.JSONArray();
 							for(int i=0; i<items.length(); i++) {
 								if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
-									parent = getSkuProductNo(items.getString(i));
+									parent = dastub.getSkuProductNo(items.getString(i));
 								}else {
 									parent = skuProductNo.get(items.getString(i));
 								}
@@ -927,7 +432,7 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							responseArray = new org.json.JSONArray();
 							for(int i=0; i<items.length(); i++) {
 								if(Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb"))) {
-									parent = getProductByVariant(items.getString(i));
+									parent = dastub.getProductByVariant(items.getString(i));
 								}else {
 									parent = supplierAIDProductNo.get(items.getString(i));
 								}
@@ -942,7 +447,7 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							responseArray = new org.json.JSONArray();
 							for(int i=0; i<items.length(); i++) {
 								if(Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb"))) {
-									String[] data = variantBySKU(items.getString(i));
+									String[] data = dastub.variantBySKU(items.getString(i));
 									responseArray.put( new org.json.JSONObject()
 											.put("article_sku", items.getString(i))
 											.put("article", data[1] == null ? "" : data[1])
@@ -976,7 +481,7 @@ public class ProductVariantInfoAdmin002 extends Thread {
 						}else if("getProductVariants".equals(request.getString("action"))) {
 							items = new org.json.JSONArray();
 							if(Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb"))) {
-								java.util.Set<String> variants = getProductVariants(request.getString("product"));
+								java.util.Set<String> variants = dastub.getProductVariants(request.getString("product"));
 								for(String v : variants) {
 									items.put(v);
 								}
@@ -1042,7 +547,7 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							responseArray = new org.json.JSONArray();
 							for(int i=0; i<items.length(); i++) {
 								if(Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb"))) {
-									responseArray.put( getProductData(items.getString(i)) );
+									responseArray.put( dastub.getProductData(items.getString(i)) );
 								}else {
 									String[] values = null;
 									values = productData.get(items.getString(i));
@@ -1146,7 +651,7 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							String[] values = null;
 							for(int i=0; i<items.length(); i++) {
 								if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
-									responseArray.put( getArticleData(items.getString(i)) );
+									responseArray.put( dastub.getArticleData(items.getString(i)) );
 								}else {
 									values = articleData.get(items.getString(i));
 									parent = supplierAIDProductNo.get(items.getString(i));
@@ -1214,60 +719,91 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							responseArray = new org.json.JSONArray();
 							String[] values = null;
 							for(int i=0; i<items.length(); i++) {
-								values = productExtraData.get(items.getString(i));
-								responseArray.put( values == null ? 
-										new org.json.JSONObject()
+								if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
+									responseArray.put( dastub.getProductExtraData(items.getString(i), new String[] {
+											"supplierShopId"
+											,"ProductName"
+											,"BuyerRejectionMessage"
+											,"SupplierRejectionMessage"
+											,"SkuType"
+											,"BWSCL"
+											,"TImportacion"
+											,"Negocio"
+											,"EXTWG_S4H"
+											,"MesdeEntregadeMercancIa"
+											,"Temporada"
+											,"BWVOR"
+											,"AnoEstacion"
+											,"TextoAdicional"
+											,"Evento"
+											,"CostobrutoSinIVA"
+											,"PrecioSugeridocIVA"
+											,"Descuento1"
+											,"Descuento2"
+											,"LABOR"
+											,"NORMT"
+											,"DescriptionLong"
+											,"DescriptionLong2"
+											,"Currency"
+											,"TypeMainBarCode"
+											,"TextoAdicional"
+									}) );
+								}else {
+									values = productExtraData.get(items.getString(i));
+									responseArray.put( values == null ? 
+											new org.json.JSONObject()
+												.put("product", items.getString(i))
+												.put("supplierShopId", "")
+												.put("ProductName", "")
+												.put("BuyerRejectionMessage", "")
+												.put("SupplierRejectionMessage", "")
+												.put("SkuType", "")
+												.put("BWSCL", "")
+												.put("TImportacion", "")
+												.put("Negocio", "")
+												.put("EXTWG_S4H", "")
+												.put("MesdeEntregadeMercancIa", "")
+												.put("Temporada", "")
+												.put("BWVOR", "")
+												.put("AnoEstacion", "")
+												.put("TextoAdicional", "")
+												.put("Evento", "")
+												.put("CostobrutoSinIVA", "")
+												.put("PrecioSugeridocIVA", "")
+												.put("Descuento1", "")
+												.put("Descuento2", "")
+												.put("LABOR", "")
+												.put("NORMT", "")
+												.put("DescriptionLong", "")
+												.put("DescriptionLong2", "")
+										:
+											new org.json.JSONObject()
 											.put("product", items.getString(i))
-											.put("supplierShopId", "")
-											.put("ProductName", "")
-											.put("BuyerRejectionMessage", "")
-											.put("SupplierRejectionMessage", "")
-											.put("SkuType", "")
-											.put("BWSCL", "")
-											.put("TImportacion", "")
-											.put("Negocio", "")
-											.put("EXTWG_S4H", "")
-											.put("MesdeEntregadeMercancIa", "")
-											.put("Temporada", "")
-											.put("BWVOR", "")
-											.put("AnoEstacion", "")
-											.put("TextoAdicional", "")
-											.put("Evento", "")
-											.put("CostobrutoSinIVA", "")
-											.put("PrecioSugeridocIVA", "")
-											.put("Descuento1", "")
-											.put("Descuento2", "")
-											.put("LABOR", "")
-											.put("NORMT", "")
-											.put("DescriptionLong", "")
-											.put("DescriptionLong2", "")
-									:
-										new org.json.JSONObject()
-										.put("product", items.getString(i))
-										.put("supplierShopId", values[0])
-										.put("ProductName",values[1])
-										.put("BuyerRejectionMessage", values[2])
-										.put("SupplierRejectionMessage", values[3])
-										.put("SkuType", values[4])
-										.put("BWSCL", values[5])
-										.put("TImportacion", values[6])
-										.put("Negocio", values[7])
-										.put("EXTWG_S4H", values[8])
-										.put("MesdeEntregadeMercancIa", values[9])
-										.put("Temporada", values[10])
-										.put("BWVOR", values[11])
-										.put("AnoEstacion", values[12])
-										.put("TextoAdicional", values[13])
-										.put("Evento", values[14])
-										.put("CostobrutoSinIVA", values[15])
-										.put("PrecioSugeridocIVA", values[16])
-										.put("Descuento1", values[17])
-										.put("Descuento2", values[18])
-										.put("LABOR", values[19])
-										.put("NORMT", values[20])
-										.put("DescriptionLong", values[21])
-										.put("DescriptionLong2", values[22])
-									);
+											.put("supplierShopId", values[0])
+											.put("ProductName",values[1])
+											.put("BuyerRejectionMessage", values[2])
+											.put("SupplierRejectionMessage", values[3])
+											.put("SkuType", values[4])
+											.put("BWSCL", values[5])
+											.put("TImportacion", values[6])
+											.put("Negocio", values[7])
+											.put("EXTWG_S4H", values[8])
+											.put("MesdeEntregadeMercancIa", values[9])
+											.put("Temporada", values[10])
+											.put("BWVOR", values[11])
+											.put("AnoEstacion", values[12])
+											.put("TextoAdicional", values[13])
+											.put("Evento", values[14])
+											.put("CostobrutoSinIVA", values[15])
+											.put("PrecioSugeridocIVA", values[16])
+											.put("Descuento1", values[17])
+											.put("Descuento2", values[18])
+											.put("LABOR", values[19])
+											.put("NORMT", values[20])
+											.put("DescriptionLong", values[21])
+											.put("DescriptionLong2", values[22])
+										);
+								}
 							}
 							pw.println(new org.json.JSONObject().put("items", responseArray));
 						}else if("putArticleExtraData".equals(request.getString("action"))) {
@@ -1291,27 +827,38 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							responseArray = new org.json.JSONArray();
 							String[] values = null;
 							for(int i=0; i<items.length(); i++) {
-								values = articleExtraData.get(items.getString(i));
-								responseArray.put( values == null ? 
-										new org.json.JSONObject()
-											.put("variant", items.getString(i))
-											.put("SAPObjectType", "")
-											.put("SkuType", "")
-											.put("CostobrutoSinIVA", "")
-											.put("PrecioSugeridocIVA", "")
-											.put("Descuento1", "")
-											.put("Descuento2", "")
-											.put("ProductName", "") :
-										new org.json.JSONObject()
-											.put("variant", items.getString(i))
-											.put("SAPObjectType", values[0])
-											.put("SkuType", values[1])
-											.put("CostobrutoSinIVA", values[2])
-											.put("PrecioSugeridocIVA", values.length > 3 ? values[3] : "")
-											.put("Descuento1", values.length > 4 ? values[4] : "")
-											.put("Descuento2", values.length > 5 ? values[5] : "")
-											.put("ProductName", values.length > 6 ? values[6] : "")
-									);
+								if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
+									responseArray.put( dastub.getArticleExtraData(items.getString(i), new String[] {
+											 "SkuType"
+											,"CostobrutoSinIVA"
+											,"PrecioSugeridocIVA"
+											,"Descuento1"
+											,"Descuento2"
+											,"TypeMainBarCode"
+									}) );
+								}else {
+									values = articleExtraData.get(items.getString(i));
+									responseArray.put( values == null ? 
+											new org.json.JSONObject()
+												.put("variant", items.getString(i))
+												.put("SAPObjectType", "")
+												.put("SkuType", "")
+												.put("CostobrutoSinIVA", "")
+												.put("PrecioSugeridocIVA", "")
+												.put("Descuento1", "")
+												.put("Descuento2", "")
+												.put("ProductName", "") :
+											new org.json.JSONObject()
+												.put("variant", items.getString(i))
+												.put("SAPObjectType", values[0])
+												.put("SkuType", values[1])
+												.put("CostobrutoSinIVA", values[2])
+												.put("PrecioSugeridocIVA", values.length > 3 ? values[3] : "")
+												.put("Descuento1", values.length > 4 ? values[4] : "")
+												.put("Descuento2", values.length > 5 ? values[5] : "")
+												.put("ProductName", values.length > 6 ? values[6] : "")
+										);
+								}
 							}
 							pw.println(new org.json.JSONObject().put("items", responseArray));
 						}else if("articleByEAN".equals(request.getString("action"))) {
@@ -1320,7 +867,7 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							String product = null;
 							for(int i=0; i<items.length(); i++) {
 								if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
-									product = getEanSupplierAid(items.getString(i));
+									product = dastub.getEanSupplierAid(items.getString(i));
 								}else {
 									product = eanSupplierAID.get(items.getString(i));
 								}
@@ -1333,7 +880,7 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							String product = null;
 							for(int i=0; i<items.length(); i++) {
 								if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
-									product = getEanProductNo(items.getString(i));
+									product = dastub.getEanProductNo(items.getString(i));
 								}else {
 									product = eanProductNo.get(items.getString(i));
 								}
@@ -1494,14 +1041,18 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							pw.println(done);
 						}else if("getGlobalMetaData".equals(request.getString("action"))) {
 							items = new org.json.JSONArray();
-							item = new org.json.JSONObject();
-							for(java.util.Map.Entry<String, java.util.concurrent.ConcurrentHashMap<String, String>> entry : globalMetaData.entrySet()) {
-								org.json.JSONObject properties = new org.json.JSONObject();
-								for(java.util.Map.Entry<String, String> entry0 : entry.getValue().entrySet()) {
-									properties.put(entry0.getKey(), entry0.getValue());
-								}
-								if(properties.length() > 0) {
-									item.put(entry.getKey(), properties);
+							if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
+								item = dastub.getGlobalMetadata("CreateProposal") ;
+							}else {
+								item = new org.json.JSONObject();
+								for(java.util.Map.Entry<String, java.util.concurrent.ConcurrentHashMap<String, String>> entry : globalMetaData.entrySet()) {
+									org.json.JSONObject properties = new org.json.JSONObject();
+									for(java.util.Map.Entry<String, String> entry0 : entry.getValue().entrySet()) {
+										properties.put(entry0.getKey(), entry0.getValue());
+									}
+									if(properties.length() > 0) {
+										item.put(entry.getKey(), properties);
+									}
 								}
 							}
 							items.put(item);
@@ -1542,15 +1093,19 @@ public class ProductVariantInfoAdmin002 extends Thread {
 									items = request.getJSONArray("items");
 									java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> templateMap = null;
 									for(int i=0; i<items.length(); i++) {
-										org.json.JSONObject ir = new org.json.JSONObject();
-										itemsResponse.put(ir);
-										templateMap = templateCharacteristicMetaData.get(items.getString(i));
-										if(templateMap != null) {
-											for(java.util.Map.Entry<String, java.util.concurrent.ConcurrentHashMap<String, String>> entry : templateMap.entrySet()) {
-												org.json.JSONObject properties = new org.json.JSONObject();
-												ir.put(entry.getKey(), properties);
-												for(java.util.Map.Entry<String, String> entry0 : entry.getValue().entrySet()) {
-													properties.put(entry0.getKey(), entry0.getValue());
+										if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
+											itemsResponse = dastub.getTemplateCharacteristicPropertyValue(items.getString(i), "CreateProposal");
+										}else {
+											org.json.JSONObject ir = new org.json.JSONObject();
+											itemsResponse.put(ir);
+											templateMap = templateCharacteristicMetaData.get(items.getString(i));
+											if(templateMap != null) {
+												for(java.util.Map.Entry<String, java.util.concurrent.ConcurrentHashMap<String, String>> entry : templateMap.entrySet()) {
+													org.json.JSONObject properties = new org.json.JSONObject();
+													ir.put(entry.getKey(), properties);
+													for(java.util.Map.Entry<String, String> entry0 : entry.getValue().entrySet()) {
+														properties.put(entry0.getKey(), entry0.getValue());
+													}
 												}
 											}
 										}
@@ -1568,17 +1123,23 @@ public class ProductVariantInfoAdmin002 extends Thread {
 									java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> templateMap = null;
 									for(int i=0; i<items.length(); i++) {
 										item = items.getJSONObject(i);
-										org.json.JSONObject ir = new org.json.JSONObject();
-										itemsResponse.put(ir);
-										if(item.has("template") && !"".equals(item.getString("template")) && item.has("characteristic") && !"".equals(item.getString("characteristic"))) {
-											templateMap = templateCharacteristicMetaData.get(item.getString("template"));
-											if(templateMap != null) {
-												java.util.concurrent.ConcurrentHashMap<String, String> characteristicProperties = templateMap.get(item.getString("characteristic"));
-												if(characteristicProperties != null) {
-													org.json.JSONObject properties = new org.json.JSONObject();
-													ir.put(item.getString("characteristic"), properties);
-													for(java.util.Map.Entry<String, String> entry : characteristicProperties.entrySet()) {
-														properties.put(entry.getKey(), entry.getValue());
+										if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
+											if(item.has("template") && item.has("characteristic")) {
+												itemsResponse = dastub.getTemplateCharacteristicPropertyValue(item.getString("template"), item.getString("characteristic"), "CreateProposal");
+											}
+										}else {
+											org.json.JSONObject ir = new org.json.JSONObject();
+											itemsResponse.put(ir);
+											if(item.has("template") && !"".equals(item.getString("template")) && item.has("characteristic") && !"".equals(item.getString("characteristic"))) {
+												templateMap = templateCharacteristicMetaData.get(item.getString("template"));
+												if(templateMap != null) {
+													java.util.concurrent.ConcurrentHashMap<String, String> characteristicProperties = templateMap.get(item.getString("characteristic"));
+													if(characteristicProperties != null) {
+														org.json.JSONObject properties = new org.json.JSONObject();
+														ir.put(item.getString("characteristic"), properties);
+														for(java.util.Map.Entry<String, String> entry : characteristicProperties.entrySet()) {
+															properties.put(entry.getKey(), entry.getValue());
+														}
 													}
 												}
 											}
@@ -1597,18 +1158,24 @@ public class ProductVariantInfoAdmin002 extends Thread {
 									java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> templateMap = null;
 									for(int i=0; i<items.length(); i++) {
 										item = items.getJSONObject(i);
-										org.json.JSONObject ir = new org.json.JSONObject();
-										itemsResponse.put(ir);
-										if(item.has("template") && !"".equals(item.getString("template")) && item.has("characteristic") && !"".equals(item.getString("characteristic")) && item.has("property") && !"".equals(item.getString("property"))) {
-											templateMap = templateCharacteristicMetaData.get(item.getString("template"));
-											if(templateMap != null) {
-												java.util.concurrent.ConcurrentHashMap<String, String> characteristicProperties = templateMap.get(item.getString("characteristic"));
-												if(characteristicProperties != null) {
-													org.json.JSONObject properties = new org.json.JSONObject();
-													ir.put(item.getString("characteristic"), properties);
-													String propertyValue = characteristicProperties.get(item.getString("property"));
-													if(propertyValue != null) {
-														properties.put(item.getString("property"), propertyValue);
+										if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
+											if(item.has("template") && item.has("characteristic") && item.has("property")) {
+												itemsResponse = dastub.getTemplateCharacteristicPropertyValue(item.getString("template"), item.getString("characteristic"), "CreateProposal", item.getString("property"));
+											}
+										}else {
+											org.json.JSONObject ir = new org.json.JSONObject();
+											itemsResponse.put(ir);
+											if(item.has("template") && !"".equals(item.getString("template")) && item.has("characteristic") && !"".equals(item.getString("characteristic")) && item.has("property") && !"".equals(item.getString("property"))) {
+												templateMap = templateCharacteristicMetaData.get(item.getString("template"));
+												if(templateMap != null) {
+													java.util.concurrent.ConcurrentHashMap<String, String> characteristicProperties = templateMap.get(item.getString("characteristic"));
+													if(characteristicProperties != null) {
+														org.json.JSONObject properties = new org.json.JSONObject();
+														ir.put(item.getString("characteristic"), properties);
+														String propertyValue = characteristicProperties.get(item.getString("property"));
+														if(propertyValue != null) {
+															properties.put(item.getString("property"), propertyValue);
+														}
 													}
 												}
 											}
@@ -1692,8 +1259,12 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							org.json.JSONArray itemsResponse = new org.json.JSONArray();
 							String name = null;
 							for(int i=0; i<items.length(); i++) {
-								name = templateNames.get(items.getString(i));
-								itemsResponse.put(name == null ? "" : name);
+								if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
+									itemsResponse.put( dastub.getTemplateName(items.getString(i)) );
+								}else {
+									name = templateNames.get(items.getString(i));
+									itemsResponse.put(name == null ? "" : name);
+								}
 							}
 							pw.print( new org.json.JSONObject().put("items", itemsResponse) );
 						}else if("removeTemplateName".equals(request.getString("action"))) {
@@ -1714,11 +1285,15 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							org.json.JSONArray itemsResponse = new org.json.JSONArray();
 							String[] data = null;
 							for(int i=0; i<items.length(); i++) {
-								data = characteristicData.get(items.getString(i));
-								if(data == null) {
-									itemsResponse.put(new org.json.JSONObject().put("characteristic", items.getString(i)).put("name", "").put("dataType", "").put("lookup", ""));
+								if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
+									itemsResponse.put( dastub.getCharacteristicData(items.getString(i)) );
 								}else {
-									itemsResponse.put(new org.json.JSONObject().put("characteristic", items.getString(i)).put("name", data[0]).put("dataType", data[1]).put("lookup", data[2]));
+									data = characteristicData.get(items.getString(i));
+									if(data == null) {
+										itemsResponse.put(new org.json.JSONObject().put("characteristic", items.getString(i)).put("name", "").put("dataType", "").put("lookup", ""));
+									}else {
+										itemsResponse.put(new org.json.JSONObject().put("characteristic", items.getString(i)).put("name", data[0]).put("dataType", data[1]).put("lookup", data[2]));
+									}
 								}
 							}
 							pw.print( new org.json.JSONObject().put("items", itemsResponse) );
@@ -1789,16 +1364,20 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							for(int i=0; i<items.length(); i++) {
 								item = items.getJSONObject(i);
 								if(item.has("diccionario") && item.has("idValor")) {
-									java.util.concurrent.ConcurrentHashMap<String, String[]> content = contenidoDeDiccionario.get(item.getString("diccionario"));
-									if(content != null) {
-										String[] tupla = content.get(item.getString("idValor"));
-										if(tupla != null) {
-											itemsResponse.put(new org.json.JSONObject().put("diccionario", item.getString("diccionario")).put("idValor", item.getString("idValor")).put("structureGroup", tupla[0]).put("characteristic", tupla[1]).put("property", tupla[2]).put("propertyValue", tupla[3]).put("propertyShortCode", tupla[4]).put("alternativeValue", tupla[5]));
+									if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
+										itemsResponse.put( dastub.getDictionaryEntry(item.getString("diccionario"), item.getString("idValor")) );
+									}else {
+										java.util.concurrent.ConcurrentHashMap<String, String[]> content = contenidoDeDiccionario.get(item.getString("diccionario"));
+										if(content != null) {
+											String[] tupla = content.get(item.getString("idValor"));
+											if(tupla != null) {
+												itemsResponse.put(new org.json.JSONObject().put("diccionario", item.getString("diccionario")).put("idValor", item.getString("idValor")).put("structureGroup", tupla[0]).put("characteristic", tupla[1]).put("property", tupla[2]).put("propertyValue", tupla[3]).put("propertyShortCode", tupla[4]).put("alternativeValue", tupla[5]));
+											}else {
+												itemsResponse.put(new org.json.JSONObject().put("diccionario", item.getString("diccionario")).put("idValor", item.getString("idValor")).put("structureGroup", "").put("characteristic", "").put("property", "").put("propertyValue", "").put("propertyShortCode", "").put("alternativeValue", ""));
+											}
 										}else {
 											itemsResponse.put(new org.json.JSONObject().put("diccionario", item.getString("diccionario")).put("idValor", item.getString("idValor")).put("structureGroup", "").put("characteristic", "").put("property", "").put("propertyValue", "").put("propertyShortCode", "").put("alternativeValue", ""));
 										}
-									}else {
-										itemsResponse.put(new org.json.JSONObject().put("diccionario", item.getString("diccionario")).put("idValor", item.getString("idValor")).put("structureGroup", "").put("characteristic", "").put("property", "").put("propertyValue", "").put("propertyShortCode", "").put("alternativeValue", ""));
 									}
 								}else {
 									itemsResponse.put(new org.json.JSONObject().put("diccionario", !item.has("diccionario") ? "" : item.getString("diccionario")).put("idValor", !item.has("idValor") ? "" : item.getString("idValor")).put("structureGroup", "").put("characteristic", "").put("property", "").put("propertyValue", "").put("propertyShortCode", "").put("alternativeValue", ""));
@@ -1864,7 +1443,7 @@ public class ProductVariantInfoAdmin002 extends Thread {
 				java.util.concurrent.ArrayBlockingQueue<java.net.Socket> clientes = new java.util.concurrent.ArrayBlockingQueue<>(a);
 				java.util.LinkedList<Thread> workers = new java.util.LinkedList<>();
 				for(int i=0; i<a; i++) {
-					Worker w = new Worker(i+1, ProductVariantInfoAdmin002.this, clientes);
+					Worker w = new Worker(ProductVariantInfoAdmin002.this, clientes);
 					Thread t = new Thread(w);
 					t.setPriority(Thread.currentThread().getPriority() - 1);
 					t.setDaemon(false);

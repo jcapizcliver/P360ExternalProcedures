@@ -2,6 +2,8 @@ package mx.com.liverpool.p360.services.core;
 
 import org.json.JSONObject;
 
+import mx.com.liverpool.p360.services.core.temp.product2g.maintenance.EliminaImagenesDeVariantes;
+
 public class CreateProposalFrozenMediaURLs {
 
 	private String input = null;
@@ -636,6 +638,8 @@ public class CreateProposalFrozenMediaURLs {
 			JSONObject reqObj = new org.json.JSONObject().put("_characteristicRecords", characteristicArray);
 			log("REO: " + reqObj);
 			try {
+				log("Deleting existing final media assets for variant: " + externalItemId);
+                new EliminaImagenesDeVariantes().deleteAssets2("'" + externalItemId + "'@1");
 				rc.getHeader().put("Accept-Language", "es");
 				rawResp = rc.getRequest("PUT", this.objectAPIArticleURL + "/" + internalItemId + "?includeLabels=true",
 						reqObj.toString());

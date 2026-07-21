@@ -2912,11 +2912,11 @@ public class CreateProposal {
 										itemGroupS4H = String.valueOf(cosos.getJSONObject(j).get(name)).replaceAll(" - .+", "");
 										if(itemGroupS4H.length() >= 5) {
 											if(itemGroupS4H.startsWith("SB")) {
-												itemGroupS4H = itemGroupS4H.substring(0,7);
 												productFromItemGroup = itemGroupS4H.substring(7);
+												itemGroupS4H = itemGroupS4H.substring(0,7);
 											}else {
-												itemGroupS4H = itemGroupS4H.substring(0,5);
 												productFromItemGroup = itemGroupS4H.substring(5);
+												itemGroupS4H = itemGroupS4H.substring(0,5);
 											}
 											charBody = new org.json.JSONObject()
 													.put("_datatype", "LOOKUP")
@@ -2928,9 +2928,17 @@ public class CreateProposal {
 															.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
 															.put("values", new org.json.JSONArray().put(
 																	new org.json.JSONObject().put("_code", itemGroupS4H)
-																	))));
+																))));
 											characteristicArray.put(charBody);
 											if(!"".equals(productFromItemGroup)) {
+												if(externalProductId != null && !"".equals(externalProductId)) {
+													java.util.Map<String, String> qpp = new java.util.HashMap<>();
+													qpp.put("includeObjectsInProtocol", "false");
+													RequestHandler rh = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('SB_0002',root,\"0000.0000.RK\",'SB_0002',-1)")), 1000, req -> rw.writeData("list", "Product2G", null, qpp, req, this::log) );
+													rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalProductId + "'@1")).put("values", new org.json.JSONArray().put(productFromItemGroup)));
+													rh.sendData();
+												}
+												/*
 												charBody = new org.json.JSONObject()
 														.put("_datatype", "LOOKUP")
 														.put("_qualification",
@@ -2941,12 +2949,14 @@ public class CreateProposal {
 																.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
 																.put("values", new org.json.JSONArray().put(
 																		new org.json.JSONObject().put("_code", productFromItemGroup)
-																		))));
+																	))));
 												characteristicArray.put(charBody);
+												*/
 											}
 										}else {
 											productFromItemGroup = "";
 										}
+										log("Came to ProductTypeSAPTEMPSBB, got: " + productFromItemGroup);
 										// Texto del nombre del producto y las unidades de medidas.
 									}
 									if("DescriptionLong".equals(name)) {
@@ -3466,7 +3476,6 @@ public class CreateProposal {
 				typeMainBarCodeA[0] = null;
 
 				try {
-
 						if(variantes != null && variantes.length() > 0) {
 							if(mainBarCode != null && !"".equals(mainBarCode) && variantes.length() == 1 && !variantes.getJSONObject(0).has("MainBarCode") && !variantes.getJSONObject(0).has("MainBarCodeS4H")) {
 								variantes.getJSONObject(0).put("MainBarCode", mainBarCode);
@@ -3580,9 +3589,9 @@ public class CreateProposal {
 							externalStatus = externalStatus == null ? "Borrador" : externalStatus;
 						} log("Los estatus: " + previousStatus + "|" + internalStatus + "|" + externalStatus);
 						log("<:::::IG::" + itemGroup + "::::::::><:::::::IGS4H::" + itemGroupS4H + "::::::::>" + productFromItemGroup + "<::>");
-						if(productFromItemGroup != null && !"".equals(productFromItemGroup)) {
-							characteristicArray.put( createCharacteristicValueObject("Suburbia".equals(business) ? "SB_0002" : "ProductTypeSAP", new org.json.JSONObject().put("_code", productFromItemGroup ) ) );
-						}
+//						if(productFromItemGroup != null && !"".equals(productFromItemGroup)) {
+//							characteristicArray.put( createCharacteristicValueObject("Suburbia".equals(business) ? "SB_0002" : "ProductTypeSAP", new org.json.JSONObject().put("_code", productFromItemGroup ) ) );
+//						}
 						if(!sections.isEmpty() || unMasiosare) {
 /*************************/ computeGeneric(externalProductId, characteristicArray, templateId, internalStatus, business, itemGroup == null || "".equals(itemGroup) ? itemGroupS4H : itemGroup, sections, variantes, unMasiosare); /*****************************************/
 							boolean fnd = false;
@@ -3804,6 +3813,13 @@ public class CreateProposal {
 									externalProductId = jo == null ? "" :
 										jo.getJSONObject("_entityItem").getString("_externalId").split("@")[0]
 												.replaceAll("^'|'$", "");
+									if(productFromItemGroup != null && !"".equals(productFromItemGroup)) {
+										java.util.Map<String, String> qpp = new java.util.HashMap<>();
+										qpp.put("includeObjectsInProtocol", "false");
+										RequestHandler rh = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('SB_0002',root,\"0000.0000.RK\",'SB_0002',-1)")), 1000, req -> rw.writeData("list", "Product2G", null, qpp, req, this::log) );
+										rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalProductId + "'@1")).put("values", new org.json.JSONArray().put(productFromItemGroup)));
+										rh.sendData();
+									}
 								}else {
 									log("See this: " + rawResp);
 								}
@@ -4701,56 +4717,58 @@ public class CreateProposal {
 			log("Cocqiutus: " + proposalStatus + ", business: " + business);
 			if(("Liverpool".equals(business) || "Suburbia".equals(business)) && ("1020".equals(proposalStatus) || "1008".equals(proposalStatus))) {
 				String[] supplierData = parties.get(supplier);
-				log("Parties: " + rw.getRw().serializeChunk(supplierData));
-				String supplierType = supplierData[2];
-				java.time.LocalDate ld = java.time.LocalDate.now();
-				java.time.LocalDate cd = ld;
-				int added = 0;
-				int toAdd = 2;
-				java.time.DayOfWeek dow = null;
-				while(added < toAdd) {
-					cd.plusDays(1);
-					dow = cd.getDayOfWeek();
-					if(dow != java.time.DayOfWeek.SATURDAY && dow != java.time.DayOfWeek.SUNDAY) {
-						added++;
+				if(supplierData != null) {
+					log("Parties: " + rw.getRw().serializeChunk(supplierData));
+					String supplierType = supplierData[2];
+					java.time.LocalDate ld = java.time.LocalDate.now();
+					java.time.LocalDate cd = ld;
+					int added = 0;
+					int toAdd = 2;
+					java.time.DayOfWeek dow = null;
+					while(added < toAdd) {
+						cd.plusDays(1);
+						dow = cd.getDayOfWeek();
+						if(dow != java.time.DayOfWeek.SATURDAY && dow != java.time.DayOfWeek.SUNDAY) {
+							added++;
+						}
 					}
-				}
-				String dtv = cd.format( java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd") );
-				if("PNA".equals(supplierType)) {
-					charBody = new org.json.JSONObject()
-							.put("_qualification",
-									new JSONObject().put("characteristic",
-											new JSONObject().put("_code", "FechaInicioVigenciaPrecioVenta")))
-							.put("_recordLang", new org.json.JSONArray()
-									.put(new JSONObject().put("values", new org.json.JSONArray()
-											.put(dtv))));
-					characteristicArray.put(charBody);
-					charBody = new org.json.JSONObject()
-							.put("_qualification",
-									new JSONObject().put("characteristic",
-											new JSONObject().put("_code", "FechaInicioVigenciaCostoNeto")))
-							.put("_recordLang", new org.json.JSONArray()
-									.put(new JSONObject().put("values", new org.json.JSONArray()
-											.put(dtv))));
-					characteristicArray.put(charBody);
-				}else {
-					charBody = new org.json.JSONObject()
-							.put("_qualification",
-									new JSONObject().put("characteristic",
-											new JSONObject().put("_code", "FechaInicioVigenciaPrecioVenta")))
-							.put("_recordLang", new org.json.JSONArray()
-									.put(new JSONObject().put("values", new org.json.JSONArray()
-											.put(dtv))));
-					characteristicArray.put(charBody);
-					charBody = new org.json.JSONObject()
-							.put("_qualification",
-									new JSONObject().put("characteristic",
-											new JSONObject().put("_code", "FechaInicioVigenciaCostoImportacion")))
-							.put("_recordLang", new org.json.JSONArray()
-									.put(new JSONObject().put("values", new org.json.JSONArray()
-											.put(dtv))));
-					characteristicArray.put(charBody);
-				}
+					String dtv = cd.format( java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd") );
+					if("PNA".equals(supplierType)) {
+						charBody = new org.json.JSONObject()
+								.put("_qualification",
+										new JSONObject().put("characteristic",
+												new JSONObject().put("_code", "FechaInicioVigenciaPrecioVenta")))
+								.put("_recordLang", new org.json.JSONArray()
+										.put(new JSONObject().put("values", new org.json.JSONArray()
+												.put(dtv))));
+						characteristicArray.put(charBody);
+						charBody = new org.json.JSONObject()
+								.put("_qualification",
+										new JSONObject().put("characteristic",
+												new JSONObject().put("_code", "FechaInicioVigenciaCostoNeto")))
+								.put("_recordLang", new org.json.JSONArray()
+										.put(new JSONObject().put("values", new org.json.JSONArray()
+												.put(dtv))));
+						characteristicArray.put(charBody);
+					}else {
+						charBody = new org.json.JSONObject()
+								.put("_qualification",
+										new JSONObject().put("characteristic",
+												new JSONObject().put("_code", "FechaInicioVigenciaPrecioVenta")))
+								.put("_recordLang", new org.json.JSONArray()
+										.put(new JSONObject().put("values", new org.json.JSONArray()
+												.put(dtv))));
+						characteristicArray.put(charBody);
+						charBody = new org.json.JSONObject()
+								.put("_qualification",
+										new JSONObject().put("characteristic",
+												new JSONObject().put("_code", "FechaInicioVigenciaCostoImportacion")))
+								.put("_recordLang", new org.json.JSONArray()
+										.put(new JSONObject().put("values", new org.json.JSONArray()
+												.put(dtv))));
+						characteristicArray.put(charBody);
+					}
+				}else { log( "No party data for: " + supplier + "." ); }
 			}
 
 			if(business != null) {
@@ -4891,12 +4909,15 @@ public class CreateProposal {
 
 		for (int j = 0; j < cosos.length(); j++) {
 			if (!JSONObject.NULL.equals(cosos.get(j)) && cosos.get(j) != null) {
+				log("El drr neim ---------> " + cosos);
 				for (String name : JSONObject.getNames(cosos.getJSONObject(j))) {
 					holder = String.valueOf(cosos.getJSONObject(j).get(name));
 					if("".equals(holder)) {
 						continue;
 					}
+					log("El drr neim ---------> " + name);
 					String drr = dr.getCharacteristicData(new org.json.JSONArray().put(name));
+					log("El drr ---------> " + drr);
 					lookup = drr != null ? new org.json.JSONObject(drr).getJSONArray("items").getJSONObject(0).getString("lookup") : null; // characteristicsThatAreLookups.get(name);
 					if (lookup == null || "".equals(lookup)) {
 					} else {
