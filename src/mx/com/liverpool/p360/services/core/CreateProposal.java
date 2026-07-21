@@ -3643,34 +3643,44 @@ public class CreateProposal {
 							reqObj.put("_characteristicRecords", characteristicArray);
 						}
 						String pn = null;
-						java.math.BigDecimal igConf = null;
-						java.math.BigDecimal se = null;
-						java.math.BigDecimal dirConf = null;
-						for(int idx=0; idx<characteristicArray.length(); idx++) {
-							if("ItemGroupIAConfidenceDir".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
-								dirConf = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
-							}else if("ItemGroupIAConfidenceIG".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
-								igConf = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
-							}else if("ItemGroupIAConfidenceSec".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
-								se = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
-							}else if("ProductName".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
-								pn = characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-							}
-						}
-						if( igConf != null || se != null || dirConf != null ) {
-							if(igConf != null) {
-								if(igConf.compareTo( new java.math.BigDecimal(0.999517) ) <= 0) {
-									internalStatus = "1021";
-								}
-							}
-							if(dirConf != null) {
-								if(dirConf.compareTo( new java.math.BigDecimal(0.999517) ) <= 0) {
-									internalStatus = "1021";
-								}
-							}
-							if(se != null) {
-								if(se.compareTo( new java.math.BigDecimal(0.999517) ) <= 0) {
-									internalStatus = "1021";
+						if(externalProductId != null && !"".equals(externalProductId)) {
+							String drr = dr.getProductData(new org.json.JSONArray().put(externalProductId));
+							if(drr != null) {
+								org.json.JSONObject dro = new org.json.JSONObject(drr);
+								org.json.JSONArray items = dro.getJSONArray("items");
+								org.json.JSONObject item = items.getJSONObject(0);
+								if(("".equals(item.getString("ItemGroup")) && "".equals(item.getString("ItemGroupS4H"))) || "".equals(item.getString("Section"))) {
+									java.math.BigDecimal igConf = null;
+									java.math.BigDecimal se = null;
+									java.math.BigDecimal dirConf = null;
+									for(int idx=0; idx<characteristicArray.length(); idx++) {
+										if("ItemGroupIAConfidenceDir".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
+											dirConf = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
+										}else if("ItemGroupIAConfidenceIG".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
+											igConf = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
+										}else if("ItemGroupIAConfidenceSec".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
+											se = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
+										}else if("ProductName".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
+											pn = characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+										}
+									}
+									if( igConf != null || se != null || dirConf != null ) {
+										if(igConf != null) {
+											if(igConf.compareTo( new java.math.BigDecimal(0.999517) ) <= 0) {
+												internalStatus = "1021";
+											}
+										}
+										if(dirConf != null) {
+											if(dirConf.compareTo( new java.math.BigDecimal(0.999517) ) <= 0) {
+												internalStatus = "1021";
+											}
+										}
+										if(se != null) {
+											if(se.compareTo( new java.math.BigDecimal(0.999517) ) <= 0) {
+												internalStatus = "1021";
+											}
+										}
+									}
 								}
 							}
 						}
