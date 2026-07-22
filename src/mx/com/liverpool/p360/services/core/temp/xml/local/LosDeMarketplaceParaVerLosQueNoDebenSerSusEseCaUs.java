@@ -492,24 +492,33 @@ public class LosDeMarketplaceParaVerLosQueNoDebenSerSusEseCaUs {
     private int lacuenta = 0;
 
     private int lacuentaVars = 0;
-    java.util.Map<String, java.util.Set< String >> tainted = new java.util.HashMap<>();
+    private final java.util.Map<String, java.util.Set< String >> tainted = new java.util.HashMap<>();
+    private final java.util.Set<String> withNoSKU = new java.util.TreeSet<>();
 
     private void processProduct(Product product) {
-    	if(!"SalesItemFamilyMkt".equals(product.getUserTypeId()))
+    	if(!"SalesItemFamilyMkt".equals(product.getUserTypeId()) && !"SalesItem".equals(product.getUserTypeId()))
     		return;
     	java.util.List<Value> values = product.getValues();
     	for(Value v : values) {
     		if("SKU".equals(v.getAttributeId())) {
-    			if(v.getText().startsWith("999") && !product.getId().endsWith(v.getText().substring(3))) {
-    				java.util.List<Product> children = product.getProducts();
-    				for(Product child : children) {
-    					java.util.Set<String> superiors = tainted.get(child.getId());
-    					if(superiors == null) {
-    						superiors = new java.util.TreeSet<>();
-    						tainted.put(child.getId(), superiors);
-    					}
-    					superiors.add(product.getId());
-    				}
+    			if(v.getText() != null && v.getText().startsWith("999") && !product.getId().endsWith(v.getText().substring(3))) {
+    				java.util.Set<String> superiors = tainted.get(product.getId());
+					if(superiors == null) {
+						superiors = new java.util.TreeSet<>();
+						tainted.put(product.getId(), superiors);
+					}
+					superiors.add(v.getText());
+//    				java.util.List<Product> children = product.getProducts();
+//    				for(Product child : children) {
+//    					java.util.Set<String> superiors = tainted.get(child.getId());
+//    					if(superiors == null) {
+//    						superiors = new java.util.TreeSet<>();
+//    						tainted.put(child.getId(), superiors);
+//    					}
+//    					superiors.add(product.getId());
+//    				}
+    			}else if(v.getText() == null) {
+    				withNoSKU.add(product.getId());
     			}
     		}
     	}

@@ -75,82 +75,38 @@ public class ParseJana122Response implements SimpleLog {
 																													// processed_s4h.122.properties
 	private static boolean USE_CACHE = Boolean.parseBoolean(PropertiesManager.get("p360.contingency.s4h.use_cache"));// false;
 
-	private final org.json.JSONObject reqSKU = new org.json.JSONObject()
-			.put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2G.SKU")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject reqEAN = new org.json.JSONObject()
-			.put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2G.EAN")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject reqBusiness = new org.json.JSONObject()
-			.put("columns",
-					new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2G.Business")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject reqDS = new org.json.JSONObject()
-			.put("columns",
-					new org.json.JSONArray()
-							.put(new org.json.JSONObject().put("identifier", "Product2GLang.DescriptionShort(es)")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject reqDir = new org.json.JSONObject()
-			.put("columns",
-					new org.json.JSONArray()
-							.put(new org.json.JSONObject().put("identifier", "Product2GExtraData.Direccion(MX)")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject reqSec = new org.json.JSONObject()
-			.put("columns",
-					new org.json.JSONArray()
-							.put(new org.json.JSONObject().put("identifier", "Product2GExtraData.Section(MX)")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject reqIG = new org.json.JSONObject()
-			.put("columns",
-					new org.json.JSONArray()
-							.put(new org.json.JSONObject().put("identifier", "Product2GExtraData.ItemGroupS4H(MX)")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject reqBN = new org.json.JSONObject()
-			.put("columns",
-					new org.json.JSONArray()
-							.put(new org.json.JSONObject().put("identifier", "Product2GExtraData.BRAND_ID_S4H(MX)")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject reqST = new org.json.JSONObject()
-			.put("columns",
-					new org.json.JSONArray()
-							.put(new org.json.JSONObject().put("identifier", "Product2GExtraData.SAPObjectType(MX)")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject reqSupplier = new org.json.JSONObject()
-			.put("columns",
-					new org.json.JSONArray()
-							.put(new org.json.JSONObject().put("identifier", "Product2GExtraData.SupplierID(MX)")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject reqSPN = new org.json.JSONObject()
-			.put("columns",
-					new org.json.JSONArray().put(
-							new org.json.JSONObject().put("identifier", "Product2GExtraData.SupplierPartNumber(MX)")))
-			.put("rows", new org.json.JSONArray());
+	private final java.util.LinkedList<String> product2GCharacteristics = new java.util.LinkedList<>();
+	private final java.util.LinkedList<String> articleCharacteristics = new java.util.LinkedList<>();
 
-	private final org.json.JSONObject reqSKUA = new org.json.JSONObject()
-			.put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Article.SKU")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject reqEANA = new org.json.JSONObject()
-			.put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Article.EAN")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject reqBNA = new org.json.JSONObject()
-			.put("columns",
-					new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Article.Business")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject reqDSA = new org.json.JSONObject()
-			.put("columns",
-					new org.json.JSONArray()
-							.put(new org.json.JSONObject().put("identifier", "ArticleLang.DescriptionShort(es)")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject reqSPNA = new org.json.JSONObject()
-			.put("columns",
-					new org.json.JSONArray().put(
-							new org.json.JSONObject().put("identifier", "ArticleExtraData.SupplierPartNumber(MX)")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject reqSTA = new org.json.JSONObject()
-			.put("columns",
-					new org.json.JSONArray()
-							.put(new org.json.JSONObject().put("identifier", "ArticleExtraData.SAPObjectType(MX)")))
-			.put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqCurrentStatus = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2G.CurrentStatus"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqPrevStatus = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2G.PrevStatus"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqSKU = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2G.SKU"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqEAN = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2G.EAN"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqBusiness = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2G.Business"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqDS = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GLang.DescriptionShort(es)"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqDir = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GExtraData.Direccion(MX)"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqSec = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GExtraData.Section(MX)"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqIG = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GExtraData.ItemGroupS4H(MX)"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqBN = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GExtraData.BRAND_ID_S4H(MX)"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqST = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GExtraData.SAPObjectType(MX)"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqSupplier = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GExtraData.SupplierID(MX)"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqSPN = new org.json.JSONObject().put("columns",new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GExtraData.SupplierPartNumber(MX)"))).put("rows", new org.json.JSONArray());
+
+	private final org.json.JSONObject reqSKUA = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Article.SKU"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqEANA = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Article.EAN"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqBNA = new org.json.JSONObject().put("columns",new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Article.Business"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqDSA = new org.json.JSONObject().put("columns",new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "ArticleLang.DescriptionShort(es)"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqSPNA = new org.json.JSONObject().put("columns",new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "ArticleExtraData.SupplierPartNumber(MX)"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject reqSTA = new org.json.JSONObject().put("columns",new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "ArticleExtraData.SAPObjectType(MX)"))).put("rows", new org.json.JSONArray());
+	private final org.json.JSONObject requestCommercialS4H = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GStructureMap.ManualMap('CommercialS4H')"))).put("rows", new org.json.JSONArray());
+
+	private final java.util.Map<String, String> dataTypes = new java.util.TreeMap<>();
+	private final java.util.Map<String, String> lkps = new java.util.TreeMap<>();
+	private final java.util.Map<String, java.util.Map<String, String>> map = new java.util.TreeMap<>();
+	private final java.util.Map<String, java.util.Map<String, String>> mapB = new java.util.TreeMap<>();
+
+	private static final java.util.Map<String, String> charIDToS4H = new java.util.TreeMap<>();
+	private static final java.util.Map<String, String> s4hToCharID = new java.util.TreeMap<>();
 
 	private final java.util.Map<String, String> articleHigherLevelProduct = new java.util.TreeMap<>();
 
@@ -314,7 +270,15 @@ public class ParseJana122Response implements SimpleLog {
 	}
 
 	private void sendData() {
-		org.json.JSONArray rows = reqEAN.getJSONArray("rows");
+		org.json.JSONArray rows = reqCurrentStatus.getJSONArray("rows");
+		if (rows.length() > 0) {
+			rw.writeData("list", "Product2G", null, qp0, reqCurrentStatus, this::log);
+		}
+		rows = reqPrevStatus.getJSONArray("rows");
+		if (rows.length() > 0) {
+			rw.writeData("list", "Product2G", null, qp0, reqPrevStatus, this::log);
+		}
+		rows = reqEAN.getJSONArray("rows");
 		if (rows.length() > 0) {
 			rw.writeData("list", "Product2G", null, qp0, reqEAN, this::log);
 		}
@@ -383,7 +347,6 @@ public class ParseJana122Response implements SimpleLog {
 		pids.clear();
 	}
 
-	private static final java.util.Map<String, String> s4hFieldMapping = new java.util.TreeMap<>();
 	private final ParsersTools tools = new ParsersTools(this);
 
 	private boolean running = true;
@@ -408,75 +371,30 @@ public class ParseJana122Response implements SimpleLog {
 
 			}
 		}
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("fields", "Characteristic.Identifier" + ",Characteristic.DataType"
-				+ ",CharacteristicIdentifier.AlternativeIdentifier(ECC)"
-				+ ",CharacteristicIdentifier.AlternativeIdentifier(S4HANA)"
-				+ ",CharacteristicIdentifier.AlternativeIdentifier(ATG)" + ",Characteristic.Lookup->Lookup.Identifier");
-		qp.put("query", "Characteristic.ParentCharacteristic is empty and not Characteristic.DataType = \"NONE\"");
-		qp.put("pageSize", "1500");
-		try (java.io.PrintWriter pw = new java.io.PrintWriter(
-				new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.nio.file.Paths
-						.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "characteristics")
-						.toString())))) {
-			rw.collectData("list", "Characteristic", null, "bySearch", qp, row -> pw.println(workshop.serializeChunk(
-					new Object[] { row.getJSONArray("values").getString(0), row.getJSONArray("values").getString(1),
-							row.getJSONArray("values").getString(2), row.getJSONArray("values").getString(3),
-							row.getJSONArray("values").getString(4), row.getJSONArray("values").getString(5) },
-					"\"", ";", "\\")), System.out::println);
-		} catch (java.io.IOException e) {
-			e.printStackTrace();
+	}
+	
+	private void cargaLasCosas() {
+		long init = System.currentTimeMillis();
+		collectLookupCharacteristics(dataTypes, lkps);
+		collectCharacteristicsByEntity(product2GCharacteristics, articleCharacteristics);
+		for(java.util.Map.Entry<String, String> entry : dataTypes.entrySet()) {
+			tools.collectLookupValues(lkps.get( entry.getKey() ), map, mapB, entry.getValue());
 		}
-		try (java.io.BufferedReader br = new java.io.BufferedReader(
-				new java.io.InputStreamReader(
-						new java.io.FileInputStream(
-								java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"),
-										"cache", "characteristics").toFile()),
-						java.nio.charset.StandardCharsets.UTF_8))) {
+		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "characteristics").toFile()), java.nio.charset.StandardCharsets.UTF_8))){
 			String line = null;
 			String[] pcs = null;
-			while ((line = br.readLine()) != null) {
+			while((line = br.readLine()) != null) {
 				pcs = workshop.parseLine(line, "\"", ";", "\\");
-				if (pcs.length == 6 && !"".equals(pcs[3]))
-					s4hFieldMapping.put(pcs[0], pcs[3]);
-			}
-		} catch (java.io.IOException e) {
-			e.printStackTrace();
-		}
-		/*
-		 * try(java.util.stream.Stream<String> lns =
-		 * java.nio.file.Files.lines(java.nio.file.Paths.get(PropertiesManager.get(
-		 * "p360.contingency.base_directory"), "cache", "characteristics"))){ lns.map(s
-		 * -> workshop.parseLine(s, "\"", ";",
-		 * "\\")).collect(java.util.stream.Collectors.toMap(arr -> arr[0], arr ->
-		 * java.util.Arrays.copyOfRange(arr, 1, arr.length))).entrySet().forEach(entry
-		 * -> { s4hFieldMapping.put(entry.getKey(), entry.getValue()[3]); });
-		 * }catch(java.io.IOException e) { e.printStackTrace(); }
-		 */
-		qp.clear();
-		qp.put("fields", "Characteristic.Identifier,Characteristic.Entities");
-		qp.put("query", "Characteristic.ParentCharacteristic is empty and not Characteristic.DataType = \"NONE\"");
-		qp.put("pageSize", "10000");
-		try (java.io.PrintWriter pw = new java.io.PrintWriter(
-				new java.io.OutputStreamWriter(new java.io.FileOutputStream(
-						java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache",
-								"characteristic_entities").toFile())))) {
-			rw.collectData("list", "Characteristic", null, "bySearch", qp, row -> {
-				org.json.JSONArray entities = row.getJSONArray("values").getJSONArray(1);
-				java.util.LinkedList<String> entitiesList = new java.util.LinkedList<>();
-				for (int i = 0; i < entities.length(); i++) {
-					entitiesList.addLast(entities.getString(i));
+				if(pcs.length > 2) {
+					charIDToS4H.put(pcs[0], pcs[2]);
+					s4hToCharID.put(pcs[2], pcs[0]);
 				}
-				pw.println(
-						rw.getRw().serializeChunk(
-								new String[] { row.getJSONArray("values").getString(0),
-										rw.getRw().serializeChunk(entitiesList.toArray(new String[] {})) },
-								"\"", ";", "\\"));
-			}, System.out::println);
-		} catch (java.io.IOException e) {
+			}
+		}catch(java.io.IOException e) {
 			e.printStackTrace();
 		}
-
+		articleHigherLevelProduct.clear();
+		log("Refreshed took: " + rw.getRw().formatTime(System.currentTimeMillis() - init));
 	}
 
 	private void launchListenerThread() {
@@ -525,39 +443,7 @@ public class ParseJana122Response implements SimpleLog {
 		object.log("Terminé.");
 	}
 
-//    private static long eventTimeMillis(DirEntry e) {
-//        String name = e.getFilename();
-//        long t = extractTsFromNameMillis(name);
-//        if (t >= 0) return t;
-//        try {
-//            var attrs = e.getAttributes();
-//            if (attrs != null && attrs.getModifyTime() != null) {
-//                return attrs.getModifyTime().toMillis();
-//            }
-//        } catch (Exception ignore) {}
-//        return Long.MAX_VALUE;
-//    }
-
-//	private static long extractTsFromNameMillis(String name) {
-//        var m = java.util.regex.Pattern
-//            .compile("(\\d{8}_\\d{6})|(\\d{14})")
-//            .matcher(name);
-//
-//        if (!m.find()) return -1L;
-//
-//        String ts14 = (m.group(1) != null) ? m.group(1).replace("_", "") : m.group(2); // yyyyMMddHHmmss
-//
-//        var ldt = java.time.LocalDateTime.parse(
-//            ts14,
-//            java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss")
-//        );
-//
-//        return ldt.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
-//    }
-
 	public void prepareLocalReplay() {
-		// Jana mantiene refresco dinámico durante processFile; este método queda para
-		// replay local.
 	}
 
 	public void runOnSftp(String[] args) throws ServiceUnavailableException {
@@ -568,7 +454,7 @@ public class ParseJana122Response implements SimpleLog {
 		} else {
 			USE_CACHE = true;
 		}
-
+		boolean ft = true;
 		try (SshClient client = SshClient.setUpDefaultClient()) {
 			client.start();
 			java.nio.file.Files.createDirectories(LOCAL_PROCESSED_DIR);
@@ -590,6 +476,7 @@ public class ParseJana122Response implements SimpleLog {
 
 				try (SftpClient sftp = SftpClientFactory.instance().createSftpClient(session)) {
 					while (running) {
+						ft = true;
 						Iterable<DirEntry> entries = sftp.readDir(REMOTE_DIR);
 						for (DirEntry entry : entries) {
 							String name = entry.getFilename();
@@ -627,6 +514,10 @@ public class ParseJana122Response implements SimpleLog {
 									continue;
 								}
 								try {
+									if(ft) {
+										cargaLasCosas();
+										ft = false;
+									}
 									processFile(null, out, sftp);
 									sftp.remove(filePath);
 								} catch (ParserConfigurationException | SAXException | IOException e) {
@@ -703,19 +594,11 @@ public class ParseJana122Response implements SimpleLog {
 		java.util.LinkedList<Product> products = handler.getProducts();
 		java.util.LinkedList<Value> values = null;
 
-		org.json.JSONArray product2GCharacteristicRecords = new org.json.JSONArray();
-		org.json.JSONArray articleCharacteristicRecords = new org.json.JSONArray();
 		StringBuilder sb = new StringBuilder();
 		java.util.Map<String, String> attributeValues = new java.util.TreeMap<>();
 		java.util.Map<String, java.util.Map<String, String>> newAttributeValues = new java.util.TreeMap<>();
-		java.util.Map<String, String> dataTypes = new java.util.TreeMap<>();
-		java.util.LinkedList<String> product2GCharacteristics = new java.util.LinkedList<>();
-		java.util.LinkedList<String> articleCharacteristics = new java.util.LinkedList<>();
 		java.util.Map<String, String> unidades = new java.util.TreeMap<>();
 		java.util.Map<String, String> articleHigherLevelProductNotReadyYet = new java.util.TreeMap<>();
-		java.util.Map<String, java.util.Map<String, String>> map = new java.util.TreeMap<>();
-		java.util.Map<String, java.util.Map<String, String>> mapB = new java.util.TreeMap<>();
-		java.util.Map<String, String> lkps = new java.util.TreeMap<>();
 		String znprst = null;
 		String negocio = null;
 		String sb0002 = null;
@@ -724,16 +607,13 @@ public class ParseJana122Response implements SimpleLog {
 		String attyp = null;
 		String sapBehvo = null;
 		String fshId = null;
-		String productId = null;
 		String mstae = null;
 		String sistemaorigen = null;
 		String itemId = null;
 		String[] info = null;
-		org.json.JSONObject data = null;
 		java.util.Map<String, String> skuIds = new java.util.TreeMap<>();
 		java.util.Map<String, String> articleSupplierAIDToSKU = new java.util.TreeMap<>();
 		java.util.Map<String, String> skuToArticleSupplierAID = new java.util.TreeMap<>();
-		collectCharacteristicsByEntity(product2GCharacteristics, articleCharacteristics);
 		if (products != null) {
 			for (Product n : products) {
 				values = n.getValues();
@@ -756,39 +636,15 @@ public class ParseJana122Response implements SimpleLog {
 						}
 					}
 				}
-				collectLookupCharacteristics(sb.toString(), dataTypes, lkps);
 				sb.setLength(0);
-				for (java.util.Map.Entry<String, String> entry : dataTypes.entrySet()) {
-					collectLookupValues(lkps.get(entry.getKey()), map, mapB, entry.getValue());
-				}
-				for (java.util.Map.Entry<String, String> entry : dataTypes.entrySet()) {
-					try {
-						if (!unidades.containsKey(entry.getKey())
-								&& product2GCharacteristics.contains(entry.getKey())) {
-							addValue(entry.getKey(),
-									tools.resolveDataType(entry.getKey(), entry.getValue(), lkps.get(entry.getKey()),
-											attributeValues.get(s4hFieldMapping.get(entry.getKey())), map, mapB),
-									product2GCharacteristicRecords);
-						}
-						if (!unidades.containsKey(entry.getKey()) && articleCharacteristics.contains(entry.getKey())) {
-							addValue(entry.getKey(),
-									tools.resolveDataType(entry.getKey(), entry.getValue(), lkps.get(entry.getKey()),
-											attributeValues.get(s4hFieldMapping.get(entry.getKey())), map, mapB),
-									articleCharacteristicRecords);
-						}
-					} catch (IllegalArgumentException e) {
-						logE(e);
-					}
-				}
-				agregaUnidadesDeMedida(unidades, product2GCharacteristicRecords, lkps);
+				
 				if (!lkps.containsKey("EXTWG_S4H")) {
 					log("Un caso donde no hay EXTWG_S4H. " + attributeValues.get("EXTWG"));
 				}
-				negocio = !lkps.containsKey("EXTWG_S4H") ? attributeValues.get("EXTWG")
-						: attributeValues.get(lkps.get("EXTWG_S4H"));
+				negocio = attributeValues.get("EXTWG");
+				log("Negocio: " + negocio + " || " + attributeValues.get("EXTWG"));
 				sku = attributeValues.get("MATNR").replaceAll("^0+", "");
 				sb0002 = attributeValues.get("SB_0002");
-				productId = null;
 				itemId = null;
 				satnr = attributeValues.containsKey("SATNR")
 						? attributeValues.get("SATNR") != null ? attributeValues.get("SATNR").replaceAll("^0+", "") : ""
@@ -805,6 +661,7 @@ public class ParseJana122Response implements SimpleLog {
 				String zdir = attributeValues.get("ZDIR"); // Dirección
 				String maktx = attributeValues.get("MAKTX"); // description short
 				String ean = attributeValues.get("EAN11"); // EAN
+				String mtart = attributeValues.get("MTART");
 				DataRequestor dr = new DataRequestor();
 
 				lifnr = lifnr == null ? "" : lifnr;
@@ -816,12 +673,12 @@ public class ParseJana122Response implements SimpleLog {
 				maktx = maktx == null ? "" : maktx;
 
 				sistemaorigen = attributeValues.get("SISTEMAORIGEN");
-				try {
-					calculaProductType(sapBehvo, fshId, articleCharacteristicRecords, workshop);
-				} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
-					e.printStackTrace();
-				}
+				String externalId = null;
 				znprst = attributeValues.get("PRODUCT_ID");
+				log("Processing following SKU: " + sku);
+				log("znprst: " + znprst);
+				log("attyp: " + attyp);
+				log("negocio: " + negocio);
 				if (znprst != null && !"".equals(znprst)) {
 					if (znprst.length() == 15 && !znprst.startsWith("S")) {
 						znprst = "1" + znprst;
@@ -830,52 +687,28 @@ public class ParseJana122Response implements SimpleLog {
 						articleSupplierAIDToSKU.put(sku, znprst);
 						skuToArticleSupplierAID.put(znprst, sku);
 					}
+					externalId = znprst;
 					skuIds.put(sku, znprst);
 					info = tools.checkProduct(znprst);
 					if (info == null) {
 						info = tools.checkArticle(znprst);
 						if (info != null) {
-							resuelveEmpateDeArticulo(sku, znprst);
-							conciliaRelacionArticuloProducto(znprst, sku, info[0], satnr, articleHigherLevelProduct,
-									articleHigherLevelProductNotReadyYet, dr);
-							sendArticleSKUToAdmin(znprst, sku, dr);
 							if ("00".equals(info[1])) {
-								addValue("MensajeCreacionSKU",
-										"Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ")
-												.format(new java.util.Date()),
-										product2GCharacteristicRecords);
-								sendWriteRequest("Product2G", info[0], product2GCharacteristicRecords, info[3], info[4],
-										sku);
+								addValue(
+										 "MensajeCreacionSKU"
+										, "Article"
+										, externalId
+										, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()));
+								sendWriteRequest("Product2G", info[0], null, info[3], info[4], sku);
 							}
-							addValue("MensajeCreacionSKU",
-									"Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ")
-											.format(new java.util.Date()),
-									articleCharacteristicRecords);
-							sendWriteRequest("Article", znprst, articleCharacteristicRecords, null, null, sku);
+							addValue(
+									  "MensajeCreacionSKU"
+									, "Product2G"
+									, externalId
+									, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()));
+							sendWriteRequest("Article", znprst, null, null, null, sku);
 							log("Was Article (" + znprst + "), " + java.util.Arrays.asList(info));
 						} else {
-							log("Not a known product (" + znprst + ")");
-//							info = tools.checkProductBySKU(sku);
-//							if(info != null) {
-//								log("Found SKU in product ¿...?");
-//								znprst = chooseProperProductZNPRST(sku, znprst);
-//								productId = znprst;
-//								sendProductSKUToAdmin(productId, sku, dr);
-//								addValue("MensajeCreacionSKU", "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()), product2GCharacteristicRecords );
-//								sendWriteRequest("Product2G", productId, product2GCharacteristicRecords, info[3], info[4], sku);
-//								if("00".equals(info[1])) {
-//									addValue("MensajeCreacionSKU", "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()), articleCharacteristicRecords );
-//									sendWriteRequest("Article", productId, articleCharacteristicRecords, null, null, sku);
-//								}
-//							} else {
-//								itemId = tools.checkArticleBySKU(sku);
-//								if(itemId != null) {
-//									log("Found SKU in article. #" + itemId + "#");
-//									if(!"MARKETPLACE".equals(negocio)) {
-//										addValue("MensajeCreacionSKU", "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()), articleCharacteristicRecords );
-//										sendWriteRequest("Article", itemId, articleCharacteristicRecords, null, null, sku);
-//									}
-//								} else {
 							log("Brand new SKU for P360: " + sku + " (" + znprst + ") Negocio: " + negocio);
 							if ("00".equals(attyp)) {
 								String originalznprst = znprst;
@@ -883,15 +716,12 @@ public class ParseJana122Response implements SimpleLog {
 								znprst = chooseProperProductZNPRST(sku, znprst);
 								productZNPRST = znprst;
 
-								addValue("SAPObjectType", new org.json.JSONObject().put("_code", "00"),
-										product2GCharacteristicRecords);
-								addValue("Business", new org.json.JSONObject().put("_code", "SBB"),
-										product2GCharacteristicRecords);
+								addValue("SAPObjectType", "Product2G", externalId, "00");
+								addValue("Business", "Product2G", externalId, "SBB");
 								znprst = chooseProperArticleZNPRST(sku, originalznprst);
-								addValue("SAPObjectType", new org.json.JSONObject().put("_code", "00"),
-										articleCharacteristicRecords);
-								sendWriteRequest("Article", "SBB" + sku, articleCharacteristicRecords, null, null, sku);
-								sendWriteRequestProduct(znprst, matkl, sb0002, negocio, product2GCharacteristicRecords);
+								addValue("SAPObjectType", "Article", externalId, "00");
+								sendWriteRequest("Article", externalId, null, null, null, sku);
+								sendWriteRequestProduct(znprst, matkl, sb0002, negocio);
 								articleHigherLevelProduct.put(znprst, znprst);
 								org.json.JSONArray items = new org.json.JSONArray();
 								if (!"".equals(sku)) {
@@ -905,118 +735,81 @@ public class ParseJana122Response implements SimpleLog {
 								}
 							} else if ("01".equals(attyp)) {
 								znprst = chooseProperProductZNPRST(sku, znprst);
-								sendProductSKUToAdmin(znprst, sku, dr);
-								addValue("SAPObjectType", new org.json.JSONObject().put("_code", "01"),
-										product2GCharacteristicRecords);
-								addValue("Business", new org.json.JSONObject().put("_code", "SBB"),
-										product2GCharacteristicRecords);
-								sendWriteRequestProduct(znprst, matkl, sb0002, negocio, product2GCharacteristicRecords);
+								addValue("SAPObjectType", "Product2G", externalId, "01");
+								addValue("Business", "Product2G", externalId, "SBB");
+								sendWriteRequestProduct(znprst, matkl, sb0002, negocio);
 							} else {
-								sendArticleSKUToAdmin(znprst, sku, dr);
-								addValue("SAPObjectType", new org.json.JSONObject().put("_code", "02"),
-										articleCharacteristicRecords);
-								sendWriteRequest("Article", znprst, articleCharacteristicRecords, null, null, sku);
-								conciliaRelacionArticuloProducto(znprst, sku, null, satnr,
-										articleHigherLevelProductNotReadyYet, dr);
+								addValue("SAPObjectType", "Article", externalId, "02");
+								sendWriteRequest("Article", znprst, null, null, null, sku);
+								conciliaRelacionArticuloProducto(znprst, sku, null, satnr, articleHigherLevelProductNotReadyYet, dr);
 							}
-//								}
-//							}
 						}
 					} else {
 						if ("02".equals(attyp)) {
 							log("Came to see that the product is now a variant.");
-							conciliaRelacionArticuloProducto(znprst, sku, null, satnr,
-									articleHigherLevelProductNotReadyYet, dr);
-							info = tools.checkArticle(znprst);
-							if (info != null) {
-//								resuelveEmpateDeArticulo(sku, znprst);
-//								conciliaRelacionArticuloProducto(znprst, sku, info[0], satnr, articleHigherLevelProduct, articleHigherLevelProductNotReadyYet, dr);
-//								sendArticleSKUToAdmin(znprst, sku, dr);
-//								if("00".equals(info[1])) {
-//									addValue("MensajeCreacionSKU", "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()), product2GCharacteristicRecords );
-//									sendWriteRequest("Product2G", info[0], product2GCharacteristicRecords, info[3], info[4], sku);
-//								}
-//								addValue("MensajeCreacionSKU", "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()), articleCharacteristicRecords );
-//								sendWriteRequest("Article", znprst, articleCharacteristicRecords, null, null, sku);
-//								log("Was Article (" + znprst + "), " + java.util.Arrays.asList(info));
-							} else {
-								log("No lo tenía en artículo tampoco.");
-							}
+							conciliaRelacionArticuloProducto(znprst, sku, null, satnr, articleHigherLevelProductNotReadyYet, dr);
 						} else {
-							ProductMergeDecision mergeDecision = resuelveEmpateDeProducto(sku, znprst);
-							if (mergeDecision.manualReview) {
-								log("No se continúa escritura automática por empate inseguro. sku=" + sku + ", reason="
-										+ mergeDecision.reason);
-							} else {
-								if (mergeDecision.shouldMerge) {
-									resuelveCombinación(mergeDecision.id1, mergeDecision.id2);
-								}
-								znprst = mergeDecision.productIdToUse;
-								info = tools.checkProduct(znprst);
-								log("Was Product (" + znprst + "), " + java.util.Arrays.asList(info));
-								sendProductSKUToAdmin(znprst, sku, dr);
-								addValue("MensajeCreacionSKU",
-										"Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ")
-												.format(new java.util.Date()),
-										product2GCharacteristicRecords);
-								if ("00".equals(info[0])) {
-									itemId = getArticleIdFromProduct(znprst);
-									log("Article.SupplierAID: " + itemId);
-									addValue("MensajeCreacionSKU",
-											"Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ")
-													.format(new java.util.Date()),
-											articleCharacteristicRecords);
-									sendWriteRequest("Article", itemId, articleCharacteristicRecords, null, null, sku);
-								}
-								sendWriteRequest("Product2G", znprst, product2GCharacteristicRecords, info[2], info[3],
-										sku);
+							info = tools.checkProduct(znprst);
+							log("Was Product (" + znprst + "), " + java.util.Arrays.asList(info));
+							addValue(
+									  "MensajeCreacionSKU"
+									, "Product2G"
+									, externalId
+									, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()));
+							if ("00".equals(info[0])) {
+								itemId = getArticleIdFromProduct(znprst);
+								log("Article.SupplierAID: " + itemId);
+								addValue(
+										  "MensajeCreacionSKU"
+										, "Article"
+										, externalId
+										, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()));
+								sendWriteRequest("Article", itemId, null, null, null, sku);
 							}
+							sendWriteRequest("Product2G", znprst, null, info[2], info[3], sku);
 						}
 					}
 				} else {
-					String externalId = "SBB" + sku;
+					externalId = "SBB" + sku;
 					log("No znprst found " + attyp);
 					if (sku != null && !"".equals(sku)) {
 						info = tools.checkProductBySKU(sku);
 						if (info != null) {
+							externalId = info[0];
+							log("Found SKU in product");
 							if ("02".equals(attyp)) {
 								log("Came to see that the product result to be variant now.");
-								conciliaRelacionArticuloProducto(externalId, sku, null, satnr,
-										articleHigherLevelProductNotReadyYet, dr);
-								sendArticleSKUToAdmin(itemId, sku, dr);
-								addValue("MensajeCreacionSKU",
-										"Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ")
-												.format(new java.util.Date()),
-										articleCharacteristicRecords);
-								sendWriteRequest("Article", itemId, articleCharacteristicRecords, null, null, sku);
+								addValue(
+										  "MensajeCreacionSKU"
+										, "Article"
+										, externalId
+										, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()));
+								sendWriteRequest("Article", itemId, null, null, null, sku);
 							} else {
-								log("Found SKU in product");
-								productId = info[0];
-								znprst = productId;
-								sendProductSKUToAdmin(productId, sku, dr);
-								addValue("MensajeCreacionSKU",
-										"Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ")
-												.format(new java.util.Date()),
-										product2GCharacteristicRecords);
-								sendWriteRequest("Product2G", productId, product2GCharacteristicRecords, info[3],
-										info[4], sku);
+								znprst = externalId;
+								addValue(
+										  "MensajeCreacionSKU"
+										, "Product2G"
+										, externalId
+										, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()));
+								sendWriteRequest("Product2G", externalId, null, info[3] == null || "".equals(info[3]) ? "Y" : info[3], info[4] == null || "".equals( info[4] ) ? "1020" : info[4], sku);
 								if ("00".equals(info[1])) {
-									addValue("MensajeCreacionSKU",
-											"Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ")
-													.format(new java.util.Date()),
-											articleCharacteristicRecords);
-									sendWriteRequest("Article", productId, articleCharacteristicRecords, null, null,
-											sku);
+									addValue(
+											  "MensajeCreacionSKU"
+											, "Article"
+											, externalId
+											, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()));
+									sendWriteRequest("Article", externalId, null, null, null, sku);
 									itemId = tools.checkArticleBySKU(sku);
 									if (itemId != null && !"".equals(itemId))
-										articleHigherLevelProduct.put(itemId, productId);
+										articleHigherLevelProduct.put(itemId, externalId);
 								}
 							}
 						} else {
 							itemId = tools.checkArticleBySKU(sku);
-							znprst = itemId;
 							if (itemId != null) {
-								log("Found SKU in attribute. #" + itemId + "#");
+								znprst = itemId;
+								log("Found SKU in article. #" + itemId + "#");
 								if ("00".equals(attyp)) {
 									String pid = externalId;
 									String rr = dr.getProductByVariant(new org.json.JSONArray().put(itemId));
@@ -1031,80 +824,51 @@ public class ParseJana122Response implements SimpleLog {
 													j = new org.json.JSONObject(rr);
 													itms = j.getJSONArray("items");
 													org.json.JSONObject itm = itms.getJSONObject(0);
-													log("Individual a partir de SKU plano. Encontramos sku en artículo. "
-															+ itm);
-													addValue("MensajeCreacionSKU", "Actualizado "
-															+ new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ")
-																	.format(new java.util.Date()),
-															product2GCharacteristicRecords);
-													sendWriteRequest("Product2G", pid, product2GCharacteristicRecords,
-															itm.getString("FotoTomadaLiverpool"),
-															itm.getString("CurrentStatus"), sku);
+													log("Individual a partir de SKU plano. Encontramos sku en artículo. " + itm);
+													addValue("MensajeCreacionSKU", "Product2G", itm.getString("product"), "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ") .format(new java.util.Date()));
+													sendWriteRequest("Product2G", itm.getString("product"), null, itm.getString("FotoTomadaLiverpool"), itm.getString("CurrentStatus"), sku);
 												}
 											}
 										} catch (org.json.JSONException e) {
 											log("Couldn't parse json response from pvia.");
 										}
 									} else {
-										sendWriteRequest("Product2G", pid, product2GCharacteristicRecords, "Y", "1020",
-												sku);
+										articleHigherLevelProduct.put(externalId, pid);
+										sendWriteRequest("Product2G", pid, null, "Y", "1020", sku);
 									}
 
-									sendProductSKUToAdmin(externalId, sku, dr);
-									sendArticleSKUToAdmin(externalId, sku, dr);
+									sendWriteRequestProduct(externalId, matkl, sb0002, negocio);
 
-									sendWriteRequestProduct(externalId, matkl, sb0002, negocio,
-											product2GCharacteristicRecords);
-
-									articleHigherLevelProduct.put(externalId, pid);
 									org.json.JSONArray items = new org.json.JSONArray();
 									if (!"".equals(sku)) {
 										items.put(new org.json.JSONObject().put("productNo", pid).put("sku", sku));
 										log("From registering to admin 00: " + dr.skuProductNo(items));
 									}
 								} else if ("02".equals(attyp)) {
-									conciliaRelacionArticuloProducto(externalId, sku, null, satnr,
-											articleHigherLevelProductNotReadyYet, dr);
-									sendArticleSKUToAdmin(externalId, sku, dr);
+									conciliaRelacionArticuloProducto(externalId, sku, null, satnr, articleHigherLevelProductNotReadyYet, dr);
 								}
 							} else {
 								log("Brand new SKU for P360: " + sku + " Negocio: " + negocio);
 								znprst = "SBB" + sku;
+								externalId = znprst;
 								if ("00".equals(attyp)) {
-									sendProductSKUToAdmin(externalId, sku, dr);
-									sendArticleSKUToAdmin(externalId, sku, dr);
 									info = tools.checkProductBySKU(satnr.replaceFirst("^0+", ""));
-									addValue("SAPObjectType", new org.json.JSONObject().put("_code", "00"),
-											product2GCharacteristicRecords);
-									addValue("Business", new org.json.JSONObject().put("_code", "SBB"),
-											product2GCharacteristicRecords);
-									addValue("SAPObjectType", new org.json.JSONObject().put("_code", "00"),
-											articleCharacteristicRecords);
-									sendWriteRequest("Article", "SBB" + sku, articleCharacteristicRecords, null, null,
-											sku);
-									sendWriteRequestProduct("SBB" + sku, matkl, sb0002, negocio,
-											product2GCharacteristicRecords);
-									articleHigherLevelProduct.put("SBB" + sku,
-											info != null && info.length > 0 ? info[0] : "SBB" + sku);
+									addValue("SAPObjectType", "Product2G", externalId, "00");
+									addValue("Business", "Product2G", externalId, "SBB");
+									addValue("SAPObjectType", "Article", externalId, "00");
+									sendWriteRequest("Article", "SBB" + sku, null, null, null, sku);
+									sendWriteRequestProduct("SBB" + sku, matkl, sb0002, negocio);
+									articleHigherLevelProduct.put("SBB" + sku, info != null && info.length > 0 ? info[0] : "SBB" + sku);
 								} else if ("01".equals(attyp)) {
-									sendProductSKUToAdmin(externalId, sku, dr);
-									addValue("SAPObjectType", new org.json.JSONObject().put("_code", "01"),
-											product2GCharacteristicRecords);
-									addValue("Business", new org.json.JSONObject().put("_code", "SBB"),
-											product2GCharacteristicRecords);
-									sendWriteRequestProduct("SBB" + sku, matkl, sb0002, negocio,
-											product2GCharacteristicRecords);
+									addValue("SAPObjectType", "Product2G", externalId, "01");
+									addValue("Business", "Product2G", externalId, "SBB");
+									sendWriteRequestProduct("SBB" + sku, matkl, sb0002, negocio);
 								} else {
 									resolveVariantParent(externalId, itemId, satnr);
-									sendArticleSKUToAdmin(externalId, sku, dr);
-									addValue("SAPObjectType", new org.json.JSONObject().put("_code", "02"),
-											articleCharacteristicRecords);
-									sendWriteRequest("Article", "SBB" + sku, articleCharacteristicRecords, null, null,
-											sku);
-									znprst = chooseProperArticleZNPRST(sku, "LVP" + sku);
-									conciliaRelacionArticuloProducto(znprst, sku, null, satnr,
-											articleHigherLevelProductNotReadyYet, dr);
-
+									addValue("SAPObjectType", "Article", externalId, "02");
+									sendWriteRequest("Article", "SBB" + sku, null, null, null, sku);
+									znprst = chooseProperArticleZNPRST(sku, "SBB" + sku);
+									conciliaRelacionArticuloProducto(znprst, sku, null, satnr, articleHigherLevelProductNotReadyYet, dr);
 								}
 							}
 						}
@@ -1112,6 +876,63 @@ public class ParseJana122Response implements SimpleLog {
 						log("No SKU found either!");
 					}
 				}
+				
+				String entity = null;
+				if ("01".equals(attyp)) {
+					entity = "Product2G";
+				}else if("02".equals(attyp)) {
+					entity = "Article";
+				}else if("00".equals(attyp)) {
+					entity = "Individual";
+				}
+				String productId = externalId;
+				if("Individual".equals(entity)) {
+					String ya = dr.getArticleData(new org.json.JSONArray().put(externalId));
+					if(ya != null) {
+						try {
+							org.json.JSONObject jya = new org.json.JSONObject(ya);
+							org.json.JSONArray itms = jya.getJSONArray("items");
+							org.json.JSONObject itm = itms.getJSONObject(0);
+							if(itm.has("ProductNo")  &&  !"".equals(itm.getString("ProductNo"))) {
+								productId = itm.getString("ProductNo");
+							}
+						}catch(org.json.JSONException e) {
+							logE(e);
+						}
+					}
+				}
+				try {
+					calculaProductType(sapBehvo, matkl, fshId, "Suburbia", null, mtart, mtart, productId, workshop);
+				} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
+					e.printStackTrace();
+				}
+				String charId = null;
+				for(java.util.Map.Entry<String, String> entry : attributeValues.entrySet()) {
+					charId = s4hToCharID.get(entry.getKey());
+					if(charId != null) {
+						try{
+							if("Product2G".equals(entity)) {
+								if(!unidades.containsKey(entry.getKey()) && product2GCharacteristics.contains(charId) ) {
+									addValue(charId, "Product2G", externalId, entry.getValue() );
+								}
+							}else if("Article".equals(entity)) {
+								if(!unidades.containsKey(entry.getKey()) && articleCharacteristics.contains(charId) ) {
+									addValue(charId, "Article", externalId, entry.getValue() );
+								}
+							}else if("Individual".equals(entity)) {
+								if(!unidades.containsKey(entry.getKey()) && product2GCharacteristics.contains(charId) ) {
+									addValue(charId, "Product2G", productId, entry.getValue() );
+								} else if(!unidades.containsKey(entry.getKey()) && articleCharacteristics.contains(charId) ) {
+									addValue(charId, "Article", externalId, entry.getValue() );
+								}
+							}
+						}catch(IllegalArgumentException e) {
+							logE(e);
+						}
+					}
+				}
+				agregaUnidadesDeMedida(unidades, charIDToS4H, externalId);
+				
 				if ("01".equals(attyp)) {
 					addSKU(sku, znprst, "Product2G");
 					addEAN(ean, znprst, "Product2G");
@@ -1157,8 +978,6 @@ public class ParseJana122Response implements SimpleLog {
 				attyp = null;
 				itemId = null;
 				info = null;
-				product2GCharacteristicRecords = new org.json.JSONArray();
-				articleCharacteristicRecords = new org.json.JSONArray();
 				unidades.clear();
 				attributeValues.clear();
 
@@ -2366,7 +2185,7 @@ public class ParseJana122Response implements SimpleLog {
 			return 2; // STEP
 		}
 
-		if (id.startsWith("LVP")) {
+		if (id.startsWith("SBB")) {
 			return 1; // SAP/local fallback
 		}
 
@@ -2418,7 +2237,7 @@ public class ParseJana122Response implements SimpleLog {
 							.put("object", new org.json.JSONObject().put("id", "'" + znprst + "'@1"))
 							.put("values", new org.json.JSONArray().put("Otro artículo con mismo SKU: " + externalId)));
 					rh.sendData();
-				} else if (externalId.startsWith("LVP")) {
+				} else if (externalId.startsWith("SBB")) {
 					java.util.Map<String, String> qp = new java.util.HashMap<>();
 					qp.put("includeObjectsInProtocol", "false");
 					RequestHandler rh = new RequestHandler(new org.json.JSONArray()
@@ -2440,39 +2259,6 @@ public class ParseJana122Response implements SimpleLog {
 
 		/***********************************************/
 
-	}
-
-	private String nvl(String val) {
-		return val == null ? "" : val;
-	}
-
-	private void sendArticleSKUToAdmin(String supplierAID, String sku, DataRequestor dr) {
-		String r = dr.getArticleData(new org.json.JSONArray().put(supplierAID));
-		if (r != null) {
-			try {
-				org.json.JSONObject jr = new org.json.JSONObject(r);
-				org.json.JSONArray itms = jr.getJSONArray("items");
-				itms.getJSONObject(0).put("SKU", sku);
-				log("Sending new SKU: " + dr.putArticleData(itms));
-			} catch (org.json.JSONException e) {
-				logE(e);
-			}
-		}
-	}
-
-	private void sendProductSKUToAdmin(String productNo, String sku, DataRequestor dr) {
-		pids.add(productNo);
-		String r = dr.getProductData(new org.json.JSONArray().put(productNo));
-		if (r != null) {
-			try {
-				org.json.JSONObject jr = new org.json.JSONObject(r);
-				org.json.JSONArray itms = jr.getJSONArray("items");
-				itms.getJSONObject(0).put("SKU", sku);
-				log("Sending new SKU (prod): " + dr.putProductData(itms));
-			} catch (org.json.JSONException e) {
-				logE(e);
-			}
-		}
 	}
 
 	public void flushPendingWrites() {
@@ -2617,64 +2403,109 @@ public class ParseJana122Response implements SimpleLog {
 		log("Sent.");
 	}
 
-	private void updateArticleHigherLevelProduct(String articleId, org.json.JSONObject data) {
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		org.json.JSONObject request = data;
-		org.json.JSONObject response = null;
-		log("/object/Article/'" + articleId + "'@'MASTER'");
-		response = workshop.makeRequest("PUT", "/object/Article/'" + articleId + "'@'MASTER'", qp, request.toString());
-		if (response != null) {
-			log("On writing Article Id (relationship): " + articleId + ": " + response);
-		} else {
-			log("ERR: " + workshop.getRawResponse());
-		}
-	}
-
-	private void collectNumberOfImages(String productId, String fotosTomaLiverpool, org.json.JSONObject data) {
+	private void collectNumberOfImages(String productId, String fotosTomaLiverpool) {
 		int lacuenta = 0;
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("fields", "Article.SupplierAID" + ",ProductReference.ReferencedSupplierAid(\"" + productId + "\")"
-				+ ",ArticleCharacteristicValueLang.Value(ProductImageDetail,\"0000.0000.RK\",\"0000.0000.RK\",ProductImageDetail_URL,-1)"
-				+ ",ArticleCharacteristicValueLang.Value(ProductImage,\"0000.0000.RK\",\"0000.0000.RK\",ProductImage_URL,-1)");
-		qp.put("query", "ProductReference.ReferencedSupplierAid(\"" + productId + "\") equals \"" + productId + "\"");
-		org.json.JSONObject response = null;
-		response = workshop.makeRequest("GET", "/list/Article/bySearch", qp, null);
-		if (response != null) {
-			org.json.JSONArray rows = response.getJSONArray("rows");
-			org.json.JSONArray values = null;
-			org.json.JSONArray details = null;
-			org.json.JSONArray principal = null;
-			for (int i = 0; i < rows.length(); i++) {
-				values = rows.getJSONObject(i).getJSONArray("values");
-				details = values.getJSONArray(2);
-				principal = values.getJSONArray(3);
-				for (int j = 0; j < details.length(); j++) {
-					if (!"".equals(details.getString(j)))
-						lacuenta++;
-				}
-				for (int j = 0; j < principal.length(); j++) {
-					if (!"".equals(principal.getString(j)))
-						lacuenta++;
+		DataRequestor dr = new DataRequestor();
+		String rsp = dr.getProductData( new org.json.JSONArray().put( productId ));
+		org.json.JSONObject jr = new org.json.JSONObject(rsp);
+		org.json.JSONArray items = jr.getJSONArray("items");
+		org.json.JSONObject j0 = items.getJSONObject(0);
+		String business = j0.getString("Business");
+		java.util.Set<String> variants = dr.getVariants(productId);
+		org.json.JSONArray itms = new org.json.JSONArray();
+		variants.forEach(itms::put);
+		String rp = dr.getArticleData(itms);
+		try {
+			jr = new org.json.JSONObject(rp);
+			items = jr.getJSONArray("items");
+			for(int i=0; i<items.length(); i++) {
+				if(!"".equals(items.getJSONObject(i).getString("ProductImage"))) {
+					lacuenta++;
 				}
 			}
-			if ("Corregido".equals(fotosTomaLiverpool) || ("N".equals(fotosTomaLiverpool) && lacuenta > 0)) {
-				data.put("currentStatus", new org.json.JSONObject().put("_key", 1022));
-				data.put("externalStatus", new org.json.JSONObject().put("_code", "EnProcesoLiverpool"));
-			} else if ("Y".equals(fotosTomaLiverpool)) {
-				data.put("currentStatus", new org.json.JSONObject().put("_key", 1002));
-				data.put("externalStatus", new org.json.JSONObject().put("_code", "EnProcesoLiverpool"));
-			} else {
-				data.put("currentStatus", new org.json.JSONObject().put("_key", 1004));
-				data.put("externalStatus", new org.json.JSONObject().put("_code", "CargaDeImagen"));
-			}
-			data.put("previousStatus", new org.json.JSONObject().put("_key", 1020));
-		} else {
-			log("ERROR: " + workshop.getRawResponse());
+		}catch(org.json.JSONException e) {
+			logE(e);
 		}
+		qp.put("includeObjectsInProtocol", "false");
+		log("Las imágenes...");
+		if("MKP".equals(business) || ( "Corregido".equals(fotosTomaLiverpool) || (("N".equals(fotosTomaLiverpool) || "".equals(fotosTomaLiverpool)) && lacuenta > 0 ) )) {
+			log("1 " + productId);
+			reqCurrentStatus.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1")).put("values", new org.json.JSONArray().put(1022)));
+			reqPrevStatus.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1")).put("values", new org.json.JSONArray().put(1020)));
+//			requestStatus.getJSONArray("rows")
+//				.put(new org.json.JSONObject()
+//						.put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1"))
+//						.put("values", new org.json.JSONArray().put(1020).put(1022).put("EnProcesoLiverpool")));
+		}else if("Y".equals(fotosTomaLiverpool)) {
+			log("2 " + productId);
+			reqCurrentStatus.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1")).put("values", new org.json.JSONArray().put(1002)));
+			reqPrevStatus.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1")).put("values", new org.json.JSONArray().put(1020)));
+//			requestStatus.getJSONArray("rows")
+//			.put(new org.json.JSONObject()
+//					.put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1"))
+//					.put("values", new org.json.JSONArray().put(1020).put(1002).put("EnProcesoLiverpool")));
+		}else {
+			log("3 " + productId);
+			reqCurrentStatus.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1")).put("values", new org.json.JSONArray().put(1004)));
+			reqPrevStatus.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1")).put("values", new org.json.JSONArray().put(1020)));
+//			requestStatus.getJSONArray("rows")
+//			.put(new org.json.JSONObject()
+//					.put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1"))
+//					.put("values", new org.json.JSONArray().put(1020).put(1004).put("CargaDeImagen")));
+		}
+		if(reqCurrentStatus.getJSONArray("rows").length() == 100) {
+			rw.writeData("list", "Product2G", null, qp, reqSKU, this::log);
+			log("sending bloc (Product2G status, " + reqCurrentStatus.getJSONArray("rows").length() + ")");
+			rw.writeData("list", "Product2G", null, qp, reqCurrentStatus, this::log);
+		}
+		log("Done with pictures and status stuff...");
+//		int lacuenta = 0;
+//		java.util.Map<String, String> qp = new java.util.TreeMap<>();
+//		qp.put("fields", "Article.SupplierAID" + ",ProductReference.ReferencedSupplierAid(\"" + productId + "\")"
+//				+ ",ArticleCharacteristicValueLang.Value(ProductImageDetail,\"0000.0000.RK\",\"0000.0000.RK\",ProductImageDetail_URL,-1)"
+//				+ ",ArticleCharacteristicValueLang.Value(ProductImage,\"0000.0000.RK\",\"0000.0000.RK\",ProductImage_URL,-1)");
+//		qp.put("query", "ProductReference.ReferencedSupplierAid(\"" + productId + "\") equals \"" + productId + "\"");
+//		org.json.JSONObject response = null;
+//		response = workshop.makeRequest("GET", "/list/Article/bySearch", qp, null);
+//		if (response != null) {
+//			org.json.JSONArray rows = response.getJSONArray("rows");
+//			org.json.JSONArray values = null;
+//			org.json.JSONArray details = null;
+//			org.json.JSONArray principal = null;
+//			for (int i = 0; i < rows.length(); i++) {
+//				values = rows.getJSONObject(i).getJSONArray("values");
+//				details = values.getJSONArray(2);
+//				principal = values.getJSONArray(3);
+//				for (int j = 0; j < details.length(); j++) {
+//					if (!"".equals(details.getString(j)))
+//						lacuenta++;
+//				}
+//				for (int j = 0; j < principal.length(); j++) {
+//					if (!"".equals(principal.getString(j)))
+//						lacuenta++;
+//				}
+//			}
+//			if ("Corregido".equals(fotosTomaLiverpool) || ("N".equals(fotosTomaLiverpool) && lacuenta > 0)) {
+//				data.put("currentStatus", new org.json.JSONObject().put("_key", 1022));
+//				data.put("externalStatus", new org.json.JSONObject().put("_code", "EnProcesoLiverpool"));
+//			} else if ("Y".equals(fotosTomaLiverpool)) {
+//				data.put("currentStatus", new org.json.JSONObject().put("_key", 1002));
+//				data.put("externalStatus", new org.json.JSONObject().put("_code", "EnProcesoLiverpool"));
+//			} else {
+//				data.put("currentStatus", new org.json.JSONObject().put("_key", 1004));
+//				data.put("externalStatus", new org.json.JSONObject().put("_code", "CargaDeImagen"));
+//			}
+//			data.put("previousStatus", new org.json.JSONObject().put("_key", 1020));
+//		} else {
+//			log("ERROR: " + workshop.getRawResponse());
+//		}
 	}
 
-	private void agregaUnidadesDeMedida(java.util.Map<String, String> unidades,
-			org.json.JSONArray characteristicRecords, java.util.Map<String, String> s4hFieldMapping) {
+	private void agregaUnidadesDeMedida(
+			  java.util.Map<String, String> unidades
+			, java.util.Map<String, String> eccFieldMapping
+			, String externalId
+	) {
 		java.util.Map<String, String> unidadesPeso = new java.util.TreeMap<>();
 		java.util.Map<String, String> unidadesLongitud = new java.util.TreeMap<>();
 		java.util.Map<String, String> unidadesVolumen = new java.util.TreeMap<>();
@@ -2684,6 +2515,9 @@ public class ParseJana122Response implements SimpleLog {
 		unidadesLongitud.put("unece.unit.MMT", "MM");
 		unidadesVolumen.put("unece.unit.CMQ", "CM3");
 		unidadesVolumen.put("unece.unit.LTR", "L");
+		unidadesVolumen.put("unece.unit.FTQ", "PI3");
+		unidadesVolumen.put("unece.unit.MTQ", "M3");
+		unidadesVolumen.put("unece.unit.GRM", "G");
 		String unidadDeMedidaLongitud = null;
 		String unidadDeMedidaVolumen = null;
 		String unidadDeMedidaPeso = null;
@@ -2691,53 +2525,42 @@ public class ParseJana122Response implements SimpleLog {
 		String[] atributosVolumen = new String[] { "VOLEH", "ZVOLEH", "ZVOLEHPQ" };
 		String[] atributosPeso = new String[] { "GEWEI", "ZGEWCJ", "ZGEWPQ" };
 		String unidadId = null;
-		for (String a : atributosLongitud) {
-			unidadId = unidades.get(a);
-			if (unidadId != null) {
+		for(String a : atributosLongitud) {
+			unidadId = unidades.get( a );
+			if(unidadId != null) {
 				unidadDeMedidaLongitud = unidadesLongitud.get(unidadId);
 				break;
 			}
 		}
-		for (String a : atributosVolumen) {
+		for(String a : atributosVolumen) {
 			unidadId = unidades.get(a);
-			if (unidadId != null) {
-				unidadDeMedidaVolumen = unidadesVolumen.get(unidadId);
+			if(unidadId != null) {
+				unidadDeMedidaVolumen = unidadesVolumen.get( unidadId );
 				break;
 			}
 		}
-		for (String a : atributosPeso) {
+		for(String a : atributosPeso) {
 			unidadId = unidades.get(a);
-			if (unidadId != null) {
-				unidadDeMedidaPeso = unidadesPeso.get(unidadId);
+			if(unidadId != null) {
+				unidadDeMedidaPeso = unidadesPeso.get( unidadId );
 				break;
 			}
 		}
-		if (unidadDeMedidaLongitud == null) {
+		if(unidadDeMedidaLongitud == null) {
 		} else {
-			characteristicRecords.put(createCharacteristicValueObject("UnidadDeMedidaLongitud",
-					new org.json.JSONObject().put("_code", unidadDeMedidaLongitud)));
+			log("Adding la iunit (long): " + unidadDeMedidaLongitud);
+			addValue("UnidadDeMedidaLongitud", "Product2G", externalId, unidadDeMedidaLongitud);
 		}
-		if (unidadDeMedidaPeso == null) {
-		} else {
-			characteristicRecords.put(createCharacteristicValueObject("UnidadDeMedidaPeso",
-					new org.json.JSONObject().put("_code", unidadDeMedidaPeso)));
+		if(unidadDeMedidaPeso == null) {
+		}else {
+			log("Adding la iunit (peso): " + unidadDeMedidaPeso);
+			addValue("UnidadDeMedidaPeso", "Product2G", externalId, unidadDeMedidaPeso);
 		}
-		if (unidadDeMedidaVolumen == null) {
-		} else {
-			characteristicRecords.put(createCharacteristicValueObject("UnidadDeMedidaVolumen",
-					new org.json.JSONObject().put("_code", unidadDeMedidaVolumen)));
+		if(unidadDeMedidaVolumen == null) {
+		}else {
+			log("Adding la iunit (vol): " + unidadDeMedidaVolumen);
+			addValue("UnidadDeMedidaVolumen", "Product2G", externalId, unidadDeMedidaVolumen);
 		}
-	}
-
-	private static org.json.JSONObject createCharacteristicValueObject(String characteristicName, Object value) {
-		return new org.json.JSONObject()
-				.put("_recordLang",
-						new org.json.JSONArray().put(new org.json.JSONObject()
-								.put("values", new org.json.JSONArray().put(value)).put("_qualification",
-										new org.json.JSONObject().put("language",
-												new org.json.JSONObject().put("_code", "zxx")))))
-				.put("_qualification", new org.json.JSONObject().put("characteristic",
-						new org.json.JSONObject().put("_code", characteristicName)));
 	}
 
 	private String getArticleIdFromProduct(String productId) {
@@ -2842,90 +2665,80 @@ public class ParseJana122Response implements SimpleLog {
 		return translation;
 	}
 
-	private void agregaClasificacion(String itemGroup, String product, org.json.JSONObject data) throws IOException {
-		org.json.JSONArray structureGroupMap = null; //
-		if (data.has("structureGroupMap")) {
-			structureGroupMap = data.getJSONArray("structureGroupMap");
-		} else {
-			structureGroupMap = new org.json.JSONArray();
-			data.put("structureGroupMap", structureGroupMap);
-		}
-		for (int i = 0; i < structureGroupMap.length(); i++) {
-			if (structureGroupMap.getJSONObject(i).getJSONObject("_qualification").getJSONObject("structureGroup")
-					.getString("_externalId").endsWith("'@'CommercialS4H'")) {
-				return;
-			}
+	private void agregaClasificacion(String itemGroup, String product, String id) throws java.io.IOException {
+		if(itemGroup == null || "".equals(itemGroup)) {
+			return;
 		}
 		int internalId = forbiddenChalice(itemGroup, product);
-		structureGroupMap
-				.put(new org.json.JSONObject().put("_qualification", new org.json.JSONObject().put("structureGroup",
-						new org.json.JSONObject().put("_internalId", internalId + "@10002"))));
-	}
-
-	private void sendWriteRequestProduct(String id, String itemGroup, String product, String negocio,
-			org.json.JSONArray characteristicRecords) {
-		org.json.JSONObject request = new org.json.JSONObject();
-		request.put("_characteristicRecords", characteristicRecords);
-		if ("MARCAS PROPIAS".equals(negocio) || "REGULAR".equals(negocio) || "SERVICIOS".equals(negocio)) {
-			addValue("EnriquecidoEnForo", true, characteristicRecords);
+		requestCommercialS4H.getJSONArray("rows")
+			.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + id + "'@1")).put("values", new org.json.JSONArray().put(internalId + "@10001")))
+		;
+		if(requestCommercialS4H.getJSONArray("rows").length() == 10000) {
+			rw.writeData("list", "Product2G", null, qp, requestCommercialS4H, this::log);
 		}
+	}
+	
+	private void sendWriteRequestProduct(String id, String itemGroup, String product, String negocio) {
+//		if ("MARCAS PROPIAS".equals(negocio) || "REGULAR".equals(negocio) || "SERVICIOS".equals(negocio)) {
+			addValue("EnriquecidoEnForo", "Product2G", id, true);
+//		}
 		try {
-			agregaClasificacion(itemGroup, product, request);
+			agregaClasificacion(itemGroup, product, id);
 		} catch (IOException e) {
 			logE(e);
 		}
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		request.put("_characteristicRecords", characteristicRecords);
-		request.put("currentStatus",
-				new org.json.JSONObject().put("_key", "SFERA".equals(negocio) ? 1021
-						: "DUTY FREE".equals(negocio) ? 1001
-								: "MARCAS PROPIAS".equals(negocio) ? 1002 : "REGULAR".equals(negocio) ? 1002 : 1001));
-		org.json.JSONObject response = null;
+		reqCurrentStatus.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + id + "'@1")).put("values", new org.json.JSONArray().put(1002)));
+		if(reqCurrentStatus.getJSONArray("rows").length() == 100) {
+			rw.writeData("list", "Product2G", null, qp, reqCurrentStatus, this::log);
+		}
 		org.json.JSONArray rows = reqSKU.getJSONArray("rows");
 		if (rows.length() > 0) {
 			rw.writeData("list", "Product2G", null, qp0, reqSKU, this::log);
 		}
-		response = workshop.makeRequest("PUT", "/object/Product2G/'" + id + "'@'MASTER'", qp, request.toString());
-		if (response != null) {
-			log("\tWriting: " + request + "\nNot really an error from writing id: " + id + ": " + response);
-		} else {
-			log("ERR: " + workshop.getRawResponse());
-		}
+//		response = workshop.makeRequest("PUT", "/object/Product2G/'" + id + "'@'MASTER'", qp, request.toString());
+//		if (response != null) {
+//			log("\tWriting: " + request + "\nNot really an error from writing id: " + id + ": " + response);
+//		} else {
+//			log("ERR: " + workshop.getRawResponse());
+//		}
 	}
 
-	private void sendWriteRequest(String entity, String id, org.json.JSONArray characteristicRecords,
-			String fotoTomadaLiverpool, String currentStatus, String sku) {
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		org.json.JSONObject request = new org.json.JSONObject();
-		request.put("_characteristicRecords", characteristicRecords);
+	private void sendWriteRequest(
+			  String entity
+			, String id
+			, org.json.JSONArray characteristicRecords
+			, String fotoTomadaLiverpool
+			, String currentStatus
+			, String sku
+	) {
+//		java.util.Map<String, String> qp = new java.util.TreeMap<>();
+//		org.json.JSONObject request = new org.json.JSONObject();
+//		request.put("_characteristicRecords", characteristicRecords);
+		log("Sending write request with; entity: " + entity + ", id: " + id + ", fotoTomadaLiverpool: " + fotoTomadaLiverpool + ", currentStatus: " + currentStatus + ", sku: " + sku);
 		if ("Product2G".equals(entity) && currentStatus != null && "1020".equals(currentStatus)) {
-			collectNumberOfImages(id, fotoTomadaLiverpool, request);
+			collectNumberOfImages(id, fotoTomadaLiverpool);
 		}
-		org.json.JSONObject response = null;
-		if ("Product2G".equals(entity)) {
-			org.json.JSONArray rows = reqSKU.getJSONArray("rows");
-			if (rows.length() > 0) {
-				rw.writeData("list", "Product2G", null, qp0, reqSKU, this::log);
-			}
-		} else {
-			org.json.JSONArray rows = reqSKUA.getJSONArray("rows");
-			if (rows.length() > 0) {
-				rw.writeData("list", "Article", null, qp0, reqSKUA, this::log);
+		if(sku != null && !"".equals(sku)) {
+			if ("Product2G".equals(entity)) {
+				org.json.JSONArray rows = reqSKU.getJSONArray("rows");
+				if (rows.length() > 0) {
+					rw.writeData("list", "Product2G", null, qp0, reqSKU, this::log);
+				}
+			} else {
+				org.json.JSONArray rows = reqSKUA.getJSONArray("rows");
+				if (rows.length() > 0) {
+					rw.writeData("list", "Article", null, qp0, reqSKUA, this::log);
+				}
 			}
 		}
-		log("Blerg: /object/" + entity + "/'" + id + "'@'MASTER'");
-		response = workshop.makeRequest("PUT", "/object/" + entity + "/'" + id + "'@'MASTER'", qp, request.toString());
-		if (response != null) {
-			if (sku != null && !"".equals(sku) && "Product2G".equals(entity)) {
-				DataRequestor dr = new DataRequestor();
-				org.json.JSONArray items = new org.json.JSONArray();
-				items.put(new org.json.JSONObject().put("productNo", id).put("sku", sku));
-				dr.skuProductNo(items);
-			}
-			log("\tWriting: " + request + "\nNot really an error from writing id: " + id + ": " + response);
-		} else {
-			log("ERR: " + workshop.getRawResponse());
-		}
+//		org.json.JSONObject response = null;
+//		log("Blerg: /object/" + entity + "/'" + id + "'@'MASTER'");
+//		response = workshop.makeRequest("PUT", "/object/" + entity + "/'" + id + "'@'MASTER'", qp, request.toString());
+//		if (response != null) {
+//			log("\tWriting: " + request + "\nNot really an error from writing id: " + id + ": " + response);
+//		} else {
+//			log("ERR: " + workshop.getRawResponse());
+//		}
 	}
 
 	private void collectCharacteristicsByEntity(java.util.LinkedList<String> product2G,
@@ -2948,134 +2761,220 @@ public class ParseJana122Response implements SimpleLog {
 		}
 	}
 
-	private void collectLookupValues(String lkpId, java.util.Map<String, java.util.Map<String, String>> map,
-			java.util.Map<String, java.util.Map<String, String>> mapB, String dataType) {
-		if ("LOOKUP".equals(dataType) && lkpId != null) {
-			java.util.Map<String, String> data = null;
-			data = getData(lkpId);
-			map.put(lkpId, data);
-			data = getDataB(lkpId);
-			mapB.put(lkpId, data);
+	private static final java.util.Map<String, org.json.JSONObject> peticiones = new java.util.HashMap<>();
+	private static final java.util.Map<String, org.json.JSONObject> peticionesArticles = new java.util.HashMap<>();
+	
+	private final void creaPeticion(String entity, String externalId, String llave, Object valor) {
+		String dataType = dataTypes.get(llave);
+		if(dataType == null) {
+			collectLookupCharacteristics(dataTypes, lkps);
+			dataType = dataTypes.get(llave);
 		}
-	}
-
-	private java.util.Map<String, String> getData(String lkpId) {
-		java.util.Map<String, String> data = new java.util.TreeMap<>();
-		if (lkpId != null) {
-			try (java.util.stream.Stream<String> lns = java.nio.file.Files
-					.lines(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.templates_cache_directory"),
-							"global_lookups", lkpId.replaceAll("/", "<::>")))) {
-				lns.forEach(s -> {
-					String[] pieces = workshop.parseLine(s, "\"", ";", "\\");
-					data.put(pieces[0], pieces[1]);
-				});
-			} catch (java.io.IOException e) {
-				logE(e);
-			}
-		}
-		return data;
-	}
-
-	private java.util.Map<String, String> getDataB(String lkpId) {
-		java.util.Map<String, String> data = new java.util.TreeMap<>();
-		if (lkpId != null) {
-			try (java.util.stream.Stream<String> lns = java.nio.file.Files
-					.lines(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.templates_cache_directory"),
-							"global_lookups", lkpId.replaceAll("/", "<::>")))) {
-				lns.forEach(s -> {
-					String[] pieces = workshop.parseLine(s, "\"", ";", "\\");
-					data.put(pieces[1], pieces[0]);
-				});
-			} catch (java.io.IOException e) {
-				logE(e);
-			}
-		}
-		return data;
-	}
-
-	private void addValue(String name, Object value, org.json.JSONArray values) {
-		if (value == null)
+		if(dataType == null) {
 			return;
-		values.put(
-				new org.json.JSONObject()
-						.put("_qualification",
-								new org.json.JSONObject().put("characteristic",
-										new org.json.JSONObject().put("_code", name)))
-						.put("_recordLang", new org.json.JSONArray()
-								.put(new org.json.JSONObject().put("values", new org.json.JSONArray().put(value)))));
+		}
+		org.json.JSONObject request = null;
+		request = ("Product2G".equals(entity) ? peticiones : peticionesArticles).get(llave);
+		if(request == null) {
+			request = new org.json.JSONObject();
+			org.json.JSONArray columns = new org.json.JSONArray();
+			org.json.JSONArray rows = new org.json.JSONArray();
+			request.put("columns", columns);
+			request.put("rows", rows);
+			columns.put(new org.json.JSONObject().put("identifier", entity + "CharacteristicValueLang.Value('" + llave + "',root,\"0000.0000.RK\",'" + llave + "',-1)" ));
+			("Product2G".equals(entity) ? peticiones : peticionesArticles).put(llave, request);
+		}
+		org.json.JSONArray rows = request.getJSONArray("rows");
+		String v = null;
+		v = 
+			  "BrandName".equals(llave) ? mapB.get("ZCOMALOV").get(valor)
+			: "LicenseDescription".equals(llave) ? mapB.get("ZZLICLOV").get(valor)
+			: "ZIDKTEMP".equals(llave) ? mapB.get("ZIDKTEMPLOV").get(valor)
+			: "WHSTC".equals(llave) ? mapB.get("WHSTCLOV").get(valor)
+			: String.valueOf( valor );
+		rows.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put( 
+				v
+			)));
+		if(rows.length() == 100) {
+			rw.writeData("list", entity, null, qp, request, this::log);
+			while(rows.length() > 0) {
+				rows.remove(0);
+			}
+		}
 	}
 
-	private void collectLookupCharacteristics(String names, java.util.Map<String, String> characteristicsInfo,
-			java.util.Map<String, String> s4hMapping) {
-		java.util.Set<String> pieces = new java.util.TreeSet<>(java.util.Arrays.asList(names.split(",")));
-		java.util.Map<String, String[]> data = new java.util.TreeMap<>();
-		try (java.io.BufferedReader br = new java.io.BufferedReader(
-				new java.io.InputStreamReader(
-						new java.io.FileInputStream(
-								java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"),
-										"cache", "characteristics").toFile()),
-						java.nio.charset.StandardCharsets.UTF_8))) {
+	private void addValue(String name, String entity, String externalId, Object value) {
+		if(value == null)
+			return;
+		creaPeticion(entity, externalId, name, value);
+	}
+
+//	private void addValue(String name, Object value, org.json.JSONArray values) {
+//		if (value == null)
+//			return;
+//		values.put(
+//				new org.json.JSONObject()
+//						.put("_qualification",
+//								new org.json.JSONObject().put("characteristic",
+//										new org.json.JSONObject().put("_code", name)))
+//						.put("_recordLang", new org.json.JSONArray()
+//								.put(new org.json.JSONObject().put("values", new org.json.JSONArray().put(value)))));
+//	}
+	
+	private void collectLookupCharacteristics(java.util.Map<String, String> characteristicsInfo, java.util.Map<String, String> lkps){
+		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "characteristics").toFile()), java.nio.charset.StandardCharsets.UTF_8))){
 			String line = null;
-			String[] pcs = null;
-			while ((line = br.readLine()) != null) {
-				pcs = workshop.parseLine(line, "\"", ";", "\\");
-				if ("SKU".equals(pcs[0])) {
-					log("\n\t" + pcs.length + " - " + java.util.Arrays.asList(pcs) + "\n");
+			String[] erg = null;
+			while((line = br.readLine()) != null) {
+				erg = workshop.parseLine(line, "\"", ";", "\\");
+				if(erg != null && erg.length == 6) {
+					characteristicsInfo.put(erg[0], erg[1]);
+					lkps.put(erg[0], erg[5]);
+				}else {
+					log("Pieza malformada: --->" + line + "<---");
 				}
-				if (pcs.length == 6 && !"".equals(pcs[3]))
-					data.put(pcs[3], pcs);
 			}
-		} catch (java.io.IOException e) {
+		}catch(java.io.IOException e) {
 			logE(e);
 		}
-		String[] d;
-		for (String piece : pieces) {
-			d = data.get(piece);
-			if (d != null) {
-				if ("MATNR".equals(piece)) {
-					log("MATNR >--< " + java.util.Arrays.asList(d));
-				}
-				characteristicsInfo.put(d[0], d[1]);
-				s4hMapping.put(d[0], d[5]);
-			} else {
-			}
-		}
 	}
 
-	private void calculaProductType(String sapBehvo, String fshId, org.json.JSONArray newCharacteristicRecords,
-			RESTWorkshop rw) throws KeyManagementException, NoSuchAlgorithmException, UnsupportedEncodingException,
-			URISyntaxException, IOException, ServiceUnavailableException {
-		if (sapBehvo != null && !"".equals(sapBehvo)) {
-			newCharacteristicRecords.put(createCharacteristicValueObject("SAP_BEHVO",
-					new org.json.JSONObject().put("_code", sapBehvo.substring(0, 2))));
-			System.out.println("Got " + sapBehvo + " for SAP_BEHVO.");
+//	private void collectLookupCharacteristics(String names, java.util.Map<String, String> characteristicsInfo, java.util.Map<String, String> s4hMapping) {
+//		java.util.Set<String> pieces = new java.util.TreeSet<>(java.util.Arrays.asList(names.split(",")));
+//		java.util.Map<String, String[]> data = new java.util.TreeMap<>();
+//		try (java.io.BufferedReader br = new java.io.BufferedReader(
+//				new java.io.InputStreamReader(
+//						new java.io.FileInputStream(
+//								java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"),
+//										"cache", "characteristics").toFile()),
+//						java.nio.charset.StandardCharsets.UTF_8))) {
+//			String line = null;
+//			String[] pcs = null;
+//			while ((line = br.readLine()) != null) {
+//				pcs = workshop.parseLine(line, "\"", ";", "\\");
+//				if ("SKU".equals(pcs[0])) {
+//					log("\n\t" + pcs.length + " - " + java.util.Arrays.asList(pcs) + "\n");
+//				}
+//				if (pcs.length == 6 && !"".equals(pcs[3]))
+//					data.put(pcs[3], pcs);
+//			}
+//		} catch (java.io.IOException e) {
+//			logE(e);
+//		}
+//		String[] d;
+//		for (String piece : pieces) {
+//			d = data.get(piece);
+//			if (d != null) {
+//				if ("MATNR".equals(piece)) {
+//					log("MATNR >--< " + java.util.Arrays.asList(d));
+//				}
+//				characteristicsInfo.put(d[0], d[1]);
+//				s4hMapping.put(d[0], d[5]);
+//			} else {
+//			}
+//		}
+//	}
+	
+	private void calculaProductType(String sapBehvo1, String itemGroup, String fshId, String negocio, String almacenamientoAtt, String skuType, String mtart, String externalId, RESTWorkshop rw) throws KeyManagementException, NoSuchAlgorithmException, UnsupportedEncodingException, URISyntaxException, IOException, ServiceUnavailableException {
+		String sapBehvo = null;
+		if("Liverpool".equals(negocio) || "Marketplace".equals(negocio)) {
+			int month = Integer.parseInt( new java.text.SimpleDateFormat("MM").format(new java.util.Date()) );
+			int year = Integer.parseInt( new java.text.SimpleDateFormat("yyyy").format(new java.util.Date()) ) + (month < 11 ? 0 : 1);
+			addValue("AnoEstacion", "Product2G", externalId, String.valueOf(year));
+			addValue("Temporada", "Product2G", externalId, "0003");
+			sapBehvo = lookupValue(itemGroup, "GpoArtVsEnvase", rw);
+		}else if("Suburbia".equals(negocio)) {
+			sapBehvo = lookupValue(itemGroup, "GpoArtVsEnvase_S4H", rw);
+			if(fshId != null && fshId.length() >= 4) {
+				addValue("FSH_SEASON_YEAR", "Product2G", externalId, fshId.subSequence(0, 4));
+			}
+		}
+		if(sapBehvo == null || "".equals(sapBehvo)) {
+			return;
+		}
+		sapBehvo = sapBehvo.substring(0,2);
+		if(sapBehvo1 == null || "".equals(sapBehvo1)) {
+			addValue("SAP_BEHVO", "Product2G", externalId, sapBehvo.substring(0,2));
+		}
+		if(sapBehvo != null && !"".equals(sapBehvo)) {
 			String thevalue = "1";
-			try {
-				org.json.JSONArray rws = new org.json.JSONObject(rw.getRc().getRequest("GET", rw.getBaseUrl()
-						+ "/list/StandardizationValue/bySearch" + "?dictionaryProxy="
-						+ java.net.URLEncoder.encode("'BEHVO_LookupTable'", "UTF-8") + "&query="
-						+ java.net.URLEncoder.encode(
-								"StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"BEHVO_LookupTable\" and StandardizationValue.Value equals \""
-										+ sapBehvo.substring(0, 2) + "\"",
-								"UTF-8")
-						+ "&fields=" + java.net.URLEncoder.encode("StandardizationValue.AlternativeValue", "UTF-8"),
-						null)).getJSONArray("rows");
-				System.out.println("Checking sapBehvo: " + sapBehvo);
-				if (rws.length() > 0) {
+			try{
+				org.json.JSONArray rws = new org.json.JSONObject( rw.getRc().getRequest("GET", rw.getBaseUrl() + "/list/StandardizationValue/bySearch"
+						+ "?dictionaryProxy=" + java.net.URLEncoder.encode("'BEHVO_LookupTable'", "UTF-8")
+						+ "&query=" + java.net.URLEncoder.encode("StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"BEHVO_LookupTable\" and StandardizationValue.Value equals \"" + sapBehvo.substring(0,2) + "\"", "UTF-8")
+						+ "&fields=" + java.net.URLEncoder.encode("StandardizationValue.AlternativeValue", "UTF-8")
+						, null) ).getJSONArray("rows");
+				if(rws.length() > 0) {
 					thevalue = rws.getJSONObject(0).getJSONArray("values").getString(0);
 				}
-			} catch (org.json.JSONException e) {
-				e.printStackTrace();
+			}catch(org.json.JSONException e) {
+				logE(e);
 			}
-			newCharacteristicRecords.put(
-					createCharacteristicValueObject("ProductType", new org.json.JSONObject().put("_code", thevalue)));
-			System.out.println("Placing value: " + thevalue + " for ProductType");
+			addValue("ProductType", "Product2G", externalId, thevalue);
 		} else {
-			System.out.println("No SAP_BEHVO found, placing value 1.");
-			newCharacteristicRecords
-					.put(createCharacteristicValueObject("ProductType", new org.json.JSONObject().put("_code", "1")));
+			if(almacenamientoAtt != null && !"".equals(almacenamientoAtt) && "0001".equals(almacenamientoAtt) && "SERV".equals(skuType)) {
+				addValue("ProductType", "Product2G", externalId, "6");
+			}else if("DIEN".equals(mtart) && "SB87516".equals(itemGroup)){
+				addValue("ProductType", "Product2G", externalId, "6");
+			}else {
+				addValue("ProductType", "Product2G", externalId, "1");
+			}
 		}
 	}
+	
+	private String lookupValue(String value, String standardizationDictionary, RESTWorkshop rw) throws KeyManagementException, NoSuchAlgorithmException, UnsupportedEncodingException, URISyntaxException, IOException {
+		String container = standardizationDictionary.replaceAll("/", "<::>");
+		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.templates_cache_directory"), "dictionaries", container).toString())))){
+			String line = null;
+			String delim = "\"";
+			String sep = ";";
+			String escp = "\\";
+			String[] pieces = null;
+			while((line = br.readLine()) != null) {
+				pieces = workshop.parseLine(line, delim, sep, escp);
+				if(value.equals(pieces[0]))
+					return pieces[1];
+			}
+		}catch(java.io.IOException e) {
+			logE(e);
+		}
+		return null;
+	}
+	
+//	private void calculaProductType(String sapBehvo, String fshId, org.json.JSONArray newCharacteristicRecords,
+//			RESTWorkshop rw) throws KeyManagementException, NoSuchAlgorithmException, UnsupportedEncodingException,
+//			URISyntaxException, IOException, ServiceUnavailableException {
+//		if (sapBehvo != null && !"".equals(sapBehvo)) {
+//			newCharacteristicRecords.put(createCharacteristicValueObject("SAP_BEHVO",
+//					new org.json.JSONObject().put("_code", sapBehvo.substring(0, 2))));
+//			System.out.println("Got " + sapBehvo + " for SAP_BEHVO.");
+//			String thevalue = "1";
+//			try {
+//				org.json.JSONArray rws = new org.json.JSONObject(rw.getRc().getRequest("GET", rw.getBaseUrl()
+//						+ "/list/StandardizationValue/bySearch" + "?dictionaryProxy="
+//						+ java.net.URLEncoder.encode("'BEHVO_LookupTable'", "UTF-8") + "&query="
+//						+ java.net.URLEncoder.encode(
+//								"StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"BEHVO_LookupTable\" and StandardizationValue.Value equals \""
+//										+ sapBehvo.substring(0, 2) + "\"",
+//								"UTF-8")
+//						+ "&fields=" + java.net.URLEncoder.encode("StandardizationValue.AlternativeValue", "UTF-8"),
+//						null)).getJSONArray("rows");
+//				System.out.println("Checking sapBehvo: " + sapBehvo);
+//				if (rws.length() > 0) {
+//					thevalue = rws.getJSONObject(0).getJSONArray("values").getString(0);
+//				}
+//			} catch (org.json.JSONException e) {
+//				e.printStackTrace();
+//			}
+//			newCharacteristicRecords.put(
+//					createCharacteristicValueObject("ProductType", new org.json.JSONObject().put("_code", thevalue)));
+//			System.out.println("Placing value: " + thevalue + " for ProductType");
+//		} else {
+//			System.out.println("No SAP_BEHVO found, placing value 1.");
+//			newCharacteristicRecords
+//					.put(createCharacteristicValueObject("ProductType", new org.json.JSONObject().put("_code", "1")));
+//		}
+//	}
 
 	private static final java.util.Set<String> IDENTITY_CHARACTERISTICS = new java.util.HashSet<>(
 			java.util.Arrays.asList("SKU", "MainBarCode", "MainBarCodeS4H"));

@@ -22,7 +22,6 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 
-import org.json.JSONObject;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
@@ -51,9 +50,8 @@ public class RealExportProductsExpressOMS {
 	private final java.util.Set<String> articulosEnviados = new java.util.TreeSet<>();
     
     private final int OMS_BATCH_SIZE = 10;
-    
-    
 
+    private boolean frozenImagesExists = true;
 
 	public RealExportProductsExpressOMS() {
 		System.out.println("Adding global metadata");
@@ -224,29 +222,13 @@ public class RealExportProductsExpressOMS {
 		return null;
 	}
 	
-	private java.sql.Connection openConnection(JdbcConfig jdbcConfig, boolean autoCommit)
-		    throws java.sql.SQLException, ClassNotFoundException
-		{
-		  Class.forName(jdbcConfig.jdbcDriver);
-
-		  java.sql.Connection connection = java.sql.DriverManager.getConnection(
-		      jdbcConfig.jdbcUrl,
-		      jdbcConfig.user,
-		      jdbcConfig.password
-		  );
-
-		  connection.setAutoCommit(autoCommit);
-
-		  return connection;
-		}
-	
 	@SuppressWarnings("deprecation")
 	public String doIt(String[] proposalIds, boolean sendIt) throws ServiceUnavailableException {
-		long envioAtgExecId = -1;
 		if(proposalIds == null || proposalIds.length == 0) {
 			return null;
 		}
-		
+
+		frozenImagesExists = Boolean.parseBoolean( PropertiesManager.get("p360.contingency.useFrozenImages", "true") );
 
 	    if(proposalIds.length > OMS_BATCH_SIZE) {
 	        StringBuilder aggregated = new StringBuilder();
@@ -271,7 +253,6 @@ public class RealExportProductsExpressOMS {
 	        return aggregated.length() == 0 ? null : aggregated.toString();
 	    }
 
-		JdbcConfig jdbcConfig = null;
 		java.util.Map<String, String> prodToSKU = new java.util.HashMap<>();
 		java.util.Map<String, String> artToSKU = new java.util.HashMap<>();
 		System.out.println("Doing it " + (proposalIds == null ? "NaN" : proposalIds.length) );
@@ -311,6 +292,8 @@ public class RealExportProductsExpressOMS {
         	/******
         	 *	Si se aprobó normal, es el mensaje del ejemplo, si se aprueba por repoblamiento, se tiene otro.
         	 ********/
+			java.util.Map<String, Element> assetMap = new java.util.TreeMap<>();
+			java.util.Map<String, java.util.LinkedList<String>> assetReferencesMap = new java.util.TreeMap<>();
         	spim.appendChild(assets); // <STEP-ProductInformation ExportTime="">  <AttributeList></AttributeList> <Assets></Assets> </STEP-ProductInformation>
 
         	Element products = doc.createElement("Products");
@@ -347,6 +330,7 @@ public class RealExportProductsExpressOMS {
 			for(int index = 0; index<proposalIds.length; index++) {
 				proposalId = proposalIds[index];
 				log("--->" + proposalId + "<---");
+				System.out.println("--->" + proposalId + "<---");
 				final String[] productsToTestWith = new String[] {proposalId};
 				org.json.JSONObject rp = getMeTheCompa(proposalId);
 				if(rp == null || !rp.getJSONObject("_data").has("_characteristicRecords")) {
@@ -416,6 +400,14 @@ public class RealExportProductsExpressOMS {
 				String codigoColor = null;
 				String color = null;
 	
+				String piName = null;
+				String piUrl = null;
+				String piKey = null;
+	
+				java.util.LinkedList<String[]> details = new java.util.LinkedList<>();
+				java.util.LinkedList<String[]> smoshes = new java.util.LinkedList<>();
+				java.util.LinkedList<String[]> illustrations = new java.util.LinkedList<>();
+				
 				org.json.JSONArray characteristicRecords = null;
 				org.json.JSONArray upperRows = null;
 				
@@ -471,6 +463,7 @@ public class RealExportProductsExpressOMS {
 				 * 
 				 * ****/
 				try {
+					String charId = null;
 					raw = rw.makeRequest("GET", "/list/Article/bySearch"
 							+ "?fields="
 								+ java.net.URLEncoder.encode(
@@ -480,6 +473,7 @@ public class RealExportProductsExpressOMS {
 										,"UTF-8")
 							+ "&query=" + java.net.URLEncoder.encode("ProductReference.ReferencedSupplierAid(\"" + itemId + "\") equals \""+itemId+"\"", "UTF-8"), null);
 					org.json.JSONObject resp = new org.json.JSONObject(raw);
+					System.out.println(resp);
 					upperRows = resp.getJSONArray("rows");
 					if((sku == null || "".equals(sku)) && upperRows.length() == 1) {
 						try{
@@ -489,6 +483,97 @@ public class RealExportProductsExpressOMS {
 						firstVariant = null;
 					}
 					productType = "00".equals(sapObjectType) && !"MKP".equals(business) ? "SalesItem" : "00".equals(sapObjectType) && "MKP".equals(business) ? "SalesItemFamilyMkt" : !"00".equals(sapObjectType) && "MKP".equals(business) ? "SalesItemFamilyMkt" : "SalesItemFamily";
+					System.out.println(upperRows.length());
+					for(int a = 0; a<upperRows.length(); a++) {
+						try{
+							firstVariant = upperRows.getJSONObject(a).getJSONArray("values").getString(0);
+						}catch(org.json.JSONException e) {
+						}
+						raw = rw.makeRequest("GET", "/object/Article/'" + firstVariant + "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData", null);
+						resp = new org.json.JSONObject(raw);
+						resp = resp.getJSONObject("_data");
+						if(!resp.has("_characteristicRecords")) {
+							log("No characteristic records for: " + itemId);
+							System.out.println("No characteristic records for: " + itemId);
+							continue;
+						}
+						characteristicRecords = resp.getJSONArray("_characteristicRecords");
+						org.json.JSONArray children = null;
+						String[] chunk = null;
+						for(int b = 0; b < characteristicRecords.length(); b++) {
+							imageObject = characteristicRecords.getJSONObject(b);
+							charId = imageObject.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+							if(("ProductImage" + ( frozenImagesExists ? "2" : "" ) ).equals(charId)) {
+								if(imageObject.has("_children")) {
+									children = imageObject.getJSONArray("_children");
+									piKey = imageObject.getJSONObject("_qualification").getString("recordKey");
+									for(int c = 0; c<children.length(); c++) {
+										charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+										if(("ProductImage_Name" + ( frozenImagesExists ? "2" : "" ) ).equals(charId)) {
+											piName = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+										}else if(("ProductImage_URL" + ( frozenImagesExists ? "2" : "" ) ).equals(charId)) {
+											piUrl = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+										}
+									}
+								}
+							}else if(("ProductImageDetail" + ( frozenImagesExists ? "2" : "" ) ).equals(charId)) {
+								if(imageObject.has("_children")) {
+									children = imageObject.getJSONArray("_children");
+									chunk = new String[3];
+									chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
+									for(int c = 0; c<children.length(); c++) {
+										charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+										if(("ProductImageDetail_Name" + ( frozenImagesExists ? "2" : "" ) ).equals(charId)) {
+											chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+										}else if(("ProductImageDetail_URL" + ( frozenImagesExists ? "2" : "" ) ).equals(charId)) {
+											chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+										}
+									}
+									details.addLast(chunk);
+								}
+							}else if(("ProductImageSmosh" + ( frozenImagesExists ? "2" : "" ) ).equals(charId)) {
+								if(imageObject.has("_children")) {
+									children = imageObject.getJSONArray("_children");
+									chunk = new String[3];
+									chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
+									for(int c = 0; c<children.length(); c++) {
+										charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+										if(("ProductImageSmosh_Name" + ( frozenImagesExists ? "2" : "" ) ).equals(charId)) {
+											chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+										}else if(("ProductImageSmosh_URL" + ( frozenImagesExists ? "2" : "" ) ).equals(charId)) {
+											chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+										}
+									}
+									smoshes.addLast(chunk);
+								}
+							}else if(("Illustration" + ( frozenImagesExists ? "2" : "" ) ).equals(charId)) {
+								if(imageObject.has("_children")) {
+									children = imageObject.getJSONArray("_children");
+									chunk = new String[3];
+									chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
+									for(int c = 0; c<children.length(); c++) {
+										charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+										if(("Illustration_Name" + ( frozenImagesExists ? "2" : "" ) ).equals(charId)) {
+											chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+										}else if(("Illustration_URL" + ( frozenImagesExists ? "2" : "" ) ).equals(charId)) {
+											chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+										}
+									}
+									illustrations.addLast(chunk);
+								}
+							} else if("SalesItem".equals(productType) && "TamanoUnicoSTD".equals(charId)){
+								tallaNormalizada = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+							}else if("SalesItem".equals(productType) && "TamanoUnico".equals(charId)) {
+								tamanoUnico = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
+							}else if("SalesItem".equals(productType) && "ColoursLiverpoolAtt".equals(charId)) {
+								color = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
+								codigoColor = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+							}
+						}
+						if(piName != null && piUrl != null) {
+							break;
+						}
+					}
 				} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
 					logE(e);
 				}
@@ -509,6 +594,7 @@ public class RealExportProductsExpressOMS {
 				org.json.JSONArray prevV = null;
 				propiedadesCaracteristicas = templateMetadataSet.get(template);
 				atributosGeneralesQueSi = templateSets.get(template);
+				System.out.println("Propiedades de característcias.");
 				if(propiedadesCaracteristicas == null) {
 					propiedadesCaracteristicas = new java.util.TreeMap<>();
 					atributosGeneralesQueSi = new java.util.TreeSet<>();
@@ -631,10 +717,61 @@ public class RealExportProductsExpressOMS {
 
 	        	java.util.ArrayList<String> unosQueQuiero = new java.util.ArrayList<>(YEA);
 	        	java.util.Map<String, org.json.JSONObject> heredables = new java.util.TreeMap<>();
-
+	        	
 	        	attributeValues = doc.createElement("Values");
 	        	product.appendChild(attributeValues);
-
+	        	System.out.println("Product type: " + productType);
+	        	if ("SalesItem".equals(productType) && piName != null && piUrl != null && piKey != null) {
+					appendMediaAsset(piName, piUrl, "PrimaryProductImage", // String assetType,
+							piKey, "Imagen Producto", // String assetValueTextContent,
+							"ImageURL", // String assetValueAttributeId,
+							"ProductImage", // String assetUserTypeId,
+							"ProductImage", // String assetKeyPrefix,
+							itemId, characteristic, "ProductImage", // String baseAssetTypeName,
+							assetMap, assetReferencesMap, product, assets, doc, firstVariant);
+				}
+				if ("SalesItem".equals(productType) && details != null && !details.isEmpty()) {
+					for (String[] dt : details) {
+						appendMediaAsset(dt[0], dt[1], "ProductImage", // String assetType,
+								dt[2], "Imagen Detalle Producto", // String assetValueTextContent,
+								"ImageURL", // String assetValueAttributeId,
+								"ProductImageDetail", // String assetUserTypeId,
+								"ProductImageDetail", // String assetKeyPrefix,
+								itemId, characteristic, "ProductImageDetail", // String baseAssetTypeName,
+								assetMap, assetReferencesMap, product, assets, doc, firstVariant);
+					}
+				}
+				if ("SalesItem".equals(productType) && smoshes != null && !smoshes.isEmpty()) {
+					for (String[] dt : smoshes) {
+						appendMediaAsset(dt[0], dt[1], "ProductImageSmosh", // String assetType,
+								dt[2], "Imagen Smosh Producto", // String assetValueTextContent,
+								"ImageURL", // String assetValueAttributeId,
+								"ProductImageSmosh", // String assetUserTypeId,
+								"SmoshImg", // String assetKeyPrefix,
+								itemId, characteristic, "ProductImageDetail", // String baseAssetTypeName,
+								assetMap, assetReferencesMap, product, assets, doc, firstVariant);
+					}
+				}
+				if ("SalesItem".equals(productType) && illustrations != null && !illustrations.isEmpty()) {
+					for (String[] dt : illustrations) {
+						appendMediaAsset(dt[0], dt[1], "Illustration", // String assetType,
+								dt[2], "Imagen Isométrica del Producto", // String assetValueTextContent,
+								"ImageURL", // String assetValueAttributeId,
+								"Illustration", // String assetUserTypeId,
+								"Illustration", // String assetKeyPrefix,
+								itemId, characteristic, "Illustration", // String baseAssetTypeName,
+								assetMap, assetReferencesMap, product, assets, doc, firstVariant);
+					}
+				}
+				if ("SalesItem".equals(productType) && tallaNormalizada != null && !"".equals(tallaNormalizada)) {
+					appendPlainElementValue(tallaNormalizada, null, "TC-NormalizedSize", attributeValues, attributes,
+							doc, propiedadesCaracteristicas);
+				}
+				if ("SalesItem".equals(productType) && color != null && !"".equals(color)) {
+					appendPlainElementValue(color, codigoColor, "ColoursLiverpoolAtt", attributeValues, attributes, doc,
+							propiedadesCaracteristicas);
+				}
+	        	
 				String rr = null;
 				try {
 					rr = rc.getRequest("GET", 
@@ -690,7 +827,7 @@ public class RealExportProductsExpressOMS {
 				} catch (IOException e) {
 					logE(e);
 				}
-
+				System.out.println("Properties from PPT added.");
 				if(descLong != null) {
 					appendPlainElementValue(
 							descLong,
@@ -886,6 +1023,7 @@ public class RealExportProductsExpressOMS {
 	        			}
 	        		}
 	        	}
+	        	System.out.println("Main characteristic values were iterated.");
 	        	if(embeddedCodeWEB != null && !"".equals(embeddedCodeWEB)) {
 	        		appendPlainElementValue(
 							embeddedCodeWEB,
@@ -1079,7 +1217,7 @@ public class RealExportProductsExpressOMS {
 						}else {
 							log("Sin product neim, no será posible publicar.");
 							System.out.println("Sin product neim, no será posible publicar a ATG pero como esto es OMS, sí se va.");
-//							continue;
+							continue;
 						}
 					}
 				}
@@ -1139,7 +1277,7 @@ public class RealExportProductsExpressOMS {
 	        	if(unosQueQuiero.contains("SupplierPartNumber") && !heredables.containsKey("SupplierPartNumber") && !"".equals(supplierPartNumber) && supplierPartNumber != null) {
 	        		heredables.put("SupplierPartNumber", new org.json.JSONObject().put("_datatype", "TEXT").put("_qualification", new org.json.JSONObject().put("characteristic", new org.json.JSONObject().put("_code", "ProductType"))).put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values", new org.json.JSONArray().put(supplierPartNumber)))));
 	        	}
-
+	        	System.out.println("Working as " + productType + " productType");
 	        	if(productType.startsWith("SalesItemFamily")) {
 	        		org.json.JSONObject resp = null;
 	        		Element subProduct = null;
@@ -1147,6 +1285,10 @@ public class RealExportProductsExpressOMS {
 	        		Element varName = null;
 	        		String childSAPObjectType = null;
 	        		String childSAPObjectTypeLabel = null;
+					java.util.LinkedList<java.util.LinkedList<String[]>> losdetalles = new java.util.LinkedList<>();
+					java.util.LinkedList<java.util.LinkedList<String[]>> losesmoshes = new java.util.LinkedList<>();
+					java.util.LinkedList<java.util.LinkedList<String[]>> lasilustraciones = new java.util.LinkedList<>();
+					boolean theFirstTime = true;
 	        		org.json.JSONObject characteristicObject = null;
 	        		for(int a = 0; a<upperRows.length(); a++) {
 	        			tallaNormalizada = null;
@@ -1178,6 +1320,10 @@ public class RealExportProductsExpressOMS {
     								doc,
     								propiedadesCaracteristicas);
         				}
+
+						details = new java.util.LinkedList<>();
+						smoshes = new java.util.LinkedList<>();
+						illustrations = new java.util.LinkedList<>();
 	                	
 	    				try {
 							raw = rw.makeRequest("GET", "/object/Article/'" + firstVariant + "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData", null);
@@ -1189,6 +1335,8 @@ public class RealExportProductsExpressOMS {
 								continue;
 							}
 							characteristicRecords = resp.getJSONArray("_characteristicRecords");
+							org.json.JSONArray children = null;
+							String[] chunk = null;
 							String sku0 = resp.has("sku") ? String.valueOf( resp.getLong("sku") ) : null;
 							String ean0 = resp.has("gtin") ? resp.getString("gtin") : null;
 							codigoColor = resp.has("articleExtraData") && resp.getJSONArray("articleExtraData").getJSONObject(0).has("coloursLiverpoolAtt") ? resp.getJSONArray("articleExtraData").getJSONObject(0).getJSONObject("coloursLiverpoolAtt").getString("_code") : null;
@@ -1215,7 +1363,98 @@ public class RealExportProductsExpressOMS {
 									childSAPObjectTypeLabel = characteristicObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
 									childSAPObjectType = characteristicObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
 								}else if("ProcedeNoProcede".equals(charId)) {
-								}else {
+								}else if (("ProductImage" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+									if (characteristicObject.has("_children")) {
+										children = characteristicObject.getJSONArray("_children");
+										piKey = characteristicObject.getJSONObject("_qualification")
+												.getString("recordKey");
+										for (int c = 0; c < children.length(); c++) {
+											charId = children.getJSONObject(c).getJSONObject("_qualification")
+													.getJSONObject("characteristic").getString("_code");
+											if (("ProductImage_Name" + (frozenImagesExists ? "2" : ""))
+													.equals(charId)) {
+												piName = children.getJSONObject(c).getJSONArray("_recordLang")
+														.getJSONObject(0).getJSONArray("values").getString(0);
+											} else if (("ProductImage_URL" + (frozenImagesExists ? "2" : ""))
+													.equals(charId)) {
+												piUrl = children.getJSONObject(c).getJSONArray("_recordLang")
+														.getJSONObject(0).getJSONArray("values").getString(0);
+											}
+										}
+									}
+								} else if (("ProductImageDetail" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+									if (characteristicObject.has("_children")) {
+										children = characteristicObject.getJSONArray("_children");
+										chunk = new String[4];
+										chunk[2] = characteristicObject.getJSONObject("_qualification")
+												.getString("recordKey");
+										for (int c = 0; c < children.length(); c++) {
+											charId = children.getJSONObject(c).getJSONObject("_qualification")
+													.getJSONObject("characteristic").getString("_code");
+											if (("ProductImageDetail_Name" + (frozenImagesExists ? "2" : ""))
+													.equals(charId)) {
+												chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang")
+														.getJSONObject(0).getJSONArray("values").getString(0);
+											} else if (("ProductImageDetail_URL" + (frozenImagesExists ? "2" : ""))
+													.equals(charId)) {
+												chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang")
+														.getJSONObject(0).getJSONArray("values").getString(0);
+											}
+										}
+										chunk[3] = firstVariant;
+										details.addLast(chunk);
+										if (theFirstTime)
+											losdetalles.addLast(details);
+									}
+								} else if (("ProductImageSmosh" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+									if (characteristicObject.has("_children")) {
+										children = characteristicObject.getJSONArray("_children");
+										chunk = new String[4];
+										chunk[2] = characteristicObject.getJSONObject("_qualification")
+												.getString("recordKey");
+										for (int c = 0; c < children.length(); c++) {
+											charId = children.getJSONObject(c).getJSONObject("_qualification")
+													.getJSONObject("characteristic").getString("_code");
+											if (("ProductImageSmosh_Name" + (frozenImagesExists ? "2" : ""))
+													.equals(charId)) {
+												chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang")
+														.getJSONObject(0).getJSONArray("values").getString(0);
+											} else if (("ProductImageSmosh_URL" + (frozenImagesExists ? "2" : ""))
+													.equals(charId)) {
+												chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang")
+														.getJSONObject(0).getJSONArray("values").getString(0);
+											}
+										}
+										chunk[3] = firstVariant;
+										smoshes.addLast(chunk);
+										if (theFirstTime)
+											losesmoshes.addLast(smoshes);
+									}
+								} else if (("Illustration" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+									if (characteristicObject.has("_children")) {
+										children = characteristicObject.getJSONArray("_children");
+										chunk = new String[4];
+										chunk[2] = characteristicObject.getJSONObject("_qualification")
+												.getString("recordKey");
+										for (int c = 0; c < children.length(); c++) {
+											charId = children.getJSONObject(c).getJSONObject("_qualification")
+													.getJSONObject("characteristic").getString("_code");
+											if (("Illustration_Name" + (frozenImagesExists ? "2" : ""))
+													.equals(charId)) {
+												chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang")
+														.getJSONObject(0).getJSONArray("values").getString(0);
+											} else if (("Illustration_URL" + (frozenImagesExists ? "2" : ""))
+													.equals(charId)) {
+												chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang")
+														.getJSONObject(0).getJSONArray("values").getString(0);
+											}
+										}
+										chunk[3] = firstVariant;
+										illustrations.addLast(chunk);
+										if (theFirstTime)
+											lasilustraciones.addLast(illustrations);
+									}
+								} else {
 									if(atributosGeneralesQueSi.contains(charId)) {
 										if("LOOKUP".equals(characteristicObject.getString("_datatype"))){
 											appendPlainElementValue(
@@ -1243,6 +1482,9 @@ public class RealExportProductsExpressOMS {
 									}
 								}
 							}
+							System.out.println("Smoshes: " + smoshes);
+							System.out.println("Illustrations: " + illustrations);
+							System.out.println("Details: " + details);
 							if(sku0 == null || "".equals(sku0)) {
 								sku0 = sku;
 							}
@@ -1429,6 +1671,48 @@ public class RealExportProductsExpressOMS {
 	        						attributes,
 	        						doc,
 	        						propiedadesCaracteristicas);
+							if (piName != null && piUrl != null && piKey != null) {
+								appendMediaAsset(piName, piUrl, "PrimaryProductImage", // String assetType,
+										piKey, "Imagen Producto", // String assetValueTextContent,
+										"ImageURL", // String assetValueAttributeId,
+										"ProductImage", // String assetUserTypeId,
+										"ProductImage", // String assetKeyPrefix,
+										itemId, characteristic, "ProductImage", // String baseAssetTypeName,
+										assetMap, assetReferencesMap, subProduct, assets, doc, firstVariant);
+							}
+							if (details != null && !details.isEmpty()) {
+								for (String[] dt : details) {
+									appendMediaAsset(dt[0], dt[1], "ProductImage", // String assetType,
+											dt[2], "Imagen Detalle Producto", // String assetValueTextContent,
+											"ImageURL", // String assetValueAttributeId,
+											"ProductImageDetail", // String assetUserTypeId,
+											"ProductImageDetail", // String assetKeyPrefix,
+											itemId, characteristic, "ProductImageDetail", // String baseAssetTypeName,
+											assetMap, assetReferencesMap, subProduct, assets, doc, dt[3]);
+								}
+							}
+							if (smoshes != null && !smoshes.isEmpty()) {
+								for (String[] dt : smoshes) {
+									appendMediaAsset(dt[0], dt[1], "ProductImageSmosh", // String assetType,
+											dt[2], "Imagen Smosh Producto", // String assetValueTextContent,
+											"ImageURL", // String assetValueAttributeId,
+											"ProductImageSmosh", // String assetUserTypeId,
+											"SmoshImg", // String assetKeyPrefix,
+											itemId, characteristic, "ProductImageSmosh", // String baseAssetTypeName,
+											assetMap, assetReferencesMap, subProduct, assets, doc, firstVariant);
+								}
+							}
+							if (illustrations != null && !illustrations.isEmpty()) {
+								for (String[] dt : illustrations) {
+									appendMediaAsset(dt[0], dt[1], "Illustration", // String assetType,
+											dt[2], "Imagen Isométrica del Producto", // String assetValueTextContent,
+											"ImageURL", // String assetValueAttributeId,
+											"Illustration", // String assetUserTypeId,
+											"Illustration", // String assetKeyPrefix,
+											itemId, characteristic, "Illustration", // String baseAssetTypeName,
+											assetMap, assetReferencesMap, subProduct, assets, doc, firstVariant);
+								}
+							}
 
 						} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
 							logE(e);
@@ -1668,19 +1952,9 @@ public class RealExportProductsExpressOMS {
 		} catch (TransformerException e) {
 			e.printStackTrace();
 			logE(e);
-			try (java.sql.Connection con = openConnection(jdbcConfig, true)) {
-		        EnvioAtgDao.actualizarExec(con, envioAtgExecId, "FAILED", stackTraceToString(e));
-		    } catch (Exception updateError) {
-		        logE(updateError);
-		    }
 		} catch (ParserConfigurationException e) {
 			e.printStackTrace();
 			logE(e);
-			try (java.sql.Connection con = openConnection(jdbcConfig, true)) {
-		        EnvioAtgDao.actualizarExec(con, envioAtgExecId, "FAILED", stackTraceToString(e));
-		    } catch (Exception updateError) {
-		        logE(updateError);
-		    }
 		}
         return null;
 	}
@@ -1953,20 +2227,6 @@ public class RealExportProductsExpressOMS {
 		return null;
 	}
 
-	private String[] getWebCategory(org.json.JSONArray classifications){
-		java.util.LinkedList<String> webs = new java.util.LinkedList<>();
-		org.json.JSONObject classification = null;
-		String externalId = null;
-		for(int i=0; i<classifications.length(); i++) {
-			classification = classifications.getJSONObject(i);
-			externalId = classification.getJSONObject("_qualification").getJSONObject("structureGroup").getString("_externalId");
-			if(externalId.endsWith("'Sitios Web'")) {
-				webs.addLast( externalId.replaceAll("(^')|(('@'Sitios Web')$)", "") );
-			}
-		}
-		return webs.toArray(new String[] {});
-	}
-
 	private String treatment(String val) {
 		StringBuilder sb = new StringBuilder();
 		int i=0;
@@ -2024,7 +2284,9 @@ public class RealExportProductsExpressOMS {
 		Element assetValues = null;
 		Element assetValue = null;
 		java.util.LinkedList<String> referencesList = null;
+		System.out.println( "AssetID: " + assetId );
 		if(asset == null) {
+			System.out.println("Appending asset");
 			asset = doc.createElement("Asset");
 			assetMap.put(assetId, asset);
 			asset.setAttribute("ID", assetId);
@@ -2049,6 +2311,7 @@ public class RealExportProductsExpressOMS {
 					}
 				}
 			}
+			System.out.println("Name: " + name);
 			assetValues = doc.createElement("Values");
 			asset.appendChild(assetValues);
 			assetValue = doc.createElement("Value");
@@ -2228,40 +2491,6 @@ public class RealExportProductsExpressOMS {
 		attributeMetaDataValue.setTextContent("N/A");
 		metaData.appendChild(attributeMetaDataValue);
 	}
-
-	private Element pacheleWeb(JSONObject node, Document doc) {
-		Element metaData = null;
-		Element value = null;
-		String aux = null;
-        if (node != null) {
-        	metaData = doc.createElement("MetaData");
-            Element classificationElement = doc.createElement("Classification");
-            classificationElement.setAttribute("Selected", "true");
-            classificationElement.appendChild(metaData);
-            if (node.has("name_es")) {
-            	value = doc.createElement("Value");
-            	value.setAttribute("AttributeID", "DisplayName");
-            	value.setTextContent
-            	(node.getString("name_es"));
-            	metaData.appendChild(value);
-            }
-            if (node.has("identifier")) {
-                classificationElement.setAttribute("ID", node.optString("identifier", ""));
-            }
-            if (node.has("level")) {
-            	aux = String.valueOf(node.get("level"));
-                classificationElement.setAttribute("UserTypeID", "0".equals(aux) ? "WebsiteRoot" : "WebLevel" + aux );
-            }
-            if (node.has("parentIdentifier") && node.getString("parentIdentifier").startsWith("cat")) {
-            	value = doc.createElement("Value");
-            	value.setAttribute("AttributeID", "parentCategoryID");
-            	value.setTextContent(node.getString("parentIdentifier"));
-                metaData.appendChild(value);
-            }
-            return classificationElement;
-        }
-        return null;
-    }
 
 	private org.json.JSONObject getMeAssetChildValue(org.json.JSONObject hola, String childCharacteristic) {
 		if(hola == null || (!hola.has("_children"))) {
@@ -2666,14 +2895,5 @@ public class RealExportProductsExpressOMS {
 			e.printStackTrace();
 		}
 	}
-	
-
-	  private final class JdbcConfig
-	  {
-	    private String jdbcDriver;
-	    private String jdbcUrl;
-	    private String user;
-	    private String password;
-	  }
 
 }
