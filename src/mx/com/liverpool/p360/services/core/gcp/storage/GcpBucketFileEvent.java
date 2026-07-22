@@ -1,23 +1,9 @@
-package mx.com.liverpool.p360.services.core.gcp;
+package mx.com.liverpool.p360.services.core.gcp.storage;
 
 import org.json.JSONObject;
 
 /**
- * Value object for a Cloud Storage file event delivered through Pub/Sub.
- *
- * <p>The expected Pub/Sub data payload is the JSON produced by a Cloud Storage
- * object notification, with fields such as:</p>
- *
- * <pre>
- * {
- *   "bucket": "bucket-name",
- *   "name": "incoming/file.csv",
- *   "generation": "123456789"
- * }
- * </pre>
- *
- * <p>The parser also accepts a simple wrapper with a nested {@code message}
- * object to make local/manual tests easier.</p>
+ * Value object for Cloud Storage object notifications delivered through Pub/Sub.
  */
 public class GcpBucketFileEvent {
 
@@ -49,11 +35,6 @@ public class GcpBucketFileEvent {
         return eventType;
     }
 
-    /**
-     * Builds a file event from the Pub/Sub message payload.
-     *
-     * @throws IllegalArgumentException when bucket or object name are missing.
-     */
     public static GcpBucketFileEvent fromPubSubPayload(String payload) {
         JSONObject json = new JSONObject(payload);
         String bucket = json.optString("bucket", null);

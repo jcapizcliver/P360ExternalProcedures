@@ -1,4 +1,4 @@
-package mx.com.liverpool.p360.services.core.gcp;
+package mx.com.liverpool.p360.services.core.gcp.storage;
 
 import java.io.InputStream;
 import java.util.concurrent.TimeUnit;
@@ -14,54 +14,31 @@ import com.google.pubsub.v1.PubsubMessage;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 
 /**
- * Background worker that listens for Cloud Storage object events through Pub/Sub.
+ * Optional Pub/Sub listener for Cloud Storage object events.
  *
- * <p>Expected GCP setup:</p>
- * <ol>
- *   <li>The bucket publishes OBJECT_FINALIZE events to a Pub/Sub topic.</li>
- *   <li>A subscription is created for this worker.</li>
- *   <li>The configured service account can consume the subscription and read
- *       the bucket object.</li>
- * </ol>
- *
- * <p>Required properties:</p>
- * <pre>
- * p360.contingency.gcp.bucket_listener.service_account=/path/service-account.json
- * p360.contingency.gcp.bucket_listener.project_id=gcp-project-id
- * p360.contingency.gcp.bucket_listener.subscription_id=subscription-id
- * </pre>
- *
- * <p>Optional property:</p>
- * <pre>
- * p360.contingency.gcp.bucket_listener.prefix=incoming/
- * </pre>
- *
- * <p>Ack strategy: the message is acknowledged only after the file has been read
- * and processed. Errors trigger nack so Pub/Sub can retry according to the
- * subscription policy.</p>
+ * <p>The current placeholder flow is expected to run as a scheduled job or from
+ * a servlet. This listener remains transport-only so a future event-driven flow
+ * can reuse bucket connectivity without embedding business logic here.</p>
  */
 public class GcpBucketFileListener {
 
-    private static final String CONFIG_SERVICE_ACCOUNT = "p360.contingency.gcp.bucket_listener.service_account";
-    private static final String CONFIG_PROJECT_ID = "p360.contingency.gcp.bucket_listener.project_id";
-    private static final String CONFIG_SUBSCRIPTION_ID = "p360.contingency.gcp.bucket_listener.subscription_id";
-    private static final String CONFIG_PREFIX = "p360.contingency.gcp.bucket_listener.prefix";
+    private static final String CONFIG_SERVICE_ACCOUNT = "p360.contingency.gcp.storage.service_account";
+    private static final String CONFIG_PROJECT_ID = "p360.contingency.gcp.storage.project_id";
+    private static final String CONFIG_SUBSCRIPTION_ID = "p360.contingency.gcp.storage.subscription_id";
+    private static final String CONFIG_PREFIX = "p360.contingency.gcp.storage.listener_prefix";
 
-    public static void main(String[] args) throws Exception {
-        new GcpBucketFileListener().listen();
+    private final GcpBucketObjectHandler handler;
+
+    public GcpBucketFileListener(GcpBucketObjectHandler handler) {
+        this.handler = handler;
     }
 
-    /**
-     * Starts the subscriber and keeps the current JVM alive while it listens.
-     */
     public void listen() throws Exception {
         String serviceAccountFile = required(CONFIG_SERVICE_ACCOUNT);
         String projectId = required(CONFIG_PROJECT_ID);
         String subscriptionId = required(CONFIG_SUBSCRIPTION_ID);
         String prefix = optional(CONFIG_PREFIX);
-
-        GcpStorageFileReader storageReader = new GcpStorageFileReader(serviceAccountFile);
-        GcpBucketFileProcessor processor = new GcpBucketFileProcessor();
+        GcpStorageClient storageClient = new GcpStorageClient(serviceAccountFile);
 
         GoogleCredentials credentials;
         try (java.io.FileInputStream in = new java.io.FileInputStream(serviceAccountFile)) {
@@ -82,9 +59,8 @@ public class GcpBucketFileListener {
                     return;
                 }
 
-                // Transport ends here; all file-specific rules belong in the processor.
-                try (InputStream inputStream = storageReader.read(event.getBucket(), event.getObjectName())) {
-                    processor.process(event.getBucket() + "/" + event.getObjectName(), inputStream);
+                try (InputStream inputStream = storageClient.read(event.getBucket(), event.getObjectName())) {
+                    handler.handle(event.getBucket(), event.getObjectName(), inputStream);
                 }
                 consumer.ack();
             } catch (Exception e) {
