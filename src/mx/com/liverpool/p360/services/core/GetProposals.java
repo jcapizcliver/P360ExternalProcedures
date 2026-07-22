@@ -135,6 +135,7 @@ public class GetProposals{
 //          log("Searching for following business: " + business + ", as well as for template: " + structureGroupId);
 //          a = System.currentTimeMillis();
           losQueSi = !"".equals(business) && !"".equals(structureGroupId) && business != null && structureGroupId != null ? gatherFieldsToSendByBusiness( headers, structureGroupId, business ) : new java.util.TreeMap<>();
+          log("******************* " + losQueSi + " ###########################");
 //          log("Adding template metadata data took: " + formatMillis(System.currentTimeMillis() - a));
           if(losQueSi.isEmpty()) {
 //        	  a = System.currentTimeMillis();
@@ -914,6 +915,7 @@ public class GetProposals{
 //      int totalSize = 0;
     	DataRequestor dr = new DataRequestor();
 		String resp = dr.getTemplateCharacteristicMetaDataByTemplate( new org.json.JSONArray().put(template) );
+		log("From collecting metadata to send... " + resp + "<::>");
 		try {
 			org.json.JSONObject jr = new org.json.JSONObject(resp);
 			org.json.JSONArray items = jr.getJSONArray("items");
@@ -944,6 +946,10 @@ public class GetProposals{
 			}
 		}catch(org.json.JSONException e) {
 			logE(e);
+		}catch(Exception e) {
+			log("PANIC.");
+			logE(e);
+			e.printStackTrace();
 		}
       /*
       try {
