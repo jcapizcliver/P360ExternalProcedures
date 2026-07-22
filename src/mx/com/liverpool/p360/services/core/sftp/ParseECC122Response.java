@@ -111,16 +111,13 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	
 	@Override
 	public void run() {
-		try {
-			attp.sendData();
-			sendData();
-		}finally {
-			closeResources();
-			this.running = false;
-		}
+		attp.sendData();
+		sendData();
+		closeResources();
+		this.running = false;
 	}
 	
-	private static final org.json.JSONObject requestStatus = new org.json.JSONObject()
+	private final org.json.JSONObject requestStatus = new org.json.JSONObject()
 				.put("columns", new org.json.JSONArray()
 						.put(new org.json.JSONObject().put("identifier", "Product2G.PrevStatus"))
 						.put(new org.json.JSONObject().put("identifier", "Product2G.CurrentStatus"))
@@ -128,7 +125,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 					)
 				.put("rows", new org.json.JSONArray())
 			;
-	private static final org.json.JSONObject requestCommercialECC = new org.json.JSONObject()
+	private final org.json.JSONObject requestCommercialECC = new org.json.JSONObject()
 			.put("columns", new org.json.JSONArray()
 					.put(new org.json.JSONObject().put("identifier", "Product2GStructureMap.ManualMap('CommercialECC')"))
 				)
@@ -141,21 +138,30 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 			.put(new org.json.JSONObject().put("identifier", "Product2G.SKU"))
 			;
 	private final org.json.JSONObject requestSKU = new org.json.JSONObject().put("columns", columnsSKU).put("rows", rowsSKU);
+	
+	private final org.json.JSONArray rowsSKUA = new org.json.JSONArray();
+	private final org.json.JSONArray columnsSKUA = new org.json.JSONArray()
+			.put(new org.json.JSONObject().put("identifier", "Article.SKU"))
+			;
+	private final org.json.JSONObject requestSKUA = new org.json.JSONObject().put("columns", columnsSKUA).put("rows", rowsSKUA);
+	
     private final org.json.JSONArray rows = new org.json.JSONArray();
     private final org.json.JSONArray columns = new org.json.JSONArray()
     			.put(new org.json.JSONObject().put("identifier", "Product2G.EAN"))
 	    		.put(new org.json.JSONObject().put("identifier", "Product2G.SKU"))
 	    		.put(new org.json.JSONObject().put("identifier", "Product2G.Business"))
 	    		.put(new org.json.JSONObject().put("identifier", "Product2GLang.DescriptionShort(es)"))
-				.put(new org.json.JSONObject().put("identifier", "Product2GExtraData.Direccion(MX)"))
-				.put(new org.json.JSONObject().put("identifier", "Product2GExtraData.Section(MX)"))
-				.put(new org.json.JSONObject().put("identifier", "Product2GExtraData.ItemGroup(MX)"))
-				.put(new org.json.JSONObject().put("identifier", "Product2GExtraData.BrandName(MX)"))
-				.put(new org.json.JSONObject().put("identifier", "Product2GExtraData.Negocio(MX)"))
-				.put(new org.json.JSONObject().put("identifier", "Product2GExtraData.SAPObjectType(MX)"))
-				.put(new org.json.JSONObject().put("identifier", "Product2GExtraData.SupplierID(MX)"))
-				.put(new org.json.JSONObject().put("identifier", "Product2GExtraData.SupplierPartNumber(MX)"))
 			;
+    
+    private final org.json.JSONObject requestDir = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GExtraData.Direccion(MX)"))).put("rows", new org.json.JSONArray());
+    private final org.json.JSONObject requestSec = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GExtraData.Section(MX)"))).put("rows", new org.json.JSONArray());
+    private final org.json.JSONObject requestIgr = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GExtraData.ItemGroup(MX)"))).put("rows", new org.json.JSONArray());
+    private final org.json.JSONObject requestBNa = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GExtraData.BrandName(MX)"))).put("rows", new org.json.JSONArray());
+    private final org.json.JSONObject requestNeg = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GExtraData.Negocio(MX)"))).put("rows", new org.json.JSONArray());
+    private final org.json.JSONObject requestSOT = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GExtraData.SAPObjectType(MX)"))).put("rows", new org.json.JSONArray());
+    private final org.json.JSONObject requestSID = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GExtraData.SupplierID(MX)"))).put("rows", new org.json.JSONArray());
+    private final org.json.JSONObject requestSPN = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GExtraData.SupplierPartNumber(MX)"))).put("rows", new org.json.JSONArray());
+    
     private final org.json.JSONObject request = new org.json.JSONObject().put("columns", columns).put("rows", rows);
     private final org.json.JSONArray columnsArticle = new org.json.JSONArray()
 	    		.put(new org.json.JSONObject().put("identifier", "Article.EAN"))
@@ -299,7 +305,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 		}catch(java.io.IOException e) {
 			logE(e);
 		}
-		log("Refreshed took: " + rw.getRw().formatTime(System.currentTimeMillis() - init));
+		log("Refreshed took (main): " + rw.getRw().formatTime(System.currentTimeMillis() - init));
 	}
 	
     private void launchListenerThread() {
@@ -684,6 +690,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 			pe000 = attributeValues.get("PE000");
 			sapBehvo = attributeValues.get("SAP_BEHVO");
 			fshId = attributeValues.get("FSH_ID");
+			mtart = attributeValues.get("MTART");
 			
 			itemId = null;
 			satnr = attributeValues.get( "SATNR" );
@@ -985,8 +992,8 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 							}else if("01".equals(attyp)) {
 								sendProductSKUToAdmin(externalId, sku, dr);
 								entity = "Product2G";
-								addValue("SAPObjectType", "Product2G", externalId, "01" );
-								addValue("Business", "Product2G", externalId, "LVP" );
+								addValue("SAPObjectType", entity, externalId, "01" );
+								addValue("Business", entity, externalId, "LVP" );
 								sendWriteRequestProduct(externalId, matkl, pe000, negocio, product2GCharacteristicRecords);
 								nuevosValores.add(externalId);
 								newAttributeValues.put(externalId, attributeValues);
@@ -998,8 +1005,8 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 							}else if("02".equals(attyp)){
 								entity = "Article";
 								sendArticleSKUToAdmin(externalId, sku, dr);
-								addValue("SAPObjectType", "Article", externalId, "02" );
-								sendWriteRequest("Article", externalId, articleCharacteristicRecords, null, null);
+								addValue("SAPObjectType", entity, externalId, "02" );
+								sendWriteRequest(entity, externalId, articleCharacteristicRecords, null, null);
 								znprst = chooseProperArticleZNPRST(sku, "LVP" + sku);
 								conciliaRelacionArticuloProducto(
 										znprst,
@@ -1018,25 +1025,25 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 			}
 			if(externalId != null && !unidades.isEmpty() && "Product2G".equals(entity))
 				agregaUnidadesDeMedida(unidades, charIDToECC, externalId);
-			if(externalId != null && ("Product2G".equals(entity) || "Individual".equals(entity)) ) {
-				String productId = externalId;
-				try {
-					if("Individual".equals(entity)) {
-						String ya = dr.getArticleData(new org.json.JSONArray().put(externalId));
-						if(ya != null) {
-							try {
-								org.json.JSONObject jya = new org.json.JSONObject(ya);
-								org.json.JSONArray itms = jya.getJSONArray("items");
-								org.json.JSONObject itm = itms.getJSONObject(0);
-								if(itm.has("ProductNo")  &&  !"".equals(itm.getString("ProductNo"))) {
-									productId = itm.getString("ProductNo");
-								}
-							}catch(org.json.JSONException e) {
-								logE(e);
-							}
+			String productId = externalId;
+			if("Individual".equals(entity)) {
+				String ya = dr.getArticleData(new org.json.JSONArray().put(externalId));
+				if(ya != null) {
+					try {
+						org.json.JSONObject jya = new org.json.JSONObject(ya);
+						org.json.JSONArray itms = jya.getJSONArray("items");
+						org.json.JSONObject itm = itms.getJSONObject(0);
+						if(itm.has("ProductNo")  &&  !"".equals(itm.getString("ProductNo"))) {
+							productId = itm.getString("ProductNo");
 						}
+					}catch(org.json.JSONException e) {
+						logE(e);
 					}
-					calculaProductType(sapBehvo, matkl, fshId, negocio, ae253, mtart, mtart, productId, workshop);
+				}
+			}
+			if(externalId != null && ("Product2G".equals(entity) || "Individual".equals(entity)) ) {
+				try {
+					calculaProductType(sapBehvo, matkl, fshId, "Liverpool", ae253, mtart, mtart, productId, workshop);
 				} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
 					e.printStackTrace();
 				}
@@ -1049,16 +1056,25 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 							.put(sku)
 							.put(determineBusiness(nvl( negocio )))
 							.put(nvl( name ))
-							.put(nvl( direccion ))
-							.put(nvl( seccion) )
-							.put(nvl( matkl ))
-							.put(brandName)
-							.put(nvl( negocio ))
-							.put(nvl( attyp) )
-							.put(nvl( supplier ))
-							.put(nvl( modelo ))));
+						));
+					requestDir.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(nvl(direccion))));
+					requestSec.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(nvl(seccion))));
+					requestIgr.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(nvl(matkl))));
+					requestBNa.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(brandName)));
+					requestNeg.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(nvl(negocio))));
+					requestSOT.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(nvl(attyp))));
+					requestSID.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(nvl(supplier))));
+					requestSPN.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(nvl(modelo))));
 					if(rows.length() == 1000) {
 						rw.writeData("list", "Product2G", null, qp, request, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestDir, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestSec, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestIgr, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestBNa, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestNeg, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestSOT, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestSID, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestSPN, this::log);
 					}
 				}catch(NullPointerException e) {
 					logE(e);
@@ -1077,36 +1093,32 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 					rw.writeData("list", "Article", null, qp, requestArticle, this::log);
 				}
 			}else if("Individual".equals(entity)) {
-				String productId = externalId;
 				try {
-					String ya = dr.getArticleData(new org.json.JSONArray().put(externalId));
-					if(ya != null) {
-						try {
-							org.json.JSONObject jya = new org.json.JSONObject(ya);
-							org.json.JSONArray itms = jya.getJSONArray("items");
-							org.json.JSONObject itm = itms.getJSONObject(0);
-							if(itm.has("ProductNo")  &&  !"".equals(itm.getString("ProductNo"))) {
-								productId = itm.getString("ProductNo");
-							}
-						}catch(org.json.JSONException e) {
-							logE(e);
-						}
-					}
 					brandName = brandName != null ? mapB.get("ZCOMALOV").get(brandName) : "";
 					rows.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1")).put("values", new org.json.JSONArray()
+							.put("")
 							.put(sku)
 							.put(determineBusiness(nvl( negocio )))
 							.put(nvl( name ))
-							.put(nvl( direccion ))
-							.put(nvl( seccion) )
-							.put(nvl( matkl ))
-							.put(brandName)
-							.put(nvl( negocio ))
-							.put(nvl( attyp) )
-							.put(nvl( supplier ))
-							.put(nvl( modelo ))));
+						));
+					requestDir.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(nvl(direccion))));
+					requestSec.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(nvl(seccion))));
+					requestIgr.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(nvl(matkl))));
+					requestBNa.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(brandName)));
+					requestNeg.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(nvl(negocio))));
+					requestSOT.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(nvl(attyp))));
+					requestSID.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(nvl(supplier))));
+					requestSPN.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(nvl(modelo))));
 					if(rows.length() == 1000) {
 						rw.writeData("list", "Product2G", null, qp, request, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestDir, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestSec, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestIgr, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestBNa, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestNeg, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestSOT, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestSID, this::log);
+						rw.writeData("list", "Product2G", null, qp, requestSPN, this::log);
 					}
 				}catch(NullPointerException e) {
 					logE(e);
@@ -1137,6 +1149,12 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 							if(!unidades.containsKey(entry.getKey()) && articleCharacteristics.contains(charId) ) {
 								addValue(charId, "Article", externalId, entry.getValue() );
 							}
+						}else if("Individual".equals(entity)) {
+							if(!unidades.containsKey(entry.getKey()) && product2GCharacteristics.contains(charId) ) {
+								addValue(charId, "Product2G", productId, entry.getValue() );
+							} else if(!unidades.containsKey(entry.getKey()) && articleCharacteristics.contains(charId) ) {
+								addValue(charId, "Article", externalId, entry.getValue() );
+							}
 						}
 					}catch(IllegalArgumentException e) {
 						logE(e);
@@ -1162,6 +1180,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 			brandName = null;
 			supplier = null;
 			modelo = null;
+			entity = null;
 			product2GCharacteristicRecords = new org.json.JSONArray();
 			articleCharacteristicRecords = new org.json.JSONArray();
 			unidades.clear();
@@ -2155,7 +2174,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 		String externalId = null;
 		if(info != null) {
 			externalId = info[0];
-			if(!znprst.equals(externalId)) {
+			if(!znprst.equals(externalId) && (externalId.length() == 16 || (!externalId.startsWith("LVP")))) {
 				return externalId;
 			}
 		}
@@ -2323,6 +2342,10 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	}
 	
 	private void sendArticleSKUToAdmin(String supplierAID, String sku, DataRequestor dr) {
+		rowsSKUA.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + supplierAID + "'@1")).put("values", new org.json.JSONArray().put(sku)));
+		if(rowsSKUA.length() == 100) {
+			rw.writeData("list", "Article", null, qp, requestSKUA, this::log);
+		}
 		String r = dr.getArticleData(new org.json.JSONArray().put(supplierAID));
 		if(r != null) {
 			try {
@@ -2338,6 +2361,10 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	
 	private void sendProductSKUToAdmin(String productNo, String sku, DataRequestor dr) {
 		pids.add(productNo);
+		rowsSKU.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + productNo + "'@1")).put("values", new org.json.JSONArray().put(sku)));
+		if(rowsSKU.length() == 100) {
+			rw.writeData("list", "Product2G", null, qp, requestSKUA, this::log);
+		}
 		String r = dr.getProductData(new org.json.JSONArray().put(productNo));
 		if(r != null) {
 			try {
@@ -2382,9 +2409,25 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 			log("Sending skus (" + rowsSKU.length() + ")");
 			rw.writeData("list", "Product2G", null, qp, requestSKU, this::log);
 		}
+		if(rowsSKU.length() > 0) {
+			log("sending skus only (product): " + rowsSKU.length() + "");
+			rw.writeData("list", "Product2G", null, qp, requestSKU, this::log);
+		}
+		if(rowsSKUA.length() > 0) {
+			log("sending skus only (article): " + rowsSKUA.length() + "");
+			rw.writeData("list", "Article", null, qp, requestSKUA, this::log);
+		}
 		if(rows.length() > 0) { 
 			log("sending block (product, " + rows.length() + ")");
 			rw.writeData("list", "Product2G", null, qp, request, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestDir, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestSec, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestIgr, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestBNa, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestNeg, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestSOT, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestSID, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestSPN, this::log);
 		}
 		if(rowsArticle.length() > 0) { 
 			log("sending bloc (article, " + rowsArticle.length() + ")");
@@ -2392,7 +2435,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 			rw.writeData("list", "Article", null, qp, requestArticle, this::log);
 		}
 		if(requestStatus.getJSONArray("rows").length() > 0) {
-			log("Sending (status): " + requestStatus.getJSONArray("rows").length());
+			log("Sending (status P2G): " + requestStatus.getJSONArray("rows").length());
 			rw.writeData("list", "Product2G", null, qp, requestStatus, this::log);
 		}
 		if(requestCommercialECC.getJSONArray("rows").length() > 0) {
@@ -2408,7 +2451,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 		for(java.util.Map.Entry<String, org.json.JSONObject> entry : peticionesArticles.entrySet()) {
 			if(entry.getValue().getJSONArray("rows").length() > 0) {
 				log("La esa (art): " + entry.getKey());
-//				log("La esa (art body): " + entry.getValue());
+				
 				rw.writeData("list", "Article", null, qp, entry.getValue(), this::log);
 			}
 		}
@@ -2751,19 +2794,22 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 					.put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1"))
 					.put("values", new org.json.JSONArray().put(1020).put(1004).put("CargaDeImagen")));
 		}
-		if(requestStatus.getJSONArray("rows").length() == 10000) {
+		if(requestStatus.getJSONArray("rows").length() == 100) {
 			log("Sending skus (" + rowsSKU.length() + ")");
-			if(rowsSKU.length() > 0) { 
-				rw.writeData("list", "Product2G", null, qp, requestSKU, this::log);
-			}
+			rw.writeData("list", "Product2G", null, qp, requestSKU, this::log);
 			log("sending block (product, " + rows.length() + ")");
-			if(rows.length() > 0) { 
-				rw.writeData("list", "Product2G", null, qp, request, this::log);
-			}
+			rw.writeData("list", "Product2G", null, qp, request, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestDir, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestSec, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestIgr, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestBNa, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestNeg, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestSOT, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestSID, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestSPN, this::log);
 			log("sending bloc (article, " + rowsArticle.length() + ")");
-			if(rowsArticle.length() > 0) { 
-				rw.writeData("list", "Article", null, qp, requestArticle, this::log);
-			}
+			rw.writeData("list", "Article", null, qp, requestArticle, this::log);
+			log("sending bloc (Product2G status, " + requestStatus.getJSONArray("rows").length() + ")");
 			rw.writeData("list", "Product2G", null, qp, requestStatus, this::log);
 		}
 		log("Done with pictures and status stuff...");
@@ -2922,19 +2968,22 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 				.put(new org.json.JSONObject()
 					.put("object", new org.json.JSONObject().put("id", "'" + id + "'@1"))
 					.put("values", new org.json.JSONArray().put(prevStatus).put(currentStatus).put(externalStatus)));
-			if(requestStatus.getJSONArray("rows").length() == 10000) {
+			if(requestStatus.getJSONArray("rows").length() == 100) {
 				log("Sending skus (" + rowsSKU.length() + ")");
-				if(rowsSKU.length() > 0) { 
-					rw.writeData("list", "Product2G", null, qp, requestSKU, this::log);
-				}
+				rw.writeData("list", "Product2G", null, qp, requestSKU, this::log);
 				log("sending block (product, " + rows.length() + ")");
-				if(rows.length() > 0) { 
-					rw.writeData("list", "Product2G", null, qp, request, this::log);
-				}
+				rw.writeData("list", "Product2G", null, qp, request, this::log);
+				rw.writeData("list", "Product2G", null, qp, requestDir, this::log);
+				rw.writeData("list", "Product2G", null, qp, requestSec, this::log);
+				rw.writeData("list", "Product2G", null, qp, requestIgr, this::log);
+				rw.writeData("list", "Product2G", null, qp, requestBNa, this::log);
+				rw.writeData("list", "Product2G", null, qp, requestNeg, this::log);
+				rw.writeData("list", "Product2G", null, qp, requestSOT, this::log);
+				rw.writeData("list", "Product2G", null, qp, requestSID, this::log);
+				rw.writeData("list", "Product2G", null, qp, requestSPN, this::log);
 				log("sending bloc (article, " + rowsArticle.length() + ")");
-				if(rowsArticle.length() > 0) { 
-					rw.writeData("list", "Article", null, qp, requestArticle, this::log);
-				}
+				rw.writeData("list", "Article", null, qp, requestArticle, this::log);
+				log("sending bloc (product2G status, " + rowsArticle.length() + ")");
 				rw.writeData("list", "Product2G", null, qp, requestStatus, this::log);
 			}
 			if( "MARCAS PROPIAS".equals(negocio) || "REGULAR".equals(negocio) || "SERVICIOS".equals(negocio) ) {

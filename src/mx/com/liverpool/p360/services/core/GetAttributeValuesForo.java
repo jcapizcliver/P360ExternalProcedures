@@ -111,7 +111,6 @@ public class GetAttributeValuesForo {
 			this.tasks = tasks;
 			rc = rw.getRw().getRc();
 
-
 			otrosDeInteres = new java.util.ArrayList<>( java.util.Arrays.asList( (
 					  "Name\r\n"
 					+ "ColoursLiverpoolAtt\r\n"
@@ -554,7 +553,7 @@ public class GetAttributeValuesForo {
 			}
 			// [ "222221", "111112", "3333332", "444442", "555554" ]
 			log("About to request data: " + skus.length() + " for SKUs ||");
-			skusResponse = articleBySKUsWithSKUs(skus); // dr.articleBySKUsWithSKUs(skus);
+			skusResponse = dr.articleBySKUsWithSKUs(skus);
 			log("Got a response of: " + skusResponse.size() + " products in total. Now iterating... ||");
 			org.json.JSONArray responses = new org.json.JSONArray();
 			org.json.JSONArray variants = null;
@@ -572,63 +571,6 @@ public class GetAttributeValuesForo {
 		}
 		log("Done. " + rw.getRw().formatTime(System.currentTimeMillis() - init));
 		return generalResponse;
-	}
-	
-
-	
-	public java.util.Map<String, java.util.Set<String>> articleBySKUsWithSKUs(org.json.JSONArray skus) {
-		log("Hola");
-		String resp = sendRequest(
-				new org.json.JSONObject()
-					.put("action", "variantBySKU")
-					.put("skus", skus)
-				.toString()
-			);
-		org.json.JSONObject jsonObject = null;
-		java.util.Map<String, java.util.Set<String>> parentChild = new java.util.TreeMap<>();
-		java.util.Set<String> lst = null;
-		try {
-			org.json.JSONObject response = new org.json.JSONObject(resp);
-			org.json.JSONArray items = response.getJSONArray("items");
-			log("RESP: " + resp);
-			for(int i = 0; i<items.length(); i++) {
-				jsonObject = items.getJSONObject(i);
-				if(!"".equals(jsonObject.getString("product_sku")) && !"".equals(jsonObject.getString("article_sku"))) {
-					lst = parentChild.get(jsonObject.getString("product_sku"));
-					if(lst == null) {
-						lst = new java.util.TreeSet<>();
-						parentChild.put(jsonObject.getString("product_sku"), lst);
-					}
-					lst.add(jsonObject.getString("article_sku")); // < SKU_Papá, [ SKU_Hijo_1, SKU_Hijo_2, ... ] >
-				}else if(!"".equals(jsonObject.getString("article_sku"))) {
-					lst = parentChild.get(jsonObject.getString("article_sku"));
-					if(lst == null) {
-						lst = new java.util.TreeSet<>();
-						parentChild.put(jsonObject.getString("article_sku"), lst);
-					}
-					lst.add(jsonObject.getString("article_sku"));
-				}
-			}
-		}catch(org.json.JSONException e) {
-			logE(e);
-		}
-		return parentChild;
-	}
-	
-
-	protected String sendRequest(String message) {
-		String response = null;
-		try(
-			java.net.Socket socket = new java.net.Socket(PropertiesManager.get("p360.contingency.pvia.host", "localhost"), Integer.parseInt( PropertiesManager.get("p360.contingency.pvia.port", "23540")) );
-			java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(socket.getOutputStream()), true);
-			java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(socket.getInputStream()));
-		){
-			pw.println(message);
-			response = br.readLine();
-		}catch(java.io.IOException e) {
-			e.printStackTrace();
-		}
-		return response;
 	}
 	
 	public Object procesamelo(String rawRequest, String baseURL, String encoded) {
@@ -670,7 +612,7 @@ public class GetAttributeValuesForo {
 				}
 			}
 			log("About to request data: " + skus.length() + " for SKUs");
-			skusResponse = articleBySKUs(skus);// dr.articleBySKUs(skus);
+			skusResponse = dr.articleBySKUs(skus);
 			log("Got a response of: " + skusResponse.size() + " products in total. Now iterating...");
 //			int nap = Runtime.getRuntime().availableProcessors();
 //			nap = nap <= 0 ? 2 : nap;
@@ -708,39 +650,6 @@ public class GetAttributeValuesForo {
 		}
 		log("Done. " + rw.getRw().formatTime(System.currentTimeMillis() - init));
 		return generalResponse;
-	}
-	
-	public java.util.Map<String, java.util.Set<String>> articleBySKUs(org.json.JSONArray skus) {
-		log("Holitas");
-		String resp = sendRequest(
-				new org.json.JSONObject()
-					.put("action", "variantBySKU")
-					.put("skus", skus)
-				.toString()
-			);
-		log("Resp: " + resp);
-		org.json.JSONObject jsonObject = null;
-		java.util.Map<String, java.util.Set<String>> parentChild = new java.util.TreeMap<>();
-		java.util.Set<String> lst = null;
-		try {
-			org.json.JSONObject response = new org.json.JSONObject(resp);
-			log("Response: " + response);
-			org.json.JSONArray items = response.getJSONArray("items");
-			for(int i = 0; i<items.length(); i++) {
-				jsonObject = items.getJSONObject(i);
-				if(!"".equals(jsonObject.getString("product")) && !"".equals(jsonObject.getString("article"))) {
-					lst = parentChild.get(jsonObject.getString("product"));
-					if(lst == null) {
-						lst = new java.util.TreeSet<>();
-						parentChild.put(jsonObject.getString("product"), lst);
-					}
-					lst.add(jsonObject.getString("article"));
-				}
-			}
-		}catch(org.json.JSONException e) {
-			logE(e);
-		}
-		return parentChild;
 	}
 	
 	private String getPrimaryProductTaxonomyTemplate(org.json.JSONArray classifications){

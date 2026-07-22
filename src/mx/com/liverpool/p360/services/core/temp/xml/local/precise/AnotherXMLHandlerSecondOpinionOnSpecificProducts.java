@@ -869,7 +869,7 @@ public class AnotherXMLHandlerSecondOpinionOnSpecificProducts {
     			org.json.JSONObject jr = new org.json.JSONObject(rsp);
     			org.json.JSONArray items = jr.getJSONArray("items");
     			org.json.JSONObject item = items.getJSONObject(0);
-    			if(item.has("CurrentStatus") && "".equals(item.getString("CurrentStatus"))) {
+    			if(item.has("CurrentStatus") && "".equals(String.valueOf( item.get("CurrentStatus") ))) {
     	    		Value calculatedWFAtt = valMap.get("CalculatedWF_Att");
     	    		Value fotoTomadaLiverpool = valMap.get("FotoTomadaLiverpool");
     	    		Value stateSKU = valMap.get("StateSKU");

@@ -413,5 +413,130 @@ public class SimpleDelimitedFileParser {
 			e.printStackTrace();
 		}
 	}
+
+	public void parse( java.io.InputStream is ) {
+		boolean a = false;
+		boolean isDelim = false;
+		try( java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader( is, charset)) ){
+			char c = 0;
+			int pc = 0;
+			int cola = 0;
+			while((pc = read1( br )) != -1) {
+				times++;
+				c = (char) pc;
+				if(c == delim) {
+					if(!a) {
+						if( index == 0 || elements[index-1] == sep ) {
+							a = true;
+							qOff = off;
+							qLine = physLine;
+							qCol = physCol;
+							if(indexBlanks > 0) {
+								indexBlanks = 0;
+							}
+						} else {
+							// PANIC
+							throw fail("Malformed: delimiter not at start of value");
+						}
+					}else {
+						if( index > 0 && esc != null && (elements[index-1] == esc) ) {
+							if(escapes % 2 == 0) {
+								isDelim = true;
+							}else {
+								index--;
+							}
+							escapes = 0;
+							add(c);
+						}else {
+							if(!isDelim) {
+								isDelim = true;
+								add(c);
+							}else if( index > 0 && elements[index - 1] == delim ) {
+								index--;
+								add(c);
+								isDelim = false;
+							}
+						}
+					}
+				} else if(c == sep) {
+					if(a) {
+						if(isDelim) {
+							isDelim = false;
+							a = false;
+							index--;
+							addValue();
+						}else {
+							add(c);
+						}
+					}else {
+						addValue();
+					}
+				} else if( c == endLine[endLineIndex] ) {
+					if(a) {
+						if(isDelim) {
+							if(endLineIndex == endLine.length - 1) {
+								isDelim = false;
+								a = false;
+								index--;
+								addLine();
+							}
+						}else {
+							add(c);
+						}
+					}else {
+						if(endLineIndex == endLine.length - 1) {
+							addLine();
+						}
+					}
+					endLineIndex++;
+					if(endLineIndex == endLine.length) {
+						endLineIndex = 0;
+					}
+				} else if(esc != null && c == esc) {
+					if(index > 0 && (elements[index-1] == esc)) {
+						if(cola == 0) {
+							index--;
+							cola++;
+						}else {
+							cola--;
+						}
+					}
+					add(c);
+					escapes++;
+				} else {
+					if(isDelim) {
+						throw fail("Junk after closing quote");
+					}
+					if(
+							c==7    || c==27 ||
+							c==28   || c==29   || c==30 || c==31 || c==127 ||
+							c==8232 || c==8233 || c == ' ' ||
+							c==8234 || c==8235 || c==8236 || c==8237 || c==8238 ||
+							c==8294 || c==8295 || c==8296 || c==8297 ||
+							c==8203 || c==8204 || c==8205 || c==8288 || c==65279) {
+						if(index == 0) {
+							addBlank(c);
+						} else {
+							if(c != 0)
+								add(c);
+						}
+					}else
+						if( resolveCP(c, br) == -1 )
+							break;
+				}
+				if(esc != null && c != esc && cola == 1) {
+					cola--;
+				}
+			}
+			if(a) {
+				throw failUnclosedQuote();
+			}
+			if(index > 0 || indexBlanks > 0) {
+				addLine();
+			}
+		}catch(java.io.IOException e) {
+			e.printStackTrace();
+		}
+	}
 	
 }
