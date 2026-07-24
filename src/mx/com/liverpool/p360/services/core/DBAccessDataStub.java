@@ -933,8 +933,8 @@ public class DBAccessDataStub implements AutoCloseable {
 							"GroupCharacteristicMetadataExtensionProperty",
 							euCatSystemID,
 							property);
-			System.out.println("With: " + template + ", " + characteristic + ", " + creationType + ", " + property);
-			System.out.println("then: " + templateLVID + ", " + characteristicID + ", " + creationTypeLVID + ", " + euCatSystemID + ", " + propertyLVID);
+			log.log("With: " + template + ", " + characteristic + ", " + creationType + ", " + property);
+			log.log("then: " + templateLVID + ", " + characteristicID + ", " + creationTypeLVID + ", " + euCatSystemID + ", " + propertyLVID);
 			if(templateLVID != null && characteristicID != null && propertyLVID != null && creationTypeLVID != null) {
 				String sql =
 						  " select /*+ "
@@ -1332,6 +1332,91 @@ public class DBAccessDataStub implements AutoCloseable {
 		return new String[] { sku, null, null, null };
 	}
 	
+	public String[] variantSentToEcommBySKU(String sku) {
+		long init = System.currentTimeMillis();
+		handleRefreshConnection();
+
+		try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(
+				   " select /*+ leading(aa bb) use_nl(bb cc dd ee) */ "
+				+ "   bb.\"Identifier\" \"ArticleIdentifier\" "
+				+ " , dd.\"Identifier\" \"ParentProductIdentifier\" "
+				+ " , ee.\"Res_Int_02\" \"ParentProductSKU\" "
+				+ " , max(ff.\"CreationTime\") \"UltimoTiempoDeEnvioEcomm\" "
+				+ " from "
+				+ " 	\"ArticleDetail\" aa "
+				+ " inner join "
+				+ " 	\"ArticleRevision\" bb "
+				+ " on "
+				+ " 	    bb.ID = aa.\"ArticleRevisionID\" "
+				+ " 	and aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
+				+ " 	and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
+				+ " 	and bb.\"RevisionID\" = 1 "
+				+ " 	and bb.\"EntityID\" = 1000 "
+				+ " inner join "
+				+ " 	\"ArticleReference\" cc "
+				+ " on "
+				+ " 	    bb.ID = cc.\"ArticleRevisionID\" "
+				+ " 	and cc.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
+				+ " inner join "
+				+ " 	\"ArticleRevision\" dd "
+				+ " on "
+				+ " 	    cc.\"RefIntArtID\" = dd.\"ArticleID\" "
+				+ " 	and cc.\"RefExtArtIdentifier\" = dd.\"Identifier\" "
+				+ " 	and dd.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
+				+ " 	and dd.\"EntityID\" = 1100 "
+				+ " 	and dd.\"RevisionID\" = 1 "
+				+ " inner join "
+				+ " 	\"ArticleDetail\" ee "
+				+ " on "
+				+ " 	    dd.ID = ee.\"ArticleRevisionID\" "
+				+ " 	and ee.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
+				+ " left join "
+				+ "    P360_EXPLOIT.\"VW_SKU_VARIND_ENVIO_ATG\" ff "
+				+ " on "
+				+ "     aa.\"Res_Int_02\" = ff.SKU "
+				+ " where "
+				+ " 	aa.\"Res_Int_02\" = ? "
+				+ " group by "
+				+ "   bb.\"Identifier\" "
+				+ " , dd.\"Identifier\" "
+				+ " , ee.\"Res_Int_02\" "
+			)) {
+
+			pstmnt.setLong(1, Long.parseLong(sku));
+//			log.log("With: " + sku );
+//			log.log("then: " + sku);
+			
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				if (rs.next()) {
+					java.sql.Timestamp ultimoEnvio =
+							rs.getTimestamp("UltimoTiempoDeEnvioEcomm");
+
+					log("From variantSentToEcommBySKU: "
+							+ rw.formatTime(System.currentTimeMillis() - init));
+
+					return new String[] {
+						sku,
+						rs.getString("ArticleIdentifier"),
+						rs.getString("ParentProductIdentifier"),
+						rs.getString("ParentProductSKU"),
+						ultimoEnvio == null ? "" : ultimoEnvio.toString()
+					};
+				}else {
+					log.log("No data " + sku);
+				}
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+		} catch (NumberFormatException e) {
+			log("Invalid SKU: " + sku);
+		}
+
+		log("From variantSentToEcommBySKU: "
+				+ rw.formatTime(System.currentTimeMillis() - init));
+
+		return new String[] { sku, null, null, null, null };
+	}
+	
 	public java.util.Set<String> getProductVariants(String identifier){
 		long init = System.currentTimeMillis();
 		java.util.Set<String> variants = new java.util.TreeSet<>();
@@ -1490,7 +1575,7 @@ public class DBAccessDataStub implements AutoCloseable {
 						.put("SKU", java.util.Objects.toString(rs.getString("SKU"), ""))
 						.put("SupplierID", java.util.Objects.toString(rs.getString("SupplierID"), ""))
 						.put("Template", java.util.Objects.toString(rs.getString("StructureGroupIdentifier"), ""))
-						.put("CurrentStatus", currentStatus == null ? "" : currentStatus)
+						.put("CurrentStatus", currentStatus == null ? "" : String.valueOf( currentStatus ))
 						.put("AssignTakeNoTake", java.util.Objects.toString(rs.getString("AssignTakeNoTake"), ""))
 						.put("SAPObjectType", java.util.Objects.toString(rs.getString("SAPObjectType"), ""))
 						.put("FotoTomadaLiverpool", java.util.Objects.toString(rs.getString("FotoTomadaLiverpool"), ""))

@@ -1751,14 +1751,22 @@ public class RealExportProducts2Mirakl {
 								charId = entr.getKey();
 								characteristic = entr.getValue();
 								if("LOOKUP".equals(characteristic.getString("_datatype"))){
-		        					appendPlainElementValue(
-		        							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
-		        							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
-		        							charId,
-		        							subAttributeValues,
-		        							"MKP".equals(business) ? attributesMKT : attributes,
-        									"MKP".equals(business) ? docMKT : doc,
-		        							propiedadesCaracteristicas);
+									if(!characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).has("_label")) {
+										log("FUUUUUUUUFFFFFKKKKKKFFFFFF " + entr + " FUUUUUUUUFFFFFKKKKKKFFFFFF");
+									}
+									System.out.println("\t\tAV: " + characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0) + " || " + entr);
+									if(characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).length() > 0) {
+			        					appendPlainElementValue(
+			        							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
+			        							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
+			        							charId,
+			        							subAttributeValues,
+			        							"MKP".equals(business) ? attributesMKT : attributes,
+	        									"MKP".equals(business) ? docMKT : doc,
+			        							propiedadesCaracteristicas);
+									}else {
+										System.out.println("Pessi: " + entr);
+									}
 		        				}else if(!"NONE".equals(characteristic.getString("_datatype"))) {
 		        					java.util.LinkedList<String> vals = new java.util.LinkedList<>();
 		        					for(int m=0; m<characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").length(); m++) {

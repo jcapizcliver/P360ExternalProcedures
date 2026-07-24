@@ -419,7 +419,7 @@ public class ProductArticleCharacteristicValueChangeProcessor {
 											log(info == null ? "No info collected!" : "Info: " + java.util.Arrays.asList(info));
 											appendEAN(currentValue, externalId, info != null ? info[1] : "" );
 										}else {
-											removeEAN(oldValue);
+//											removeEAN(oldValue);
 										}
 									}catch(NullPointerException e) {
 										currentValue = "";
@@ -792,7 +792,7 @@ public class ProductArticleCharacteristicValueChangeProcessor {
 		org.json.JSONObject response = null;
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
 		response = workshop.makeRequest("PUT", "/object/Product2G/'" + proposalId + "'@'MASTER'", qp, data.toString());
-		log(response == null ? "ERR: " + workshop.getRawResponse() : response.toString());
+		log("Res from update object: " + response == null ? "ERR: " + workshop.getRawResponse() : response.toString());
 	}
 	
 	private String getBrandLabel(String code, String lkpId) {
@@ -937,26 +937,26 @@ public class ProductArticleCharacteristicValueChangeProcessor {
 		}
 	}
 	
-	private void removeEAN(String ean) {
-		java.util.Map<String, String[]> data = readEANs();
-		data.remove(ean);
-		writeEANs(data);
-	}
-	
-	private java.util.Map<String, String[]> readEANs(){
-		java.util.Map<String, String[]> data = new java.util.TreeMap<>();
-		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.templates_cache_directory"), PropertiesManager.get("p360.contingency.article_ean_file")).toString())))){
-			String line = null;
-			String[] pieces = null;
-			while((line = br.readLine()) != null) {
-				pieces = workshop.parseLine(line, "\"", ";", "\\");
-				data.put(pieces[0], new String[] {pieces[1], pieces[2]});
-			}
-		}catch(java.io.IOException e) {
-			logE(e);
-		}
-		return data;
-	}
+//	private void removeEAN(String ean) {
+//		java.util.Map<String, String[]> data = readEANs();
+//		data.remove(ean);
+//		writeEANs(data);
+//	}
+//	
+//	private java.util.Map<String, String[]> readEANs(){
+//		java.util.Map<String, String[]> data = new java.util.TreeMap<>();
+//		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.templates_cache_directory"), PropertiesManager.get("p360.contingency.article_ean_file")).toString())))){
+//			String line = null;
+//			String[] pieces = null;
+//			while((line = br.readLine()) != null) {
+//				pieces = workshop.parseLine(line, "\"", ";", "\\");
+//				data.put(pieces[0], new String[] {pieces[1], pieces[2]});
+//			}
+//		}catch(java.io.IOException e) {
+//			logE(e);
+//		}
+//		return data;
+//	}
 	
 	private void writeEANs(java.util.Map<String, String[]> data) {
 		try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.templates_cache_directory"), PropertiesManager.get("p360.contingency.article_ean_file")).toString())))){

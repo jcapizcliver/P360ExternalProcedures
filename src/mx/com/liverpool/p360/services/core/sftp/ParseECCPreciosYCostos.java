@@ -84,6 +84,7 @@ public class ParseECCPreciosYCostos extends Thread implements SimpleLog {
 		qp.put("includeObjectsInProtocol", "false");
 		if(requestCosto.getJSONArray("rows").length() > 0) { 
 			log("sending block costo (product, " + requestCosto.getJSONArray("rows").length() + ")");
+			log("RequestCosto Prduct: " + requestCosto);
 			rw.writeData("list", "Product2G", null, qp, requestCosto, this::log);
 		}
 		if(requestPrecio.getJSONArray("rows").length() > 0) { 
@@ -92,6 +93,7 @@ public class ParseECCPreciosYCostos extends Thread implements SimpleLog {
 		}
 		if(requestCostoA.getJSONArray("rows").length() > 0) { 
 			log("sending block costo (article, " + requestCostoA.getJSONArray("rows").length() + ")");
+			log("RequestCosto Article: " + requestCostoA);
 			rw.writeData("list", "Article", null, qp, requestCostoA, this::log);
 		}
 		if(requestPrecioA.getJSONArray("rows").length() > 0) { 
@@ -114,13 +116,13 @@ public class ParseECCPreciosYCostos extends Thread implements SimpleLog {
 			;
 	private final org.json.JSONObject requestCostoA = new org.json.JSONObject()
 			.put("columns", new org.json.JSONArray()
-					.put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('CostobrutoSinIVA',root,\"0000.0000.RK\",'CostobrutoSinIVA',-1)"))
+					.put(new org.json.JSONObject().put("identifier", "ArticleCharacteristicValueLang.Value('CostobrutoSinIVA',root,\"0000.0000.RK\",'CostobrutoSinIVA',-1)"))
 					)
 			.put("rows", new org.json.JSONArray())
 			;
 	private final org.json.JSONObject requestPrecioA = new org.json.JSONObject()
 			.put("columns", new org.json.JSONArray()
-					.put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('PrecioSugeridocIVA',root,\"0000.0000.RK\",'PrecioSugeridocIVA',-1)"))
+					.put(new org.json.JSONObject().put("identifier", "ArticleCharacteristicValueLang.Value('PrecioSugeridocIVA',root,\"0000.0000.RK\",'PrecioSugeridocIVA',-1)"))
 					)
 			.put("rows", new org.json.JSONArray())
 			;
@@ -386,7 +388,7 @@ public class ParseECCPreciosYCostos extends Thread implements SimpleLog {
         					if("1000".equals(data[1])) {
         						String productId = dastub.getProductByVariant(data[0]);
         						if(productId != null && !"".equals(productId)) {
-            						msgBody.put("proposalId", productId).put("variants", new org.json.JSONArray().put(new org.json.JSONObject().put("variantId", data[0]).put(isPrecios == 1 ? "PrecioSugeridocIVA" : "CostobrutoSinIVA", pieces[1])));
+            						msgBody.put("proposalId", productId).put("variants", new org.json.JSONArray().put(new org.json.JSONObject().put("variantId", data[0]).put("datosVenta", new org.json.JSONObject().put(isPrecios == 1 ? "PrecioSugeridocIVA" : "CostobrutoSinIVA", pieces[1]))) );
             						productos.put(msgBody);
             						log("Message body: " + msgBody);
             						System.out.println("Message body: " + new org.json.JSONObject().put("products", productos));
@@ -395,12 +397,11 @@ public class ParseECCPreciosYCostos extends Thread implements SimpleLog {
                 					);
         						}
         					}else {
-        						msgBody.put("proposalId", data[0]).put( isPrecios == 1 ? "PrecioSugeridocIVA" : "CostobrutoSinIVA", pieces[1]);
+        						msgBody.put("proposalId", data[0]).put("datosVenta", new org.json.JSONObject().put( isPrecios == 1 ? "PrecioSugeridocIVA" : "CostobrutoSinIVA", pieces[1]));
 	        					productos.put(msgBody);
 	        					log("Message body: " + new org.json.JSONObject().put("products", productos).toString());
 	        					System.out.println("Message body: " + msgBody);
-            					postProductsPubSub.publishMessage( new org.json.JSONObject().put("products", productos).toString()
-	        					);
+            					postProductsPubSub.publishMessage( new org.json.JSONObject().put("products", productos).toString());
         					}
         					if(chosenOne.getJSONArray("rows").length() == 1000) {
         						rw.writeData("list", "1000".equals(data[1]) ? "Article" : "Product2G", null, qp, chosenOne, this::log);
