@@ -707,6 +707,7 @@ public class RealExportProducts {
 				String seccionLabel = null;
 				String supplierPartNumber = null;
 				String supplierID = null;
+				String supplierIDLabel = null;
 				String mainBarCode = null;
 				String sku = null;
 				String embeddedCodeWEB = null;
@@ -779,8 +780,8 @@ public class RealExportProducts {
 				}
 				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
 						.getJSONArray("productExtraData").getJSONObject(0).has("supplierID")) {
-					supplierID = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("supplierID").getString("_code");
+					supplierID = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getJSONObject("supplierID").getString("_code");
+					supplierIDLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getJSONObject("supplierID").getString("_label");
 				}
 				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
 						.getJSONArray("productExtraData").getJSONObject(0).has("supplierPartNumber")) {
@@ -1317,9 +1318,7 @@ public class RealExportProducts {
 								: characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
 										.getString(0);
 					} else if ("SupplierID".equals(charId)) {
-						supplierID = supplierID != null && !"".equals(supplierID) ? supplierID
-								: characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-										.getString(0);
+						supplierID = supplierID != null && !"".equals(supplierID) ? supplierID : characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
 					} else if ("SKU".equals(charId)) {
 						String skuval = treatment(characteristic.getJSONArray("_recordLang").getJSONObject(0)
 								.getJSONArray("values").getString(0));
@@ -1514,27 +1513,57 @@ public class RealExportProducts {
 											heredables.put(charId, characteristic);
 										}
 										if ("LOOKUP".equals(characteristic.getString("_datatype"))) {
-											appendPlainElementValue(
-													characteristic.getJSONArray("_recordLang").getJSONObject(0)
-															.getJSONArray("values").getJSONObject(0)
-															.getString("_label"),
-													characteristic.getJSONArray("_recordLang").getJSONObject(0)
-															.getJSONArray("values").getJSONObject(0).getString("_code"),
-													charId, attributeValues, attributes, doc,
-													propiedadesCaracteristicas, atgGroups);
-										} else if (!"NONE".equals(characteristic.getString("_datatype"))) {
-											java.util.LinkedList<String> vals = new java.util.LinkedList<>();
-											for (int m = 0; m < characteristic.getJSONArray("_recordLang")
-													.getJSONObject(0).getJSONArray("values").length(); m++) {
-												vals.addLast(
-														String.valueOf(parseDateForSpecificDateFields(
-																characteristic.getJSONArray("_recordLang")
-																		.getJSONObject(0).getJSONArray("values").get(m),
-																charId)));
+											boolean skip = false;
+											if("Direction".equals(charId) && direccion != null && !"".equals(direccion)) {
+												skip = true;
 											}
-											appendPlainElementValue(String.join(",", vals), null, charId,
-													attributeValues, attributes, doc, propiedadesCaracteristicas,
-													atgGroups);
+											if("Section".equals(charId) && seccion != null && !"".equals(seccion)) {
+												skip = true;
+											}
+											if("ItemGroup".equals(charId) && itemGroup != null && !"".equals(itemGroup)) {
+												skip = true;
+											}
+											if("ItemGroupS4H".equals(charId) && itemGroupS4H != null && !"".equals(itemGroupS4H)) {
+												skip = true;
+											}
+											if("BrandName".equals(charId) && brandName != null && !"".equals(brandName)) {
+												skip = true;
+											}
+											if("BRAND_ID_S4H".equals(charId) && brandIdS4H != null && !"".equals(brandIdS4H)) {
+												skip = true;
+											}
+											if(!skip) {
+												appendPlainElementValue(
+														characteristic.getJSONArray("_recordLang").getJSONObject(0)
+																.getJSONArray("values").getJSONObject(0)
+																.getString("_label"),
+														characteristic.getJSONArray("_recordLang").getJSONObject(0)
+																.getJSONArray("values").getJSONObject(0).getString("_code"),
+														charId, attributeValues, attributes, doc,
+														propiedadesCaracteristicas, atgGroups);
+											}
+										} else if (!"NONE".equals(characteristic.getString("_datatype"))) {
+											boolean skip = false;
+											if("SupplierPartNumber".equals(charId) && supplierPartNumber != null && !"".equals(supplierPartNumber)) {
+												skip = true;
+											}
+											if("SupplierID".equals(charId) && supplierID != null && !"".equals(supplierID)) {
+												skip = true;
+											}
+											if(!skip) {
+												java.util.LinkedList<String> vals = new java.util.LinkedList<>();
+												for (int m = 0; m < characteristic.getJSONArray("_recordLang")
+														.getJSONObject(0).getJSONArray("values").length(); m++) {
+													vals.addLast(
+															String.valueOf(parseDateForSpecificDateFields(
+																	characteristic.getJSONArray("_recordLang")
+																			.getJSONObject(0).getJSONArray("values").get(m),
+																	charId)));
+												}
+												appendPlainElementValue(String.join(",", vals), null, charId,
+														attributeValues, attributes, doc, propiedadesCaracteristicas,
+														atgGroups);
+											}
 										}
 									}
 								}
@@ -1543,32 +1572,25 @@ public class RealExportProducts {
 					}
 				}
 				if (embeddedCodeWEB != null && !"".equals(embeddedCodeWEB)) {
-					appendPlainElementValue(embeddedCodeWEB, null, "EmbedCodeWEB", attributeValues, attributes, doc,
-							propiedadesCaracteristicas, atgGroups);
+					appendPlainElementValue(embeddedCodeWEB, null, "EmbedCodeWEB", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
 				}
 				if (embeddedCodeWAP != null && !"".equals(embeddedCodeWAP)) {
-					appendPlainElementValue(embeddedCodeWAP, null, "EmbedCodeWAP", attributeValues, attributes, doc,
-							propiedadesCaracteristicas, atgGroups);
+					appendPlainElementValue(embeddedCodeWAP, null, "EmbedCodeWAP", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
 				}
 				if (refundPolicy != null && !"".equals(refundPolicy)) {
-					appendPlainElementValue(refundPolicy, null, "refundPolicy", attributeValues, attributes, doc,
-							propiedadesCaracteristicas, atgGroups);
+					appendPlainElementValue(refundPolicy, null, "refundPolicy", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
 				}
 				if (seccion != null && !"".equals(seccion)) {
-					appendPlainElementValue(seccionLabel, seccion, "Section", attributeValues, attributes, doc,
-							propiedadesCaracteristicas, atgGroups);
+					appendPlainElementValue(seccionLabel, seccion, "Section", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
 				}
 				if (direccion != null && !"".equals(direccion)) {
-					appendPlainElementValue(direccionLabel, direccion, "Direction", attributeValues, attributes, doc,
-							propiedadesCaracteristicas, atgGroups);
+					appendPlainElementValue(direccionLabel, direccion, "Direction", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
 				}
 				if (supplierPartNumber != null && !"".equals(supplierPartNumber)) {
-					appendPlainElementValue(supplierPartNumber, "", "SupplierPartNumber", attributeValues, attributes,
-							doc, propiedadesCaracteristicas, atgGroups);
+					appendPlainElementValue(supplierPartNumber, "", "SupplierPartNumber", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
 				}
 				if (supplierID != null && !"".equals(supplierID)) {
-					appendPlainElementValue(supplierID, "", "SupplierID", attributeValues, attributes, doc,
-							propiedadesCaracteristicas, atgGroups);
+					appendPlainElementValue(supplierIDLabel, supplierID, "SupplierID", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
 				}
 
 				if (!behvo) {
@@ -2594,6 +2616,26 @@ public class RealExportProducts {
 			}
 		}
 		return null;
+	}
+	
+	private byte[] serializeXml(Document doc, boolean indent) throws TransformerException {
+		Transformer transformer = TransformerFactory.newInstance().newTransformer();
+
+		transformer.setOutputProperty(OutputKeys.ENCODING, StandardCharsets.UTF_8.name());
+		transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no");
+		transformer.setOutputProperty(OutputKeys.INDENT, indent ? "yes" : "no");
+
+		if (indent) {
+			transformer.setOutputProperty(
+					"{http://xml.apache.org/xslt}indent-amount",
+					"4"
+			);
+		}
+
+		java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream(1024 * 1024);
+		transformer.transform(new DOMSource(doc), new StreamResult(out));
+
+		return out.toByteArray();
 	}
 
 	public static String stackTraceToString(Throwable t) {

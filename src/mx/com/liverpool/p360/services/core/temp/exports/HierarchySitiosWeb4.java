@@ -1,8 +1,10 @@
 package mx.com.liverpool.p360.services.core.temp.exports;
 
-
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
+import java.net.URISyntaxException;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
 
 import javax.naming.ServiceUnavailableException;
 import javax.xml.parsers.DocumentBuilder;
@@ -23,7 +25,6 @@ import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 import mx.com.liverpool.p360.services.core.RestClient;
 
-
 public class HierarchySitiosWeb4 {
 
     private static final RESTWrapper rw = new RESTWrapper();
@@ -33,11 +34,9 @@ public class HierarchySitiosWeb4 {
     private final String baseDir = baseDirPath.toString();
     private final String outputXmlFile = java.nio.file.Paths.get(baseDir, System.currentTimeMillis() + "_pépeleJairarqui.xml").toString();
 
-
-
     public static void main(String[] args) throws ServiceUnavailableException {
         HierarchySitiosWeb4 h = new HierarchySitiosWeb4();
-        h.createHierarchyFile( new String[] {"catst61360547", "catst61360530"} );
+        h.createHierarchyFile( new String[] {"cat5800034"} );
     }
 
     private void createHierarchyFile(String[] ofInterest) throws ServiceUnavailableException {
@@ -45,8 +44,8 @@ public class HierarchySitiosWeb4 {
         if(!java.nio.file.Files.exists(baseDirPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
             try {
                 java.nio.file.Files.createDirectories(baseDirPath);
-            }catch(java.io.IOException e) {
-
+            } catch(java.io.IOException e) {
+                // Silenced
             }
         }
         java.util.LinkedList<org.json.JSONObject> rescataLaRaiz = new java.util.LinkedList<>();
@@ -79,40 +78,69 @@ public class HierarchySitiosWeb4 {
             raizClassification.setAttribute("UserTypeID", "Classification 1 user-type root");
             raizClassification.setAttribute("Selected", "false");
             classifications.appendChild(raizClassification);
+
             Element helperElement = null;
             Element prevHelperElement = null;
+
             java.util.Map<String, Element> tableroDeControl = new java.util.TreeMap<>();
             buildMapFromList(rescataLaRaiz.getFirst(), multisitios);
+
             for(String element : ofInterest) {
                 entryHelper = multisitios.get(element);
+                if (entryHelper == null) {
+                    log("WARN: ID not found in preloaded hierarchy: " + element);
+                    continue;
+                }
+
                 helperElement = pacheleWeb(entryHelper, doc, multisitios);
                 if(!tableroDeControl.containsKey(entryHelper.getString("identifier"))) {
                     tableroDeControl.put(entryHelper.getString("identifier"), helperElement);
                 }
-                while(entryHelper.has("parentIdentifier") && !"".equals(entryHelper.get("parentIdentifier")) && !tableroDeControl.containsKey(entryHelper.getString("parentIdentifier"))) {
+
+                while(entryHelper.has("parentIdentifier") && !"".equals(entryHelper.optString("parentIdentifier", ""))) {
+                    String parentId = entryHelper.getString("parentIdentifier");
+
+                    if (tableroDeControl.containsKey(parentId)) {
+                        Element existingParent = tableroDeControl.get(parentId);
+                        if (helperElement.getParentNode() == null) {
+                            existingParent.appendChild(helperElement);
+                        }
+                        break;
+                    }
+
                     prevHelperElement = helperElement;
-                    entryHelper = multisitios.get(entryHelper.getString("parentIdentifier"));
+                    entryHelper = multisitios.get(parentId);
+                    if (entryHelper == null) {
+                        break;
+                    }
+
                     helperElement = pacheleWeb(entryHelper, doc, multisitios);
                     if(helperElement == null) {
                         log("PANIC: No element could be made from: " + entryHelper);
                         break;
                     }
+
                     helperElement.appendChild(prevHelperElement);
                     tableroDeControl.put(entryHelper.getString("identifier"), helperElement);
                 }
             }
+
             for(String element : ofInterest) {
                 entryHelper = multisitios.get(element);
-                helperElement = tableroDeControl.get(element);
-                appendMisHijos(entryHelper, helperElement, tableroDeControl, multisitios, doc);
+                if (entryHelper != null) {
+                    helperElement = tableroDeControl.get(element);
+                    appendMisHijos(entryHelper, helperElement, tableroDeControl, multisitios, doc);
+                }
             }
+
             for(org.json.JSONObject laRaiz : rescataLaRaiz) {
                 helperElement = tableroDeControl.get(laRaiz.getString("identifier"));
-                log("La raiz: " + helperElement.getAttribute("ID"));
                 if(helperElement != null) {
+                    log("La raiz: " + helperElement.getAttribute("ID"));
                     raizClassification.appendChild(helperElement);
                 }
             }
+
             TransformerFactory transformerFactory = TransformerFactory.newInstance();
             Transformer transformer = transformerFactory.newTransformer();
             transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "3");
@@ -122,7 +150,7 @@ public class HierarchySitiosWeb4 {
             String xmlOutput = writer.getBuffer().toString()
                     .replace("&lt;CRLF&gt;", "&#13;&#10;")
                     .replace("<CRLF>", "&#13;&#10;");
-//            transformer.transform(xmlOutput, new StreamResult(new java.io.File(outputXmlFile)));
+
             try {
                 java.nio.file.Files.writeString(java.nio.file.Paths.get(outputXmlFile), xmlOutput, java.nio.charset.StandardCharsets.UTF_8);
             } catch (IOException e) {
@@ -145,7 +173,9 @@ public class HierarchySitiosWeb4 {
                 if(myElement == null) {
                     myElement = pacheleWeb(children.getJSONObject(i), doc, multisitios);
                     tableroDeControl.put(children.getJSONObject(i).getString("identifier"), myElement);
-                    entryElement.appendChild(myElement);
+                    if (entryElement != null) {
+                        entryElement.appendChild(myElement);
+                    }
                 }
                 appendMisHijos(children.getJSONObject(i), myElement, tableroDeControl, multisitios, doc);
             }
@@ -172,17 +202,21 @@ public class HierarchySitiosWeb4 {
         org.json.JSONArray gpfs = null;
         org.json.JSONObject gpf = null;
         int aux = -1;
-        Element departmentElement = null;
+
+        // Control de unicidad de atributos locales del Nodo actual
+        java.util.Set<String> atributosAgregados = new java.util.HashSet<>();
+
         if (node != null) {
             metaData = doc.createElement("MetaData");
             Element classificationElement = doc.createElement("Classification");
             classificationElement.appendChild(metaData);
+
             if (node.has("identifier")) {
                 String valID =  node.optString("identifier", "");
                 if (node.has("level")) {
                     aux = node.getInt("level");
                     aux--;
-                    valID = -1 == aux && "WebHierarchyRoot".equals(valID) ? "WebHierarchyRoot" : valID ;
+                    valID = -1 == aux && "Sitios Web".equals(valID) ? "WebHierarchyRoot" : valID ;
                 }
                 if("WebHierarchyRoot".equals(valID)) {
                     classificationElement.setAttribute("Selected", "true");
@@ -194,82 +228,110 @@ public class HierarchySitiosWeb4 {
                 aux--;
                 classificationElement.setAttribute("UserTypeID", -1 == aux ? "WebHierarchyRoot" : 0 == aux ? "WebsiteRoot" : "WebLevel" + aux );
             }
-            if (node.has("parentIdentifier") && aux > 1 /* && node.getString("parentIdentifier").startsWith("cat") */) {
+
+            // Inyectamos el parentIdentifier nativo calculado por el script (Nivel > 1)
+            if (node.has("parentIdentifier") && aux > 1) {
                 value = doc.createElement("Value");
                 value.setAttribute("Changed", "true");
                 value.setAttribute("AttributeID", "parentCategoryID");
                 value.setTextContent(node.getString("parentIdentifier"));
                 metaData.appendChild(value);
+                atributosAgregados.add("parentCategoryID");
             }
+
             if(node.has("metadata")) {
                 gpfs = node.getJSONArray("metadata");
                 log(node.getString("identifier") + ": " + node.get("metadata"));
                 if(gpfs != null){
                     for(int i=0; i<gpfs.length(); i++) {
                         gpf = gpfs.getJSONObject(i);
-                        if("".equals(gpf.getString("featureValue")))
+                        String featureKey = gpf.getString("featureKey");
+                        String featureValue = gpf.getString("featureValue");
+
+                        if("".equals(featureValue))
                             continue;
-                        value = doc.createElement("Value");
-                        value.setAttribute("Changed", "true");
-                        value.setAttribute("AttributeID", gpf.getString("featureKey"));
-                        value.setTextContent(gpf.getString("featureValue"));
-                        value.setAttribute("Changed", "true");
-                        if("DisplayName".equals(gpf.getString("featureKey"))) {
-                            displayName = !"".equals(gpf.getString("featureValue")) ? gpf.getString("featureValue") : null;
-                        }else if("groupType".equals(gpf.getString("featureKey"))) {
-                            groupType = !"".equals(gpf.getString("featureValue")) ? gpf.getString("featureValue") : null;
-                        }else if("department".equals(gpf.getString("featureKey"))) {
-                            department = !"".equals(gpf.getString("featureValue")) ? gpf.getString("featureValue") : null;
-                            departmentElement = value;
-                        }else if("isBrand".equals(gpf.getString("featureKey"))) {
+
+                        // Si ya procesamos esta propiedad, evitamos agregarla por duplicado
+                        if (atributosAgregados.contains(featureKey)) {
+                            continue;
+                        }
+
+                        if ("parentCategoryID".equals(featureKey) || "department".equals(featureKey)) {
+                            continue;
+                        }
+
+                        // Ignoramos el DisplayName que viene de REST
+                        if("DisplayName".equals(featureKey)) {
+                            continue;
+                        } else if("groupType".equals(featureKey)) {
+                            groupType = !"".equals(featureValue) ? featureValue : null;
+                            value = doc.createElement("Value");
+                            value.setAttribute("Changed", "true");
+                            value.setAttribute("AttributeID", "groupType");
+                            value.setAttribute("ID", "Optics".equals(groupType) ? "3" : "MAC Non-Collection".equals(groupType) ? "2" : "MAC Collection".equals(groupType) ? "1" : "0");
+                            value.setTextContent(groupType != null ? groupType : "Not Specified");
+                            metaData.appendChild(value);
+                            atributosAgregados.add("groupType");
+                        } else if("isBrand".equals(featureKey)) {
                             value = doc.createElement("Value");
                             value.setAttribute("Changed", "true");
                             value.setAttribute("AttributeID", "isBrand");
-                            value.setAttribute("ID", Boolean.parseBoolean(gpf.getString("featureValue")) ? "1" : "0");
-                            value.setTextContent( Boolean.parseBoolean(gpf.getString("featureValue")) ? "True" : "False" );
+                            value.setAttribute("ID", Boolean.parseBoolean(featureValue) ? "1" : "0");
+                            value.setTextContent( Boolean.parseBoolean(featureValue) ? "True" : "False" );
                             metaData.appendChild(value);
-                        }else if("isBrandLanding".equals(gpf.getString("featureKey"))) {
+                            atributosAgregados.add("isBrand");
+                        } else if("isBrandLanding".equals(featureKey)) {
                             value = doc.createElement("Value");
                             value.setAttribute("Changed", "true");
                             value.setAttribute("AttributeID", "isBrandLanding");
-                            value.setAttribute("ID", Boolean.parseBoolean(gpf.getString("featureValue")) ? "1" : "0");
-                            value.setTextContent( Boolean.parseBoolean(gpf.getString("featureValue")) ? "True" : "False" );
+                            value.setAttribute("ID", Boolean.parseBoolean(featureValue) ? "1" : "0");
+                            value.setTextContent( Boolean.parseBoolean(featureValue) ? "True" : "False" );
                             metaData.appendChild(value);
-                        }else if("allowGiftMessage".equals(gpf.getString("featureKey"))) {
+                            atributosAgregados.add("isBrandLanding");
+                        } else if("allowGiftMessage".equals(featureKey)) {
                             value = doc.createElement("Value");
                             value.setAttribute("Changed", "true");
                             value.setAttribute("AttributeID", "allowGiftMessage");
-                            value.setAttribute("ID", Boolean.parseBoolean(gpf.getString("featureValue")) ? "Y" : "N");
-                            value.setTextContent( Boolean.parseBoolean(gpf.getString("featureValue")) ? "True" : "False" );
+                            value.setAttribute("ID", Boolean.parseBoolean(featureValue) ? "Y" : "N");
+                            value.setTextContent( Boolean.parseBoolean(featureValue) ? "True" : "False" );
                             metaData.appendChild(value);
-                        }else if("sentToFA".equals(gpf.getString("featureKey"))) {
+                            atributosAgregados.add("allowGiftMessage");
+                        } else if("sentToFA".equals(featureKey)) {
                             value = doc.createElement("Value");
                             value.setAttribute("Changed", "true");
                             value.setAttribute("AttributeID", "sentToFA");
-                            value.setAttribute("ID", Boolean.parseBoolean(gpf.getString("featureValue")) ? "1" : "0");
-                            value.setTextContent( Boolean.parseBoolean(gpf.getString("featureValue")) ? "True" : "False" );
+                            value.setAttribute("ID", Boolean.parseBoolean(featureValue) ? "1" : "0");
+                            value.setTextContent( Boolean.parseBoolean(featureValue) ? "True" : "False" );
                             metaData.appendChild(value);
-                        }else if("skipInventory".equals(gpf.getString("featureKey"))) {
+                            atributosAgregados.add("sentToFA");
+                        } else if("skipInventory".equals(featureKey)) {
                             value = doc.createElement("Value");
                             value.setAttribute("Changed", "true");
                             value.setAttribute("AttributeID", "skipInventory");
-                            value.setAttribute("ID", "skip".equals(gpf.getString("featureValue")) ? "1" : "0");
-                            value.setTextContent(gpf.getString("featureValue"));
+                            value.setAttribute("ID", "skip".equals(featureValue) ? "1" : "0");
+                            value.setTextContent(featureValue);
                             metaData.appendChild(value);
-                        }else if("giftMessage".equals(gpf.getString("featureKey"))) {
+                            atributosAgregados.add("skipInventory");
+                        } else if("giftMessage".equals(featureKey)) {
                             value = doc.createElement("Value");
                             value.setAttribute("Changed", "true");
                             value.setAttribute("AttributeID", "giftMessage");
-                            value.setAttribute("ID", "allow".equals(gpf.getString("featureValue")) ? "1" : "0");
-                            value.setTextContent(gpf.getString("featureValue"));
+                            value.setAttribute("ID", "allow".equals(featureValue) ? "1" : "0");
+                            value.setTextContent(featureValue);
                             metaData.appendChild(value);
-                        }else if("DeliveringToExternalSystems".equals(gpf.getString("featureKey")) || "LastUserDeliverIssuer".equals(gpf.getString("featureKey"))){
-
+                            atributosAgregados.add("giftMessage");
+                        } else if("DeliveringToExternalSystems".equals(featureKey) || "LastUserDeliverIssuer".equals(featureKey)){
+                            // Omitidos
                         } else {
+                            value = doc.createElement("Value");
+                            value.setAttribute("Changed", "true");
+                            value.setAttribute("AttributeID", featureKey);
+                            value.setTextContent(featureValue);
                             metaData.appendChild(value);
+                            atributosAgregados.add(featureKey);
                         }
                     }
-                    if(node.has("keywords")) {
+                    if(node.has("keywords") && !atributosAgregados.contains("KeyWords")) {
                         multiValue = doc.createElement("MultiValue");
                         for(int i=0; i<node.getJSONArray("keywords").length(); i++) {
                             value = doc.createElement("Value");
@@ -280,108 +342,73 @@ public class HierarchySitiosWeb4 {
                             }
                         }
                         multiValue.setAttribute("AttributeID", "KeyWords");
-                        if(multiValue.getChildNodes().getLength() > 0)
+                        if(multiValue.getChildNodes().getLength() > 0) {
                             metaData.appendChild(multiValue);
+                            atributosAgregados.add("KeyWords");
+                        }
                     }
                 }
             }
-            if ((displayName == null || "".equals(displayName)) && node.has("name_es")) {
-                value = doc.createElement("Value");
-                value.setAttribute("Changed", "true");
-                value.setAttribute("AttributeID", "DisplayName");
-                if(!"".equals(node.getString("name_es"))) {
-                    value.setTextContent(node.getString("name_es").replaceAll(" \\(.+\\)", ""));
-                    metaData.appendChild(value);
-                }
-            }else {
-                value = doc.createElement("Value");
-                value.setAttribute("Changed", "true");
-                value.setAttribute("AttributeID", "DisplayName");
-                value.setTextContent(node.getString("name_es").replaceAll(" \\(.+\\)", ""));
-                metaData.appendChild(value);
-            }
-            if(groupType == null) {
+
+            // Forzamos a que el DisplayName se asigne siempre usando el name_es
+            value = doc.createElement("Value");
+            value.setAttribute("Changed", "true");
+            value.setAttribute("AttributeID", "DisplayName");
+            String nameEs = node.optString("name_es", "");
+            value.setTextContent(!"".equals(nameEs) ? nameEs.replaceAll(" \\(.+\\)", "") : "");
+            metaData.appendChild(value);
+            atributosAgregados.add("DisplayName");
+
+            if (!atributosAgregados.contains("groupType")) {
                 value = doc.createElement("Value");
                 value.setAttribute("Changed", "true");
                 value.setAttribute("AttributeID", "groupType");
                 value.setAttribute("ID", "0");
                 value.setTextContent("Not Specified");
                 metaData.appendChild(value);
-            }else {
-                value = doc.createElement("Value");
-                value.setAttribute("Changed", "true");
-                value.setAttribute("AttributeID", "groupType");
-                value.setAttribute("ID", "Optics".equals(groupType) ? "3" : "MAC Non-Collection".equals(groupType) ? "2" : "MAC Collection".equals(groupType) ? "1" : "0");
-                value.setTextContent(groupType);
-                metaData.appendChild(value);
+                atributosAgregados.add("groupType");
             }
-            if(aux == 1 && department == null) {
-//            	System.out.println("Ea ea ##");
-                department = getMeParentDepartment(multisitios.get(node.getString("parentIdentifier")), doc);
-//            	System.out.println("Suelo suelo suelo (" + node.getString("parentIdentifier") + "): " + department);
-                value = doc.createElement("Value");
-                value.setAttribute("Changed", "true");
-                value.setAttribute("AttributeID", "department");
-                value.setAttribute("ID",
-                        "BabiesRUs".equals(department) ? "BRU"
-                                : "Banana Republic".equals(department) ? "BNR"
-                                : "Dupuis".equals(department) ? "DPS"
-                                : "Fabletics".equals(department) ? "FAB"
-                                : "GAP".equals(department) ? "106"
-                                : "Liverpool".equals(department) ? "NA"
-                                : "Pottery Barn".equals(department) ? "104"
-                                : "Pottery Barn Kids".equals(department) ? "105"
-                                : "Suburbia".equals(department) ? "SB"
-                                : "ToysRUs".equals(department) ? "424"
-                                : "West Elm".equals(department) ? "107"
-                                : "LIVESTORE".equals(department) ? "LVS"
-                                : "William Sonoma".equals(department) ? "307" : "");
-                value.setTextContent(department);
-                metaData.appendChild(value);
+
+            // Filtrado por niveles aux exactos
+            if ((aux == 0 || aux == 1) && !atributosAgregados.contains("department")) {
+                if (aux == 0) {
+                    department = node.optString("identifier", null);
+                } else if (aux == 1) {
+                    department = node.optString("parentIdentifier", null);
+                }
+
+                if (department != null) {
+                    String deptClean = department.trim();
+                    value = doc.createElement("Value");
+                    value.setAttribute("Changed", "true");
+                    value.setAttribute("AttributeID", "department");
+                    value.setAttribute("ID",
+                            "BabiesRUs".equalsIgnoreCase(deptClean) ? "BRU"
+                                    : "Banana Republic".equalsIgnoreCase(deptClean) ? "BNR"
+                                    : "Dupuis".equalsIgnoreCase(deptClean) ? "DPS"
+                                    : "Fabletics".equalsIgnoreCase(deptClean) ? "FAB"
+                                    : "GAP".equalsIgnoreCase(deptClean) ? "106"
+                                    : "Liverpool".equalsIgnoreCase(deptClean) ? "NA"
+                                    : "Pottery Barn".equalsIgnoreCase(deptClean) ? "104"
+                                    : "Pottery Barn Kids".equalsIgnoreCase(deptClean) ? "105"
+                                    : "Suburbia".equalsIgnoreCase(deptClean) ? "SB"
+                                    : "ToysRUs".equalsIgnoreCase(deptClean) ? "424"
+                                    : "West Elm".equalsIgnoreCase(deptClean) ? "107"
+                                    : "LIVESTORE".equalsIgnoreCase(deptClean) ? "LVS"
+                                    : "William Sonoma".equalsIgnoreCase(deptClean) ? "307" : "");
+
+                    value.setTextContent(department);
+                    metaData.appendChild(value);
+                    atributosAgregados.add("department");
+                }
             }
-            if(aux > 1 && department != null) {
-                metaData.removeChild(departmentElement);
-            }
-            if(metaData.getChildNodes().getLength() > 0)
+
+            if(metaData.getChildNodes().getLength() > 0) {
                 classificationElement.appendChild(metaData);
+            }
             return classificationElement;
         }
         return null;
-    }
-
-    private String getMeParentDepartment(org.json.JSONObject node, Document doc) {
-        String department = null;
-        Element value = null;
-        org.json.JSONArray gpfs = null;
-        org.json.JSONObject gpf = null;
-        if (node != null) {
-            if(node.has("metadata")) {
-                gpfs = node.getJSONArray("metadata");
-                if(gpfs != null){
-                    for(int i=0; i<gpfs.length(); i++) {
-                        gpf = gpfs.getJSONObject(i);
-                        value = doc.createElement("Value");
-                        value.setAttribute("Changed", "true");
-                        value.setAttribute("AttributeID", gpf.getString("featureKey"));
-                        value.setTextContent(gpf.getString("featureValue"));
-                        log(node.getString("identifier") + ", " + gpf.getString("featureKey") + " - " + gpf.getString("featureValue"));
-                        if(!"".equals(gpf.getString("featureValue"))) {}
-                        if("department".equals(gpf.getString("featureKey"))) {
-                            department = !"".equals(gpf.getString("featureValue")) ? gpf.getString("featureValue") : null;
-                        }
-//	            		System.out.println("--- " + gpf);
-                    }
-//	            	System.out.println("Ya no le sabes");
-                }else {
-//            		System.out.println("2 No metadata found: " + node.getString("identifier"));
-                }
-            }else {
-//        		System.out.println("No metadata found: " + node.getString("identifier"));
-            }
-        }else {
-//        	System.out.println("Ta null");
-        }
-        return department;
     }
 
     private java.util.Map<String, org.json.JSONObject> precargaJerarquia(String structureId, java.util.LinkedList<org.json.JSONObject> ondeVaLaRaiz) throws ServiceUnavailableException{
@@ -413,7 +440,7 @@ public class HierarchySitiosWeb4 {
                         + ",StructureGroupLang.Synonym(es)"
                         + ",StructureGroup.CharacteristicCategories->LookupValue.Code", "UTF-8")
                         + "&metaData=true&pageSize=5000&startIndex=" + currentIndex;
-                rawResponse = rc.getRequest("GET", url, null); System.out.println(rawResponse);
+                rawResponse = rc.getRequest("GET", url, null);
                 response = new org.json.JSONObject(rawResponse);
                 totalSize = response.getInt("totalSize");
                 rows = response.getJSONArray("rows");
@@ -421,11 +448,6 @@ public class HierarchySitiosWeb4 {
                     values = rows.getJSONObject(i).getJSONArray("values");
                     gpf = losesos.get(rows.getJSONObject(i).getJSONObject("object").getString("id"));
                     gpf = gpf == null ? new org.json.JSONArray() : gpf;
-                    if("ToysRUs".equals(values.getString(0))) {
-                        log(rows.getJSONObject(i).getJSONObject("object").getString("id"));
-                        System.out.println(rows.getJSONObject(i).getJSONObject("object").getString("id"));
-                        System.out.println(gpf.toString());
-                    }
                     entradasJerarquia.addLast(new org.json.JSONObject()
                             .put("identifier", values.getString(0))
                             .put("name_es", values.getString(1))
@@ -439,7 +461,7 @@ public class HierarchySitiosWeb4 {
                 }
                 currentIndex += response.getInt("pageSize");
                 log(currentIndex + "/" + totalSize);
-            }while(currentIndex < totalSize);
+            } while(currentIndex < totalSize);
             log("Sorting data... " + structureId);
             java.util.Collections.sort(entradasJerarquia, (o1,o2)->{
                 int cmp = Integer.valueOf(o1.getInt("level")).compareTo(Integer.valueOf(o2.getInt("level")));
@@ -468,7 +490,7 @@ public class HierarchySitiosWeb4 {
             e.printStackTrace();
         } catch (IOException e) {
             e.printStackTrace();
-        }catch(org.json.JSONException e) {
+        } catch(org.json.JSONException e) {
             log(rawResponse);
             e.printStackTrace();
         }
@@ -479,7 +501,7 @@ public class HierarchySitiosWeb4 {
         java.util.Map<String, org.json.JSONArray> losesos = new java.util.TreeMap<>();
         org.json.JSONArray arr = new org.json.JSONArray();
         java.util.Map<String, String> qp = new java.util.TreeMap<>();
-        qp.put("structure", "WebHierarchyRoot");
+        qp.put("structure", "Sitios Web");
         qp.put("fields", "StructureAttribute.Identifier,StructureGroupAttributeValue.Value(es,DEFAULT)");
         qp.put("pageSize", "5000");
         org.json.JSONObject response = null;
@@ -489,7 +511,6 @@ public class HierarchySitiosWeb4 {
         String objectId = null;
         int currentIndex = 0;
         int totalSize = 0;
-        boolean hadGroupType = false;
         qp.put("items", "237955@42000");
         response = rw.getRw().makeRequest("GET", "/list/StructureGroup/StructureGroupAttribute/byItems", qp, null);
         do {
@@ -502,11 +523,6 @@ public class HierarchySitiosWeb4 {
                     row = rows.getJSONObject(i);
                     values = row.getJSONArray("values");
                     objectId = row.getJSONObject("object").getString("id");
-//					if("44271@12000".equals(objectId)) {
-//						System.out.println("\n\n\t\tHERE!!!! " + row + " \n\n\n");
-//					}else if("237955@42000".equals(objectId)) {
-//						System.out.println("\n\n\t\tHERE!!!! " + row + " \n\n\n");
-//					}
                     arr = losesos.get(objectId);
                     if(arr == null) {
                         arr = new org.json.JSONArray();
@@ -521,13 +537,10 @@ public class HierarchySitiosWeb4 {
                 currentIndex += response.getInt("pageSize");
                 log(currentIndex + "/" + totalSize + ", " + rows.length());
                 response.remove("rows");
-//				System.out.println(currentIndex + "/" + totalSize + ", " + rows.length() + " - " + response);
-            }else {
+            } else {
                 log("ERROR: " + rw.getRw().getRawResponse());
-                log(response == null ? "ERR: " + rw.getRw().getRawResponse() : String.valueOf(response) );
             }
-        }while(currentIndex < totalSize);
-        currentIndex = 0;
+        } while(currentIndex < totalSize);
         return losesos;
     }
 
@@ -537,532 +550,12 @@ public class HierarchySitiosWeb4 {
             if(d.matches("[0-9]{2}.[0-9]{2}.[0-9]{4}")) {
                 try {
                     val = new java.text.SimpleDateFormat("yyyy-MM-dd").format( new java.text.SimpleDateFormat("dd" + d.charAt(2) + "MM" + d.charAt(2) + "yyyy").parse(d));
-                }catch(java.text.ParseException e) {
+                } catch(java.text.ParseException e) {
                     e.printStackTrace();
                 }
             }
         }
         return val;
-    }
-
-    private java.util.Map<String, org.json.JSONObject> getAttributes(String baseUrl, String templateId){
-        java.util.Map<String, org.json.JSONObject> data = new java.util.TreeMap<>();
-        RESTWorkshop rw = new RESTWorkshop();
-        java.util.Map<String, String> qp = new java.util.TreeMap<>();
-        if(baseUrl != null) {
-            rw.setBaseUrl(baseUrl);
-        }
-        qp.put("fields",
-                "StandardizationValue.Characteristic->Characteristic.Identifier"
-                        + ",StandardizationValue.Property->LookupValue.Code"
-                        + ",StandardizationValue.PropertyValue"
-                        + ",StandardizationValue.Characteristic->Characteristic.Lookup->Lookup.Identifier"
-        );
-        qp.put("query", (
-                "StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla\""
-                        + " and StandardizationValue.CreationType->LookupValue.Code equals \"CreateProposal\""
-                        + " and StandardizationValue.StructureGroup->LookupValue.Code equals \"" + templateId + "\""
-                        + " and ("
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"ListOfValuesFilter\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"MaxLength\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"IsMandatory\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"RelevantForATG\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"Business\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"DependentAttribute\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"DependentValues\""
-                        + "		)"
-        ).replaceAll("( |\t){2,}", " "));
-        qp.put("orderBy", "0-ASC");
-        qp.put("dictionaryProxy", "'ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla'");
-
-        org.json.JSONObject response = null;
-        org.json.JSONArray rows = null;
-        org.json.JSONArray values = null;
-        org.json.JSONArray prevValues = null;
-        org.json.JSONObject content = new org.json.JSONObject();
-        int currentIndex = 0;
-        int totalSize = 0;
-        do {
-            qp.put("startIndex", String.valueOf(currentIndex));
-            response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch", qp, null);
-            if(response != null) {
-                totalSize = response.getInt("totalSize");
-                rows = response.getJSONArray("rows");
-                for(int i=0; i<rows.length(); i++) {
-                    currentIndex++;
-                    values = rows.getJSONObject(i).getJSONArray("values");
-                    if( "".equals(values.getString(0)) )
-                        continue;
-                    if(prevValues != null && !prevValues.getString(0).equals(values.getString(0)) ) {
-                        if(!"".equals(prevValues.getString(3))) {
-                            content.put("Lookup", prevValues.getString(3));
-                        }
-                        data.put(prevValues.getString(0), content);
-                        content = new org.json.JSONObject();
-                    }
-                    content.put(values.getString(1), values.getString(2));
-                    prevValues = values;
-                }
-            }else {
-                log(rw.getRawResponse());
-                log(response == null ? "ERR: " + rw.getRawResponse() : String.valueOf( response ) );
-            }
-        }while(currentIndex < totalSize);
-        currentIndex = 0;
-        if(content.length() > 0) {
-            if(!"".equals(prevValues.getString(3))) {
-                content.put("Lookup", prevValues.getString(3));
-            }
-            data.put(prevValues.getString(0), content);
-        }
-        content = null;
-        return data;
-    }
-
-    private void collectAttributeDefinitions(String baseUrl, java.util.Map<String, org.json.JSONObject> data, java.util.Map<String, String> atgGroups, java.util.Set<String> processed, Element attributeList, Document doc) {
-        StringBuilder sb = new StringBuilder();
-        int cnt = 0;
-        for(String key : data.keySet()) {
-            if(!processed.contains(key)) {
-                processed.add(key);
-                sb.append(sb.length() > 0 ? "," : "");
-                sb.append("'");
-                sb.append(key);
-                sb.append("'");
-                cnt++;
-                if(cnt == 100) {
-                    queryDataForCharacteristics(baseUrl, sb.toString(), atgGroups, attributeList, doc);
-                    sb.setLength(0);
-                    cnt = 0;
-                }
-            }
-        }
-        if(sb.length() > 0) {
-            queryDataForCharacteristics(baseUrl, sb.toString(), atgGroups, attributeList, doc);
-            sb.setLength(0);
-            cnt = 0;
-        }
-    }
-
-    private void collectLookupDefinitions(String baseUrl, java.util.Map<String, org.json.JSONObject> data, java.util.Set<String> processed, Element listsOfValues, Document doc, java.util.Map<String, java.util.Map<String, String>> lookupContents) {
-        StringBuilder sb = new StringBuilder();
-        int cnt = 0;
-        for(java.util.Map.Entry<String, org.json.JSONObject> entry : data.entrySet()) {
-            if(entry.getValue().has("Lookup")) {
-                if(!processed.contains(entry.getValue().getString("Lookup"))) {
-                    processed.add(entry.getValue().getString("Lookup"));
-                    sb.append(sb.length() > 0 ? "," : "");
-                    sb.append("'");
-                    sb.append(entry.getValue().getString("Lookup"));
-                    sb.append("'");
-                    cnt++;
-                    if(cnt == 100) {
-                        queryDataForLookup(baseUrl, sb.toString(), listsOfValues, doc, lookupContents);
-                        sb.setLength(0);
-                        cnt = 0;
-                    }
-                }
-            }
-        }
-        if(sb.length() > 0) {
-            queryDataForLookup(baseUrl, sb.toString(), listsOfValues, doc, lookupContents);
-            sb.setLength(0);
-            cnt = 0;
-        }
-    }
-
-    private void queryDataForCharacteristics(String baseUrl, String ids, java.util.Map<String, String> atgGroups, Element attributeList, Document doc) {
-        Element attributeElement = null;
-        Element listOfValueLink = null;
-        Element nameElement = null;
-        Element validationElement = null;
-        Element metaDataElement = null;
-        Element multiValueElement = null;
-        Element valueElement = null;
-        String atgGroupLabel = null;
-        RESTWorkshop rw = new RESTWorkshop();
-        java.util.Map<String, String> qp = new java.util.TreeMap<>();
-        org.json.JSONObject response = null;
-        org.json.JSONArray rows = null;
-        org.json.JSONArray values = null;
-        if(baseUrl != null) {
-            rw.setBaseUrl(baseUrl);
-        }
-        qp.put("fields",
-                "Characteristic.Identifier"
-                        + ",CharacteristicLang.Name(es)"
-                        + ",Characteristic.DataType"
-                        + ",Characteristic.Lookup->Lookup.Identifier"
-                        + ",Characteristic.IsMultiValue"
-                        + ",Characteristic.LowerBound"
-                        + ",Characteristic.Order"
-                        + ",CharacteristicLang.Description(es)"
-                        + ",Characteristic.Purposes->LookupValue.Code"
-                        + ",CharacteristicIdentifier.AlternativeIdentifier(ECC)"
-                        + ",CharacteristicIdentifier.AlternativeIdentifier(S4HANA)"
-        );
-        qp.put("items", ids);
-        response = rw.makeRequest("GET", "/list/Characteristic/byItems", qp, null);
-        if(response != null) {
-            rows = response.getJSONArray("rows");
-//			log("For ids: " + ids + ", got: " + rows);
-            for(int i=0; i<rows.length(); i++) {
-                values = rows.getJSONObject(i).getJSONArray("values");
-                attributeElement = doc.createElement("Attribute");
-                attributeElement.setAttribute("ID", values.getString(0));
-                attributeElement.setAttribute("MultiValued", values.getString(4));
-                attributeElement.setAttribute("Referenced", "true");
-                nameElement = doc.createElement("Name");
-                nameElement.setTextContent(values.getString(1));
-                validationElement = doc.createElement("Validation");
-                validationElement.setAttribute("BaseType", values.getString(2));
-                attributeElement.setAttribute("Mandatory", values.getString(5) == "0" ? "false": "true" );
-                if("".equals(values.getString(3))) {
-                    attributeElement.appendChild(validationElement);
-                }
-                attributeElement.appendChild(nameElement);
-                metaDataElement = doc.createElement("MetaData");
-                multiValueElement = doc.createElement("MultiValue");
-                if(!"".equals(values.getString(3))) {
-                    listOfValueLink = doc.createElement("ListOfValueLink");
-                    listOfValueLink.setAttribute("ListOfValueID", values.getString(3));
-                    attributeElement.appendChild(listOfValueLink);
-                }else {
-                    validationElement.setAttribute("BaseType", values.getString(2).toLowerCase());
-                    if("TEXT".equals(values.getString(2))) {
-                        validationElement.setAttribute("MaxLength", "2000");
-                    }
-                }
-                if(!"".equals(values.getString(6))) {
-                    valueElement = doc.createElement("Value");
-                    valueElement.setAttribute("Changed", "true");
-                    valueElement.setAttribute("AttributeID", "DisplaySequence");
-                    valueElement.setTextContent(values.getString(6));
-                    metaDataElement.appendChild(valueElement);
-                }
-                if(!"".equals(values.getString(7))) {
-                    valueElement = doc.createElement("Value");
-                    valueElement.setAttribute("Changed", "true");
-                    valueElement.setAttribute("AttributeID", "AttributeHelpText");
-                    valueElement.setTextContent(values.getString(7));
-                    metaDataElement.appendChild(valueElement);
-                }
-                if(values.getJSONArray(8).length() > 0 && !"".equals(values.getJSONArray(8).getString(0)) ) {
-                    for(int j=0; j<values.getJSONArray(8).length(); j++) {
-                        if("isFaceted".equals(values.getJSONArray(8).getString(j))) {
-                            valueElement = doc.createElement("Value");
-                            valueElement.setAttribute("Changed", "true");
-                            valueElement.setAttribute("ID", "Y");
-                            valueElement.setTextContent("true");
-                            metaDataElement.appendChild(valueElement);
-                        }else if(values.getJSONArray(8).getString(j).endsWith("GPO")) {
-                            atgGroupLabel = atgGroups.get(values.getJSONArray(8).getString(j));
-                            valueElement = doc.createElement("Value");
-                            valueElement.setAttribute("Changed", "true");
-                            valueElement.setAttribute("ID", values.getJSONArray(8).getString(j));
-                            valueElement.setTextContent(atgGroupLabel == null ? "" : atgGroupLabel);
-                            multiValueElement.appendChild(valueElement);
-                        }
-                    }
-                }
-                if(!"".equals(values.getString(9)) || !"".equals(values.getString(10))) {
-                    String dat = "".equals(values.getString(9)) ? values.getString(10) : values.getString(9);
-                    valueElement = doc.createElement("Value");
-                    valueElement.setAttribute("Changed", "true");
-                    valueElement.setAttribute("AttributeID", "ExternalMapping");
-                    valueElement.setTextContent(dat);
-                    metaDataElement.appendChild(valueElement);
-                }
-                if(multiValueElement.getChildNodes().getLength() > 0) {
-                    multiValueElement.setAttribute("AttributeID", "isAttInGroupAtt");
-                    metaDataElement.appendChild(multiValueElement);
-                }
-                if(metaDataElement.getChildNodes().getLength() > 0) {
-                    attributeElement.appendChild(metaDataElement);
-                }
-                attributeList.appendChild(attributeElement);
-            }
-        }else {
-            log("ERROR: " + rw.getRawResponse());
-        }
-    }
-
-    private void queryDataForLookup(String baseUrl, String ids, Element listsOfValues, Document doc, java.util.Map<String, java.util.Map<String, String>> lookupContents) {
-        Element listOfValuesElement = null;
-        Element nameElement = null;
-        Element validationElement = null;
-        Element valueElement = null;
-        java.util.LinkedList<java.util.Map.Entry<String, String>> lookupData = null;
-        RESTWorkshop rw = new RESTWorkshop();
-        java.util.Map<String, String> qp = new java.util.TreeMap<>();
-        java.util.Map<String, String> lookupContent = null;
-        String lkp = null;
-        org.json.JSONObject response = null;
-        org.json.JSONArray rows = null;
-        org.json.JSONArray values = null;
-        boolean collect = false;
-        if(baseUrl != null) {
-            rw.setBaseUrl(baseUrl);
-        }
-        qp.put("fields", "Lookup.Identifier,LookupLang.Name(es),Lookup.DataType");
-        qp.put("items", ids);
-        response = rw.makeRequest("GET", "/list/Lookup/byItems", qp, null);
-        if(response != null) {
-            rows = response.getJSONArray("rows");
-            for(int i=0; i<rows.length(); i++) {
-                values = rows.getJSONObject(i).getJSONArray("values");
-                listOfValuesElement = doc.createElement("ListOfValue");
-                listOfValuesElement.setAttribute("ID", values.getString(0));
-                listOfValuesElement.setAttribute("Referenced", "true");
-                nameElement = doc.createElement("Name");
-                nameElement.setTextContent(values.getString(1));
-                validationElement = doc.createElement("Validation");
-                validationElement.setAttribute("BaseType", values.getString(2).toLowerCase());
-                listOfValuesElement.appendChild(validationElement);
-                if(!"".equals(values.getString(1))) {
-                    listOfValuesElement.appendChild(nameElement);
-                }
-                lkp = values.getString(0);
-                lookupData = collectLookupValues(baseUrl, lkp);
-                if(!lookupData.isEmpty()) {
-                    lookupContent = lookupContents.get(lkp);
-                    if(lookupContent == null) {
-                        lookupContent = new java.util.TreeMap<>();
-                        lookupContents.put(lkp, lookupContent);
-                        collect = true;
-                    } else {
-                        collect = false;
-                    }
-                    for(java.util.Map.Entry<String, String> entry : lookupData) {
-                        if(collect) {
-                            lookupContent.put(entry.getKey(), entry.getValue());
-                        }
-                        valueElement = doc.createElement("Value");
-                        valueElement.setAttribute("Changed", "true");
-                        valueElement.setAttribute("ID", entry.getKey());
-                        valueElement.setTextContent(entry.getValue());
-                        listOfValuesElement.appendChild(valueElement);
-                    }
-
-                }
-                listsOfValues.appendChild(listOfValuesElement);
-            }
-        }else {
-            log("ERROR: " + rw.getRawResponse());
-        }
-    }
-
-    private java.util.LinkedList<java.util.Map.Entry<String, String>> collectLookupValues(String baseUrl, String lookup){
-        java.util.LinkedList<java.util.Map.Entry<String, String>> data = new java.util.LinkedList<>();
-        java.util.Map<String, String> qp = new java.util.TreeMap<>();
-        RESTWorkshop rw = new RESTWorkshop();
-        org.json.JSONObject response = null;
-        org.json.JSONArray rows = null;
-        org.json.JSONArray values = null;
-        int currentIndex = 0;
-        int totalSize = 0;
-        if(baseUrl != null) {
-            rw.setBaseUrl(baseUrl);
-        }
-        qp.put("fields", "LookupValue.Code,LookupValueLang.Name(es)");
-        qp.put("query",  "LookupValue.IsActive = true");
-        qp.put("lookup", lookup);
-        qp.put("pageSize", "600");
-        do {
-            qp.put("startIndex", String.valueOf(currentIndex));
-            response = rw.makeRequest("GET", "/list/LookupValue/bySearch", qp, null);
-            if(response != null) {
-                totalSize = response.getInt("totalSize");
-                rows = response.getJSONArray("rows");
-                for(int i=0; i<rows.length(); i++) {
-                    currentIndex++;
-                    values = rows.getJSONObject(i).getJSONArray("values");
-                    data.addLast( new java.util.AbstractMap.SimpleEntry<>(values.getString(0), values.getString(1)) );
-                }
-            }else {
-                log("ERROR: " + rw.getRawResponse());
-            }
-        }while(currentIndex < totalSize);
-        currentIndex = 0;
-        return data;
-    }
-
-    private java.util.Map<String, java.util.Map<String, org.json.JSONObject>> getAttributes(String baseUrl){
-        java.util.Map<String, java.util.Map<String, org.json.JSONObject>> data = new java.util.TreeMap<>();
-        java.util.Map<String, org.json.JSONObject> attributeMetaData = new java.util.TreeMap<>();
-        RESTWorkshop rw = new RESTWorkshop();
-        java.util.Map<String, String> qp = new java.util.TreeMap<>();
-        if(baseUrl != null) {
-            rw.setBaseUrl(baseUrl);
-        }
-        qp.put("fields",
-                "StandardizationValue.StructureGroup->LookupValue.Code"
-                        + ",StandardizationValue.Characteristic->Characteristic.Identifier"
-                        + ",StandardizationValue.Property->LookupValue.Code"
-                        + ",StandardizationValue.PropertyValue"
-                        + ",StandardizationValue.Characteristic->Characteristic.Lookup->Lookup.Identifier"
-        );
-        qp.put("query", (
-                "StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla\""
-                        + " and StandardizationValue.CreationType->LookupValue.Code equals \"CreateProposal\""
-                        + " and ("
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"ListOfValuesFilter\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"MaxLength\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"IsMandatory\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"RelevantForATG\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"Business\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"DependentAttribute\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"DependentValues\""
-                        + "		)"
-        ).replaceAll("( |\t){2,}", " "));
-        qp.put("pageSize", "1000");
-        qp.put("orderBy", "0-ASC,1-ASC");
-        qp.put("dictionaryProxy", "'ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla'");
-
-        org.json.JSONObject response = null;
-        org.json.JSONArray rows = null;
-        org.json.JSONArray values = null;
-        org.json.JSONArray prevValues = null;
-        org.json.JSONObject content = new org.json.JSONObject();
-        int currentIndex = 0;
-        int totalSize = 0;
-        do {
-            qp.put("startIndex", String.valueOf(currentIndex));
-            response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch", qp, null);
-            if(response != null) {
-                totalSize = response.getInt("totalSize");
-                rows = response.getJSONArray("rows");
-                for(int i=0; i<rows.length(); i++) {
-                    currentIndex++;
-                    values = rows.getJSONObject(i).getJSONArray("values");
-                    if("".equals(values.getString(0)) || "".equals(values.getString(1)))
-                        continue;
-                    if(prevValues != null && (!prevValues.getString(0).equals(values.getString(0)) || !prevValues.getString(1).equals(values.getString(1)) ) ) {
-                        if(!"".equals(prevValues.getString(4))) {
-                            content.put("Lookup", prevValues.getString(4));
-                        }
-                        attributeMetaData.put(prevValues.getString(1), content);
-                        content = new org.json.JSONObject();
-                        if(!prevValues.getString(0).equals(values.getString(0))) {
-                            data.put(prevValues.getString(0), attributeMetaData);
-                            attributeMetaData = new java.util.TreeMap<>();
-                        }
-                    }
-                    content.put(values.getString(2), values.getString(3));
-                    prevValues = values;
-                }
-            }else {
-                log(rw.getRawResponse());
-                log(response == null ? "ERR: " + rw.getRawResponse() : String.valueOf( response ) );
-            }
-            log(currentIndex + "/" + totalSize);
-        }while(currentIndex < totalSize);
-        currentIndex = 0;
-        if(!"".equals(prevValues.getString(4))) {
-            content.put("Lookup", prevValues.getString(4));
-        }
-        if(content.length() > 0) {
-            attributeMetaData.put(prevValues.getString(1), content);
-        }
-        if(!attributeMetaData.isEmpty()) {
-            attributeMetaData.put(prevValues.getString(1), content);
-            data.put(prevValues.getString(0), attributeMetaData);
-        }
-        content = null;
-        return data;
-    }
-
-    private java.util.Map<String, org.json.JSONObject> getGlobalAttributes(String baseUrl){
-        java.util.Map<String, org.json.JSONObject> attributeMetaData = new java.util.TreeMap<>();
-        RESTWorkshop rw = new RESTWorkshop();
-        java.util.Map<String, String> qp = new java.util.TreeMap<>();
-        if(baseUrl != null) {
-            rw.setBaseUrl(baseUrl);
-        }
-        qp.put("fields",
-                "StandardizationValue.Characteristic->Characteristic.Identifier"
-                        + ",StandardizationValue.Property->LookupValue.Code"
-                        + ",StandardizationValue.PropertyValue"
-                        + ",StandardizationValue.Characteristic->Characteristic.Lookup->Lookup.Identifier"
-        );
-        qp.put("query", (
-                "StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"GlobalTemplateAttributeConfiguration\""
-                        + " and StandardizationValue.CreationType->LookupValue.Code equals \"CreateProposal\""
-                        + " and ("
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"ListOfValuesFilter\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"MaxLength\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"IsMandatory\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"RelevantForATG\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"Business\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"DependentAttribute\""
-                        + " or "
-                        + "			StandardizationValue.Property->LookupValue.Code equals \"DependentValues\""
-                        + "		)"
-        ).replaceAll("( |\t){2,}", " "));
-        qp.put("pageSize", "1000");
-        qp.put("orderBy", "0-ASC");
-        qp.put("dictionaryProxy", "'GlobalTemplateAttributeConfiguration'");
-
-        org.json.JSONObject response = null;
-        org.json.JSONArray rows = null;
-        org.json.JSONArray values = null;
-        org.json.JSONArray prevValues = null;
-        org.json.JSONObject content = new org.json.JSONObject();
-        int currentIndex = 0;
-        int totalSize = 0;
-        do {
-            qp.put("startIndex", String.valueOf(currentIndex));
-            response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch", qp, null);
-            if(response != null) {
-                totalSize = response.getInt("totalSize");
-                rows = response.getJSONArray("rows");
-                for(int i=0; i<rows.length(); i++) {
-                    currentIndex++;
-                    values = rows.getJSONObject(i).getJSONArray("values");
-                    if("".equals(values.getString(0)) || "".equals(values.getString(1)) || "".equals(values.getString(2)) || "".equals(values.getString(3)))
-                        continue;
-                    if(prevValues != null && (!prevValues.getString(0).equals(values.getString(0)) ) ) {
-                        if(!"".equals(prevValues.getString(3))) {
-                            content.put("Lookup", prevValues.getString(3));
-                        }
-                        attributeMetaData.put(prevValues.getString(0), content);
-                        content = new org.json.JSONObject();
-                    }
-                    content.put(values.getString(1), values.getString(2));
-                    prevValues = values;
-                }
-            }else {
-                log(rw.getRawResponse());
-                log(response == null ? "ERR: " + rw.getRawResponse() : String.valueOf( response ) );
-            }
-            log(currentIndex + "/" + totalSize);
-        }while(currentIndex < totalSize);
-        currentIndex = 0;
-        if(!"".equals(prevValues.getString(3))) {
-            content.put("Lookup", prevValues.getString(3));
-        }
-        if(content.length() > 0) {
-            attributeMetaData.put(prevValues.getString(0), content);
-        }
-        content = null;
-        return attributeMetaData;
     }
 
     private void log(String message) {
@@ -1071,15 +564,7 @@ public class HierarchySitiosWeb4 {
             pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()))
                     + "]  " + message);
         } catch (java.io.IOException e) {
+            // Silenced
         }
     }
-
-    private void logE(Exception ex) {
-        try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
-                new java.io.FileOutputStream(java.nio.file.Paths.get("..","logs","generateHierarchy.log").toString(), true)))) {
-            ex.printStackTrace(pw);
-        } catch (java.io.IOException e) {
-        }
-    }
-
 }

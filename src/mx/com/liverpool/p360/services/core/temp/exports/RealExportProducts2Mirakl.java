@@ -436,6 +436,7 @@ public class RealExportProducts2Mirakl {
 				String seccionLabel = null;
 				String supplierPartNumber = null;
 				String supplierID = null;
+				String supplierIDLabel = null;
 				String mainBarCode = null;
 				String sku = null;
 				String embeddedCodeWEB = null;
@@ -508,8 +509,8 @@ public class RealExportProducts2Mirakl {
 				}
 				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
 						.getJSONArray("productExtraData").getJSONObject(0).has("supplierID")) {
-					supplierID = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("supplierID").getString("_code");
+					supplierID = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getJSONObject("supplierID").getString("_code");
+					supplierIDLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getJSONObject("supplierID").getString("_label");
 				}
 				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
 						.getJSONArray("productExtraData").getJSONObject(0).has("supplierPartNumber")) {
@@ -873,6 +874,16 @@ public class RealExportProducts2Mirakl {
 				String sku_ = rp.getJSONObject("_data").has("sku") ? String.valueOf( rp.getJSONObject("_data").getLong("sku") ) : null;
 				String ean_ = rp.getJSONObject("_data").has("gtin") ? rp.getJSONObject("_data").getString("gtin") : null;
 //				System.out.println("---------------------------------------------->" + sku_ + " || " + proposalId + rp.getJSONObject("_data"));
+				if (descLong != null) {
+					appendPlainElementValue(descLong, null, "DescriptionLong", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+							"MKP".equals(business) ? docMKT : doc,
+							propiedadesCaracteristicas);
+				}
+				if (descLong2 != null) {
+					appendPlainElementValue(descLong2, null, "DescriptionLong2", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+							"MKP".equals(business) ? docMKT : doc,
+							propiedadesCaracteristicas);
+				}
 	        	for(int i = 0; i<characteristicArray.length(); i++) {
 	        		characteristic = characteristicArray.getJSONObject(i);
 	        		charId = characteristic.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
@@ -1213,27 +1224,55 @@ public class RealExportProducts2Mirakl {
 									heredables.put(charId, characteristic);
 								}
 								if("LOOKUP".equals(characteristic.getString("_datatype"))){
-									appendPlainElementValue(
-											characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
-											characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
-											charId,
-											attributeValues,
-											"MKP".equals(business) ? attributesMKT : attributes,
-											"MKP".equals(business) ? docMKT : doc,
-											propiedadesCaracteristicas);
+									boolean skip = false;
+									if("Direction".equals(charId) && direccion != null && !"".equals(direccion)) {
+										skip = true;
+									}
+									if("Section".equals(charId) && seccion != null && !"".equals(seccion)) {
+										skip = true;
+									}
+									if("ItemGroup".equals(charId) && itemGroup != null && !"".equals(itemGroup)) {
+										skip = true;
+									}
+									if("ItemGroupS4H".equals(charId) && itemGroupS4H != null && !"".equals(itemGroupS4H)) {
+										skip = true;
+									}
+									if("BrandName".equals(charId) && brandName != null && !"".equals(brandName)) {
+										skip = true;
+									}
+									if("BRAND_ID_S4H".equals(charId) && brandIdS4H != null && !"".equals(brandIdS4H)) {
+										skip = true;
+									}
+									if(!skip) {
+										appendPlainElementValue(
+												characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
+												characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
+												charId,
+												attributeValues,
+												"MKP".equals(business) ? attributesMKT : attributes,
+												"MKP".equals(business) ? docMKT : doc,
+												propiedadesCaracteristicas);
+									}
 								}else if(!"NONE".equals(characteristic.getString("_datatype"))) {
+									boolean skip = false;
 									java.util.LinkedList<String> vals = new java.util.LinkedList<>();
 									for(int m=0; m<characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").length(); m++) {
 										vals.addLast( String.valueOf( parseDateForSpecificDateFields( characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(m), charId) ));
 									}
-									appendPlainElementValue(
-											String.join(",", vals),
-											null,
-											charId,
-											attributeValues,
-											"MKP".equals(business) ? attributesMKT : attributes,
-											"MKP".equals(business) ? docMKT : doc,
-											propiedadesCaracteristicas);
+									if("SupplierID".equals(charId) && supplierID != null && !"".equals(supplierID)) {
+										skip = true;
+									}
+									
+									if(!skip){
+										appendPlainElementValue(
+												String.join(",", vals),
+												null,
+												charId,
+												attributeValues,
+												"MKP".equals(business) ? attributesMKT : attributes,
+												"MKP".equals(business) ? docMKT : doc,
+												propiedadesCaracteristicas);
+									}
 								}
 								
 							}
@@ -1267,8 +1306,7 @@ public class RealExportProducts2Mirakl {
 					appendPlainElementValue(supplierPartNumber, "", "SupplierPartNumber", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
 				}
 				if (supplierID != null && !"".equals(supplierID)) {
-					appendPlainElementValue(supplierID, "", "SupplierID", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
-							propiedadesCaracteristicas);
+					appendPlainElementValue(supplierIDLabel, supplierID, "SupplierID", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,propiedadesCaracteristicas);
 				}
 				if(productName != null) {
 					name.setTextContent(productName);
@@ -1528,7 +1566,7 @@ public class RealExportProducts2Mirakl {
 				        		if("SKU".equals(charId)) {
 				        			sku0 = sku0 != null && !"".equals(sku0) ? sku0 : imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
 				        		}else
-								if("ProductImage2".equals(charId)) {
+								if("ProductImage2".equals(charId) && imageObject.has("_children")) {
 									children = imageObject.getJSONArray("_children");
 									piKey = imageObject.getJSONObject("_qualification").getString("recordKey");
 									for(int c = 0; c<children.length(); c++) {
@@ -1539,7 +1577,7 @@ public class RealExportProducts2Mirakl {
 											piUrl = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
 										}
 									}
-								}else if("ProductImageDetail2".equals(charId)) {
+								}else if("ProductImageDetail2".equals(charId) && imageObject.has("_children")) {
 									children = imageObject.getJSONArray("_children");
 									chunk = new String[4];
 									chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
@@ -1555,7 +1593,7 @@ public class RealExportProducts2Mirakl {
 									details.addLast(chunk);
 									if(theFirstTime)
 										losdetalles.addLast(details);
-								}else if("ProductImageSmosh2".equals(charId)) {
+								}else if("ProductImageSmosh2".equals(charId) && imageObject.has("_children")) {
 									children = imageObject.getJSONArray("_children");
 									chunk = new String[4];
 									chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
@@ -1571,7 +1609,7 @@ public class RealExportProducts2Mirakl {
 									smoshes.addLast(chunk);
 									if(theFirstTime)
 										losesmoshes.addLast(smoshes);
-								}else if("Illustration2".equals(charId)) {
+								}else if("Illustration2".equals(charId) && imageObject.has("_children")) {
 									children = imageObject.getJSONArray("_children");
 									chunk = new String[4];
 									chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
