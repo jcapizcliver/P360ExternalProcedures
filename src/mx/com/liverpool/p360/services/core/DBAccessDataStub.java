@@ -277,6 +277,122 @@ public class DBAccessDataStub implements AutoCloseable {
 		}
 	}
 	
+	public java.util.Map<String, org.json.JSONArray> getWebHierarchySynonyms(int languageID) {
+		java.util.Map<String, org.json.JSONArray> synonyms = new java.util.TreeMap<>();
+		String sql =
+				  " select /*+ "
+				+ "     leading(aa bb cc) "
+				+ "     use_nl(bb cc) "
+				+ "     index(aa XAK1_StructureGroupRevision) "
+				+ "     index(bb XAK1_StructureGroupLang) "
+				+ "     index(cc XAK1_StructureGroupLangSynonym) "
+				+ " */ "
+				+ "        aa.\"Identifier\" "
+				+ "            \"Identifier\" "
+				+ "       ,cc.\"Name\" "
+				+ "            \"Synonym\" "
+				+ " from PIM_MAIN.\"StructureGroupRevision\" aa "
+				+ " inner join PIM_MAIN.\"StructureGroupLang\" bb "
+				+ "    on bb.\"StructureGroupRevisionID\" = aa.\"ID\" "
+				+ "   and bb.\"LanguageID\" = ? "
+				+ "   and bb.\"ChannelID\" = 1 "
+				+ "   and bb.\"Res_LK_Text100_01\" = 'DEFAULT' "
+				+ "   and bb.\"Res_LK_Int_01\" = 0 "
+				+ "   and bb.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " inner join PIM_MAIN.\"StructureGroupLangSynonym\" cc "
+				+ "    on cc.\"StructureGroupLangID\" = bb.\"ID\" "
+				+ "   and cc.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " where aa.\"StructureID\" = 12000 "
+				+ "   and aa.\"RevisionID\" = 1 "
+				+ "   and aa.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " order by "
+				+ "        aa.\"Identifier\" asc "
+				+ "       ,cc.\"Name\" asc"
+			;
+		try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(sql)) {
+			pstmnt.setInt(1, languageID);
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				while (rs.next()) {
+					String identifier = rs.getNString("Identifier");
+					String synonym = rs.getNString("Synonym");
+					if (identifier == null || identifier.isBlank() || synonym == null || synonym.isBlank()) {
+						continue;
+					}
+					synonyms.computeIfAbsent( identifier, key -> new org.json.JSONArray()).put(synonym);
+				}
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+		}
+		return synonyms;
+	}
+	
+	public java.util.List<org.json.JSONObject> getWebHierarchyRows(int languageID) {
+		java.util.List<org.json.JSONObject> rows = new java.util.ArrayList<>();
+		String sql =
+				  " select /*+ "
+				+ "     leading(aa bb cc) "
+				+ "     use_nl(bb cc) "
+				+ "     index(bb XAK1_StructureGroupDetail) "
+				+ "     index(cc XAK1_StructureGroupLang) "
+				+ " */ "
+				+ "        aa.\"ID\" "
+				+ "            \"StructureGroupRevisionID\" "
+				+ "       ,aa.\"StructureGroupID\" "
+				+ "            \"StructureGroupID\" "
+				+ "       ,aa.\"Identifier\" "
+				+ "            \"Identifier\" "
+				+ "       ,bb.\"ParentIdentifier\" "
+				+ "            \"ParentIdentifier\" "
+				+ "       ,cc.\"Name\" "
+				+ "            \"Name\" "
+				+ " from PIM_MAIN.\"StructureGroupRevision\" aa "
+				+ " left join PIM_MAIN.\"StructureGroupDetail\" bb "
+				+ "    on bb.\"StructureGroupRevisionID\" = aa.\"ID\" "
+				+ "   and bb.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " left join PIM_MAIN.\"StructureGroupLang\" cc "
+				+ "    on cc.\"StructureGroupRevisionID\" = aa.\"ID\" "
+				+ "   and cc.\"LanguageID\" = ? "
+				+ "   and cc.\"ChannelID\" = 1 "
+				+ "   and cc.\"Res_LK_Text100_01\" = 'DEFAULT' "
+				+ "   and cc.\"Res_LK_Int_01\" = 0 "
+				+ "   and cc.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " where aa.\"StructureID\" = 12000 "
+				+ "   and aa.\"RevisionID\" = 1 "
+				+ "   and aa.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " order by aa.\"StructureGroupID\" asc";
+
+		try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(sql)) {
+			pstmnt.setInt(1, languageID);
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				while (rs.next()) {
+					String identifier = rs.getNString("Identifier");
+
+					if (identifier == null || identifier.isBlank()) {
+						continue;
+					}
+					rows.add(
+						new org.json.JSONObject()
+							.put( "structureGroupRevisionID", rs.getLong("StructureGroupRevisionID"))
+							.put( "structureGroupID", rs.getLong("StructureGroupID"))
+							.put( "identifier", identifier)
+							.put( "parentIdentifier", java.util.Objects.toString( rs.getNString("ParentIdentifier"), ""))
+							.put( "name", java.util.Objects.toString( rs.getNString("Name"), "")));
+				}
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+		}
+
+		return rows;
+	}
+	
 	public java.util.Map<String, String> getTemplateStructureGroupAttributeValues(String template, int languageID) {
 		java.util.Map<String, String> values = new java.util.TreeMap<>();
 		if (template == null || template.isBlank()) {

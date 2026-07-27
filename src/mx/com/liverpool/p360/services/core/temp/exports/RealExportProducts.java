@@ -62,7 +62,7 @@ public class RealExportProducts {
 	private static final String urlDeATG = PropertiesManager.get("p360.contingency.out.url_atg");// "http://172.16.203.46:7089/pimstepatg/service/";
 	private static final String urlDeOMS = PropertiesManager.get("p360.contingency.out.url_oms"); // "https://brokerqa.liverpool.com.mx:7053/oms/Int100/Items";
 	private static final java.nio.file.Path fileSystemPrefixOMS = java.nio.file.Paths.get("..", "stage", "ToOMS");
-	private static final java.nio.file.Path fileSystemPrefix = java.nio.file.Paths.get("/", "u01", "workshop", "stage", "ToATG");
+	private static final java.nio.file.Path fileSystemPrefix = java.nio.file.Paths.get("/", "u01", "workshop", "stage","ToATG");
 	private static final String baseUrlDEV = PropertiesManager.get("p360.contingency.base_url");
 	private static final RESTWrapper wrapper = new RESTWrapper();
 	private static final RESTWorkshop rw = wrapper.getRw();
@@ -73,67 +73,50 @@ public class RealExportProducts {
 	private static final String user = PropertiesManager.get("p360.contingency.dwh.user");
 	private static final java.nio.file.Path privateKeyPath = java.nio.file.Paths.get("/home/P360admin/.ssh/id_rsa");
 
-	private static final org.json.JSONObject reqPublishMessage = new org.json.JSONObject()
-			.put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier",
-					"Product2GCharacteristicValueLang.Value('PublishMessage',root,\"0000.0000.RK\",'PublishMessage',-1)")))
-			.put("rows", new org.json.JSONArray());
-	private final org.json.JSONObject req2 = new org.json.JSONObject()
-			.put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier",
-					"Product2GCharacteristicValueLang.Value('FechaUltimaPublicacion',root,\"0000.0000.RK\",'FechaUltimaPublicacion',-1)")))
-			.put("rows", new org.json.JSONArray());
-
-	private static final org.json.JSONObject reqLastApprovedCategories = new org.json.JSONObject()
-			.put("columns", new org.json.JSONArray()
-					.put(new org.json.JSONObject().put("identifier", "Product2GExtraData.LastApprovedCategories(MX)")))
-			.put("rows", new org.json.JSONArray());
-
-	private final org.json.JSONObject req = new org.json.JSONObject()
-			.put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier",
-					"ArticleCharacteristicValueLang.Value('FechaYHoraDePublicacion',root,\"0000.0000.RK\",'FechaYHoraDePublicacion',-1)")))
-			.put("rows", new org.json.JSONArray());
-	private static final org.json.JSONObject reqAPublishMessage = new org.json.JSONObject()
-			.put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier",
-					"ArticleCharacteristicValueLang.Value('PublishMessage',root,\"0000.0000.RK\",'PublishMessage',-1)")))
-			.put("rows", new org.json.JSONArray());
-
 	private final java.util.Map<String, java.util.Map<String, org.json.JSONObject>> templateMetadataSet = new java.util.TreeMap<>();
 	private final java.util.Map<String, java.util.Map<String, String>> templateStructureGroupAttributeValues = new java.util.TreeMap<>();
 	private final java.util.Map<String, java.util.Set<String>> templateSets = new java.util.TreeMap<>();
 	private final java.util.Map<String, org.json.JSONObject> globalProperties = new java.util.TreeMap<>();
 	private final java.util.Set<String> globalSet = new java.util.TreeSet<>();
-	
-	private final ELog log = new ELog() {
-		
+
+	private final ELog dbLog = new ELog() {
 		@Override
 		public void logE(Exception e) {
 			RealExportProducts.this.logE(e);
 		}
-		
+
 		@Override
 		public void log(String message) {
 			RealExportProducts.this.log(message);
 		}
 	};
-	
-	private final RealExportProductsUtils rutils = new RealExportProductsUtils(log);
-	private final DBAccessDataStub dastub = new DBAccessDataStub( log );
+
+	private final RealExportProductsUtils rutils = new RealExportProductsUtils(dbLog);
+	private final DBAccessDataStub dastub = new DBAccessDataStub(dbLog);
 	private final java.util.Map<String, String> atgGroups = loadLookupGroups();
-	private final java.util.Set<String> articulosEnviados = new java.util.TreeSet<>();
-	private static final SecureRandom RANDOM = new SecureRandom();
-	private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
-	private boolean frozenImagesExists = true;
-	private boolean exploitLayerExists = true;
 	private final java.util.Map<Integer, org.json.JSONObject> characteristicMetadataByID = new java.util.HashMap<>();
 	private final java.util.Map<Integer, String> characteristicIdentifierByID = new java.util.HashMap<>();
 	private final java.util.Set<Integer> rootCharacteristicIDs = new java.util.TreeSet<>();
+
+	private static final SecureRandom RANDOM = new SecureRandom();
+
+	private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
+
+	private boolean frozenImagesExists = true;
+	private boolean exploitLayerExists = true;
+	private boolean toDwhOnly = false;
+	private static final long MAX_BATCH_BYTES = 7L * 1024L * 1024L;
 
 	private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
 
 	public String newExecutionId() {
 		byte[] randomBytes = new byte[16]; // 128 bits
 		RANDOM.nextBytes(randomBytes);
+
 		String randomPart = Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
+
 		String timestamp = LocalDateTime.now().format(TS_FORMAT);
+
 		return "EXEC-" + timestamp + "-" + randomPart;
 	}
 
@@ -153,25 +136,32 @@ public class RealExportProducts {
 
 	private static Path resolveServerPropertiesPath() {
 		String path = System.getenv("P360_SERVER_PROPERTIES");
+
 		if (path == null || path.trim().isEmpty()) {
 			path = "/u01/Informatica/server.properties";
 		} else {
 		}
+
 		Path resolved = Paths.get(path).toAbsolutePath().normalize();
+
 		if (!Files.exists(resolved)) {
 			throw new IllegalArgumentException("No existe server.properties en: " + resolved);
 		}
+
 		if (!Files.isRegularFile(resolved)) {
 			throw new IllegalArgumentException("La ruta no es archivo: " + resolved);
 		}
+
 		return resolved;
 	}
 
 	private static String resolveRequiredProperty(Properties raw, String key) {
 		String value = resolvePropertyValue(raw, key, new HashSet<String>());
+
 		if (value == null || value.trim().isEmpty()) {
 			throw new IllegalArgumentException("No se encontró la property requerida: " + key);
 		}
+
 		return value.trim();
 	}
 
@@ -179,23 +169,31 @@ public class RealExportProducts {
 		if (visiting.contains(key)) {
 			throw new IllegalArgumentException("Referencia circular detectada en properties para la clave: " + key);
 		}
+
 		String value = raw.getProperty(key);
 		if (value == null) {
 			return null;
 		}
+
 		visiting.add(key);
+
 		Matcher matcher = PLACEHOLDER_PATTERN.matcher(value);
 		StringBuffer sb = new StringBuffer();
+
 		while (matcher.find()) {
 			String referencedKey = matcher.group(1);
 			String referencedValue = resolvePropertyValue(raw, referencedKey, visiting);
+
 			if (referencedValue == null) {
 				throw new IllegalArgumentException("No se pudo resolver la property referenciada: " + referencedKey);
 			}
+
 			matcher.appendReplacement(sb, Matcher.quoteReplacement(referencedValue));
 		}
+
 		matcher.appendTail(sb);
 		visiting.remove(key);
+
 		return sb.toString();
 	}
 
@@ -205,9 +203,9 @@ public class RealExportProducts {
 		loadCharacteristicMetadata();
 		System.out.println("Characteristic metadata loaded");
 		System.out.println("Adding global metadata");
-		addGlobalData( globalProperties, globalSet );
+		addGlobalData(globalProperties, globalSet);
 		System.out.println("Global metadata added");
-		addCharacteristicData( globalProperties );
+		addCharacteristicData(globalProperties);
 	}
 
 	private org.json.JSONObject getMeTheCompa(String compa) throws ServiceUnavailableException {
@@ -224,7 +222,7 @@ public class RealExportProducts {
 		return response;
 	}
 
-	private static final String USAGE = "Usage: RealExportProducts <File with IDs or SKUs> -t ID|SKU [-s]\n-t indicates which type of content is in the file: SKU or Proposal IDs\n-s if present, indicates to send the data to destination, default is not send the data.";
+	private static final String USAGE = "Usage: RealExportProductsJdbcBatch <File with IDs or SKUs> -t ID|SKU [-s]\n-t indicates which type of content is in the file: SKU or Proposal IDs\n-s if present, indicates to send the data to destination, default is not send the data.";
 
 	public static void main(String[] args) throws ServiceUnavailableException, IOException {
 
@@ -265,32 +263,18 @@ public class RealExportProducts {
 		RealExportProducts o = new RealExportProducts();
 		o.frozenImagesExists = Boolean.parseBoolean(PropertiesManager.get("p360.contingency.useFrozenImages", "true"));
 		o.exploitLayerExists = Boolean.parseBoolean(PropertiesManager.get("p360.contingency.useExploitLayer", "true"));
+		o.toDwhOnly = toDwh;
 		if (type == 0) {
-			java.util.List<String> losesos = new java.util.ArrayList<>();
-			for (int a = 0; a < data.length; a++) {
-				losesos.add(data[a]);
-				if ((a + 1) % 10 == 0) {
-					if (toDwh)
-						o.toDWH(o.doIt(losesos.toArray(new String[] {}), send, baseUrlDEV));
-					else
-						o.doIt(losesos.toArray(new String[] {}), send, baseUrlDEV);
-					losesos = new java.util.ArrayList<>();
+			o.doIt(data, send, baseUrlDEV);
+		} else if (type == 1) {
+			java.util.List<String> ids = new java.util.ArrayList<String>();
+			for (String sku : data) {
+				String id = o.getIdFromSKU(sku);
+				if (id != null && !id.trim().isEmpty()) {
+					ids.add(id);
 				}
 			}
-			if (!losesos.isEmpty()) {
-				if (toDwh)
-					o.toDWH(o.doIt(losesos.toArray(new String[] {}), send, baseUrlDEV));
-				else
-					o.doIt(losesos.toArray(new String[] {}), send, baseUrlDEV);
-			}
-		} else if (type == 1) {
-			String[] pedazos = data;
-			for (String element : pedazos) {
-				if (toDwh)
-					o.toDWH(o.doIt(new String[] { o.getIdFromSKU(element) }, send, baseUrlDEV));
-				else
-					o.doIt(new String[] { o.getIdFromSKU(element) }, send, baseUrlDEV);
-			}
+			o.doIt(ids.toArray(new String[ids.size()]), send, baseUrlDEV);
 		}
 	}
 
@@ -332,38 +316,27 @@ public class RealExportProducts {
 	}
 
 	public String getIdFromSKU(String sku) {
-//		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-//		qp.put("fields", "Product2G.ProductNo");
-//		qp.put("query", "characteristic('SKU',-1) wildcard \"" + sku + "\"");
-//		org.json.JSONObject response = null;
-//		org.json.JSONArray rows = null;
-//		response = rw.makeRequest("GET", "/list/Product2G/bySearch", qp, null);
-//		if (response == null) {
-//		} else {
-//			rows = response.getJSONArray("rows");
-//			if (rows.length() > 0) {
-//				return rows.getJSONObject(0).getJSONArray("values").getString(0);
-//			} else {
-//				log("SKU not found: " + sku);
-//			}
-//		}
-//		return null;
-		return dastub.getSkuProductNo(sku);
+		java.util.Map<String, String> qp = new java.util.TreeMap<>();
+		qp.put("fields", "Product2G.ProductNo");
+		qp.put("query", "characteristic('SKU',-1) wildcard \"" + sku + "\"");
+		org.json.JSONObject response = null;
+		org.json.JSONArray rows = null;
+		response = rw.makeRequest("GET", "/list/Product2G/bySearch", qp, null);
+//		System.out.println(sku + " - " + rw.getRawResponse());
+		if (response == null) {
+		} else {
+			rows = response.getJSONArray("rows");
+			if (rows.length() > 0) {
+				return rows.getJSONObject(0).getJSONArray("values").getString(0);
+			} else {
+				log("SKU not found: " + sku);
+			}
+		}
+		return null;
 	}
 
 	public void processBatch(String[] proposalIds) {
-		java.util.ArrayList<String> batch = new java.util.ArrayList<>();
-		for (String proposalId : proposalIds) {
-			batch.add(proposalId);
-			if (batch.size() == 10) {
-				// doIt(batch.toArray(new String[]{}));
-				batch.clear();
-			}
-		}
-		if (!batch.isEmpty()) {
-			// doIt(batch.toArray(new String[]{}));
-			batch.clear();
-		}
+		// Conservado por compatibilidad. El corte real por tamaño se realiza dentro de doIt.
 	}
 
 	public static void runForProductIds(String[] proposalIds, boolean send)
@@ -378,34 +351,8 @@ public class RealExportProducts {
 		RealExportProducts o = new RealExportProducts();
 		o.frozenImagesExists = Boolean.parseBoolean(PropertiesManager.get("p360.contingency.useFrozenImages", "true"));
 		o.exploitLayerExists = Boolean.parseBoolean(PropertiesManager.get("p360.contingency.useExploitLayer", "true"));
-
-		java.util.List<String> batch = new java.util.ArrayList<String>();
-
-		for (int i = 0; i < data.length; i++) {
-			batch.add(data[i]);
-
-			if (batch.size() == 10) {
-				String[] chunk = batch.toArray(new String[batch.size()]);
-
-				if (toDwh) {
-					o.toDWH(o.doIt(chunk, send, baseUrlDEV));
-				} else {
-					o.doIt(chunk, send, baseUrlDEV);
-				}
-
-				batch.clear();
-			}
-		}
-
-		if (!batch.isEmpty()) {
-			String[] chunk = batch.toArray(new String[batch.size()]);
-
-			if (toDwh) {
-				o.toDWH(o.doIt(chunk, send, baseUrlDEV));
-			} else {
-				o.doIt(chunk, send, baseUrlDEV);
-			}
-		}
+		o.toDwhOnly = toDwh;
+		o.doIt(data, send, baseUrlDEV);
 	}
 
 	private static String[] cleanIds(String[] ids) {
@@ -491,7 +438,7 @@ public class RealExportProducts {
 		String execId = newExecutionId();
 		long envioAtgExecId = -1;
 		JdbcConfig jdbcConfig = null;
-		if (exploitLayerExists)
+		if (exploitLayerExists) {
 			try {
 				jdbcConfig = initJdbcConfig();
 				try (java.sql.Connection con = openConnection(jdbcConfig, true)) {
@@ -503,10 +450,10 @@ public class RealExportProducts {
 				log("Could not get db connection, please use logs to later insert activity.");
 				logE(e);
 			}
-		else
+		} else {
 			log("Not using exploit layer");
-		java.util.Map<String, String> prodToSKU = new java.util.HashMap<>();
-		java.util.Map<String, String> artToSKU = new java.util.HashMap<>();
+		}
+
 		System.out.println("Doing it " + (proposalIds == null ? "NaN" : proposalIds.length));
 		java.util.Date reqDate = new java.util.Date();
 		log("Running using baseUrlDEV: " + baseUrlDEV);
@@ -515,1277 +462,312 @@ public class RealExportProducts {
 		if (proposalIds == null) {
 			return null;
 		}
-		System.out.println("OK");
-		java.util.List<String> productos = new java.util.ArrayList<>();
+
 		String proposalId = null;
 		StringBuilder aggregatedMessage = new StringBuilder();
-		java.time.format.DateTimeFormatter fm = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss.SSS")
-				.withZone(java.time.ZoneId.systemDefault());
-		java.time.format.DateTimeFormatter fmP = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss")
-				.withZone(java.time.ZoneId.systemDefault());
+		int batchNumber = 1;
+
 		try {
-
-			/***
-			 * 
-			 * Creación del archivo XML
-			 * 
-			 *********************************/
-			DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-			DocumentBuilder builder = factory.newDocumentBuilder();
-			Document doc = builder.newDocument();
-
-			java.util.LinkedList<org.json.JSONObject> rescataLaRaiz = new java.util.LinkedList<>();
-//			java.util.Map<String, org.json.JSONObject> multisitios = precargaJerarquiasWeb("Sitios Web", rescataLaRaiz);
-			java.util.Map<String, java.util.Map<String, org.json.JSONObject>> globalMap = new java.util.TreeMap<>();
-//			multisitios.forEach((k,v)->globalMap.put(k, multisitios));
-
-			java.util.Map<String, org.json.JSONObject> hierarchyHelper = null;
-			org.json.JSONObject entry = null;
-			org.json.JSONObject entryHelper = null;
-
-			Element spim = doc.createElement("STEP-ProductInformation"); // <STEP-ProductInformation ExportTime="">
-																			// </STEP-ProductInformation>
-
-			System.out.println("Elpis");
-			spim.setAttribute("ExportTime",
-					new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()));
-			spim.setAttribute("ExportContext", "Context2");
-			spim.setAttribute("ContextID", "Context2");
-			spim.setAttribute("WorkspaceID", "Approved");
-			spim.setAttribute("UseContextLocale", "false");
-
-			Element attributes = doc.createElement("AttributeList"); // <AttributeList></AttributeList>
-			spim.appendChild(attributes); // <STEP-ProductInformation ExportTime=""> <AttributeList></AttributeList>
-											// </STEP-ProductInformation>
-
-			Element assets = doc.createElement("Assets"); // <Assets></Assets>
-
-			/******
-			 * Si se aprobó normal, es el mensaje del ejemplo, si se aprueba por
-			 * repoblamiento, se tiene otro.
-			 ********/
-			java.util.Map<String, Element> assetMap = new java.util.TreeMap<>();
-			java.util.Map<String, java.util.LinkedList<String>> assetReferencesMap = new java.util.TreeMap<>();
-			spim.appendChild(assets); // <STEP-ProductInformation ExportTime=""> <AttributeList></AttributeList>
-										// <Assets></Assets> </STEP-ProductInformation>
-
-			Element products = doc.createElement("Products");
-			doc.appendChild(spim);
-			spim.appendChild(products);
-
-			/***************
-			 *
-			 *	
-			 *	
-			 *
-			 *******************/
-			Element classifications = doc.createElement("Classifications");
-			spim.appendChild(classifications);
-
-			Element raizClassification = doc.createElement("Classification");
-			raizClassification.setAttribute("ID", "Classification 1 root");
-			raizClassification.setAttribute("UserTypeID", "Classification 1 user-type root");
-			raizClassification.setAttribute("Selected", "false");
-			Element raizClassificationName = doc.createElement("Name");
-			raizClassificationName.setTextContent("Clasificaciones");
-			raizClassification.appendChild(raizClassificationName);
-			Element webHierarchyRoot = doc.createElement("Classification");
-			webHierarchyRoot.setAttribute("ID", "WebHierarchyRoot");
-			webHierarchyRoot.setAttribute("UserTypeID", "WebHierarchyRoot");
-			webHierarchyRoot.setAttribute("Selected", "false");
-			Element webHierarchyRootName = doc.createElement("Name");
-			webHierarchyRootName.setTextContent("Sitios Web");
-			webHierarchyRoot.appendChild(webHierarchyRootName);
-			raizClassification.appendChild(webHierarchyRoot);
-			classifications.appendChild(raizClassification);
-
+			ExportContext batch = createExportContext();
 			final ArmaConjuntoLookSTEP acl = new ArmaConjuntoLookSTEP(mapaDeAtributosFechas);
-			boolean procede = false;
 			System.out.println("chars added");
+
 			for (int index = 0; index < proposalIds.length; index++) {
+				ExportContext current = createExportContext();
+				Document doc = current.doc;
+				Element spim = current.spim;
+				Element attributes = current.attributes;
+				Element assets = current.assets;
+				Element products = current.products;
+				Element classifications = current.classifications;
+				Element webHierarchyRoot = current.webHierarchyRoot;
+				Element webHierarchyRootName = current.webHierarchyRootName;
+				java.util.Map<String, Element> assetMap = current.assetMap;
+				java.util.Map<String, java.util.LinkedList<String>> assetReferencesMap = current.assetReferencesMap;
+				java.util.Map<String, String> prodToSKU = current.prodToSKU;
+				java.util.Map<String, String> artToSKU = current.artToSKU;
+				java.util.List<String> productos = current.productos;
+				java.util.Set<String> articulosEnviados = current.articulosEnviados;
+				java.util.LinkedList<org.json.JSONObject> rescataLaRaiz = current.rescataLaRaiz;
+				java.util.Map<String, java.util.Map<String, org.json.JSONObject>> globalMap = current.globalMap;
+				org.json.JSONObject reqPublishMessage = current.reqPublishMessage;
+				org.json.JSONObject reqLastApprovedCategories = current.reqLastApprovedCategories;
+				org.json.JSONObject reqAPublishMessage = current.reqAPublishMessage;
+				org.json.JSONObject req = current.req;
+				org.json.JSONObject req2 = current.req2;
+				java.util.Map<String, org.json.JSONObject> hierarchyHelper = null;
+				org.json.JSONObject entry = null;
+				org.json.JSONObject entryHelper = null;
+				boolean procede = false;
 				proposalId = proposalIds[index];
-				java.nio.file.Path p = java.nio.file.Paths
-						.get(PropertiesManager.get("p360.contingency.migration.to_skip_directory"), proposalId);
-				if (java.nio.file.Files.exists(p)) {
-					log("Skipped to be sent since this was reciently migrated --->" + proposalId + "<---");
-					System.out
-							.println("Skipped to be sent since this was reciently migrated --->" + proposalId + "<---");
-					reqPublishMessage.getJSONArray("rows")
-							.put(new org.json.JSONObject()
-									.put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1"))
-									.put("values", new org.json.JSONArray().put(
-											"Registro recién migrado, si persiste, solicitar mantenimiento manual")));
-					java.nio.file.Files.delete(p);
-					continue;
-				}
-				log("--->" + proposalId + "<---");
-				System.out.println("--->" + proposalId + "<---");
-				// talla normalizada hacia ATG debe de salir como TC-NormalizedSize
-				final String[] productsToTestWith = new String[] { proposalId };
-				org.json.JSONObject rp = getMeTheCompa(proposalId);
-				if (rp == null || !rp.getJSONObject("_data").has("_characteristicRecords")) {
-					System.out.println("Returning this " + proposalId + " due to lack of data.");
-					continue;
-				}
-				org.json.JSONArray characteristicArray = rp.getJSONObject("_data")
-						.getJSONArray("_characteristicRecords");
-				String sapObjectType = null;
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("sapObjectType")) {
-					sapObjectType = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("sapObjectType").getString("_code");
-				} else {
-					sapObjectType = getSAPObjectType(characteristicArray);
-				}
-				java.util.Map<String, java.util.LinkedList<org.json.JSONObject>> dataMap = buildDataMap(
-						rp.getJSONObject("_data").getJSONArray("_characteristicRecords"));
-				String business = null;
+				current.currentProposalId = proposalId;
+
 				try {
-					if (rp.getJSONObject("_data").has("business")) {
-						business = rp.getJSONObject("_data").getJSONObject("business").getString("_code");
-					} else {
-						if (dataMap.containsKey("Business")) {
-							business = dataMap.get("Business").getFirst().getJSONArray("_recordLang").getJSONObject(0)
-									.getJSONArray("values").getJSONObject(0).getString("_code");
-						}
-					}
-				} catch (org.json.JSONException e) {
-					logE(e);
-				}
-				java.util.LinkedList<org.json.JSONObject> lst = null;
-				if (sapObjectType != null && "CLK".equals(sapObjectType)) {
-					Element product = acl.handleCLK(proposalId, rp.getJSONObject("_data"), dataMap,
-							webHierarchyRootName, rescataLaRaiz, globalMap, doc, assetMap, assetReferencesMap, assets,
-							attributes, atgGroups, baseUrlDEV);
-					products.appendChild(product);
-					continue;
-				}
-				String template = !rp.getJSONObject("_data").has("structureGroupMap") ? null
-						: getPrimaryProductTaxonomyTemplate(
-								rp.getJSONObject("_data").getJSONArray("structureGroupMap")); // rp.getJSONObject("_data").getJSONArray("structureGroupMap").getJSONObject(0).getJSONObject("_qualification").getJSONObject("structureGroup").getString("_externalId").split("@")[0].replaceAll("^'|'$",
-																								// "");
-				if (template == null) {
-					reqPublishMessage
-							.getJSONArray(
-									"rows")
-							.put(new org.json.JSONObject()
-									.put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1"))
-									.put("values", new org.json.JSONArray().put("Sin plantilla")));
-					log("Skipped due to Sin plantilla");
-					System.out.println("Skipped due to Sin plantilla");
-					continue;
-				}
-				String itemId = rp.getJSONObject("_entityItem").getString("_externalId").split("@")[0]
-						.replaceAll("^'|'$", "");
-				String[] webCategory = getWebCategory(rp.getJSONObject("_data").getJSONArray("structureGroupMap"));
-				String productType = null;
-				String descLong = rp.getJSONObject("_data").has("lang") ? grabDescLong(rp.getJSONObject("_data").getJSONArray("lang")) : null;
-				String descLong2 = rp.getJSONObject("_data").has("lang") ? grabDescLong2(rp.getJSONObject("_data").getJSONArray("lang")) : null;
-				String productName = rp.getJSONObject("_data").has("lang") ? grabProductName(rp.getJSONObject("_data").getJSONArray("lang")) : null;
-				String nameLang = rp.getJSONObject("_data").has("lang") ? grabProductDescriptionShort(rp.getJSONObject("_data").getJSONArray("lang")) : null;
-				String charactName = null;
-
-				String brandName = null;
-				String brandIdS4H = null;
-				String brandNameLabel = null;
-				String brandIdS4HLabel = null;
-				String itemGroup = null;
-				String itemGroupS4H = null;
-				String itemGroupLabel = null;
-				String itemGroupS4HLabel = null;
-				String direccion = null;
-				String direccionLabel = null;
-				String seccion = null;
-				String seccionLabel = null;
-				String supplierPartNumber = null;
-				String supplierID = null;
-				String supplierIDLabel = null;
-				String mainBarCode = null;
-				String sku = null;
-				String embeddedCodeWEB = null;
-				String embeddedCodeWAP = null;
-				String refundPolicy = null;
-				String lastApprovedCategories = null;
-				String clothingSize = null;
-				String sizeVaD = null;
-
-				String piName = null;
-				String piUrl = null;
-				String piKey = null;
-
-				java.util.LinkedList<String[]> details = new java.util.LinkedList<>();
-				java.util.LinkedList<String[]> smoshes = new java.util.LinkedList<>();
-				java.util.LinkedList<String[]> illustrations = new java.util.LinkedList<>();
-
-				String raw = null;
-				String firstVariant = null;
-				org.json.JSONObject imageObject = null;
-				String tamanoUnico = null;
-				String tallaNormalizada = null;
-				String codigoColor = null;
-				String color = null;
-
-				org.json.JSONArray characteristicRecords = null;
-				org.json.JSONArray upperRows = null;
-
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("brandName")) {
-					brandName = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("brandName").getString("_code");
-					brandNameLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("brandName").getString("_label");
-				}
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("brandIdS4H")) {
-					brandIdS4H = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("brandIdS4H").getString("_code");
-					brandIdS4HLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("brandIdS4H").getString("_label");
-				}
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("itemGroup")) {
-					itemGroup = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("itemGroup").getString("_code");
-					itemGroupLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("itemGroup").getString("_label");
-				}
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("itemGroupS4H")) {
-					itemGroupS4H = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("itemGroupS4H").getString("_code");
-					itemGroupS4HLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("itemGroupS4H").getString("_label");
-				}
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("direction")) {
-					direccion = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("direction").getString("_code");
-					direccionLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("direction").getString("_label");
-				}
-				if (rp.getJSONObject("_data").has("productExtraData")
-						&& rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).has("section")) {
-					seccion = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("section").getString("_code");
-					seccionLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("section").getString("_label");
-				}
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("supplierID")) {
-					supplierID = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getJSONObject("supplierID").getString("_code");
-					supplierIDLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getJSONObject("supplierID").getString("_label");
-				}
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("supplierPartNumber")) {
-					supplierPartNumber = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getString("supplierPartNumber");
-				}
-				if (rp.getJSONObject("_data").has("gtin")) {
-					mainBarCode = rp.getJSONObject("_data").getString("gtin");
-				}
-				if (rp.getJSONObject("_data").has("sku")) {
-					sku = String.valueOf(rp.getJSONObject("_data").getLong("sku"));
-				}
-				if (rp.getJSONObject("_data").has("embeddedCodeWEB")) {
-					embeddedCodeWEB = rp.getJSONObject("_data").getString("embeddedCodeWEB");
-				}
-				if (rp.getJSONObject("_data").has("embeddedCodeWAP")) {
-					embeddedCodeWAP = rp.getJSONObject("_data").getString("embeddedCodeWAP");
-				}
-				if (rp.getJSONObject("_data").has("refundPolicy")) {
-					refundPolicy = rp.getJSONObject("_data").getString("refundPolicy");
-				}
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("lastApprovedCategories")) {
-					lastApprovedCategories = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getString("lastApprovedCategories");
-				}
-
-				/***
-				 * 
-				 * Esto es para individual
-				 * 
-				 * 
-				 ****/
-				try {
-					String charId = null;
-					raw = rw.makeRequest("GET", "/list/Article/bySearch" + "?fields="
-							+ java.net.URLEncoder.encode("Article.SupplierAID"
-									+ ",ProductReference.ReferencedSupplierAid(\"" + itemId + "\")" + ",Article.SKU",
-									"UTF-8")
-							+ "&query=" + java.net.URLEncoder.encode("ProductReference.ReferencedSupplierAid(\""
-									+ itemId + "\") equals \"" + itemId + "\"", "UTF-8"),
-							null);
-					org.json.JSONObject resp = new org.json.JSONObject(raw);
-					upperRows = resp.getJSONArray("rows");
-					if ((sku == null || "".equals(sku)) && upperRows.length() == 1) {
-						try {
-							sku = upperRows.getJSONObject(0).getJSONArray("values").getString(2);
-						} catch (org.json.JSONException e) {
-						}
-						firstVariant = null;
-					}
-					productType = "00".equals(sapObjectType) && !"MKP".equals(business) ? "SalesItem"
-							: "00".equals(sapObjectType) && "MKP".equals(business) ? "SalesItemFamilyMkt"
-									: !"00".equals(sapObjectType) && "MKP".equals(business) ? "SalesItemFamilyMkt"
-											: "SalesItemFamily";
-					for (int a = 0; a < upperRows.length(); a++) {
-						try {
-							firstVariant = upperRows.getJSONObject(a).getJSONArray("values").getString(0);
-						} catch (org.json.JSONException e) {
-						}
-						raw = rw.makeRequest("GET", "/object/Article/'" + firstVariant
-								+ "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData",
-								null);
-						resp = new org.json.JSONObject(raw);
-						resp = resp.getJSONObject("_data");
-						if (!resp.has("_characteristicRecords")) {
-							log("No characteristic records for: " + itemId);
-							System.out.println("No characteristic records for: " + itemId);
-							continue;
-						}
-						characteristicRecords = resp.getJSONArray("_characteristicRecords");
-						org.json.JSONArray children = null;
-						String[] chunk = null;
-						for (int b = 0; b < characteristicRecords.length(); b++) {
-							imageObject = characteristicRecords.getJSONObject(b);
-							charId = imageObject.getJSONObject("_qualification").getJSONObject("characteristic")
-									.getString("_code");
-							if (("ProductImage" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-								if (imageObject.has("_children")) {
-									children = imageObject.getJSONArray("_children");
-									piKey = imageObject.getJSONObject("_qualification").getString("recordKey");
-									for (int c = 0; c < children.length(); c++) {
-										charId = children.getJSONObject(c).getJSONObject("_qualification")
-												.getJSONObject("characteristic").getString("_code");
-										if (("ProductImage_Name" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-											piName = children.getJSONObject(c).getJSONArray("_recordLang")
-													.getJSONObject(0).getJSONArray("values").getString(0);
-										} else if (("ProductImage_URL" + (frozenImagesExists ? "2" : ""))
-												.equals(charId)) {
-											piUrl = children.getJSONObject(c).getJSONArray("_recordLang")
-													.getJSONObject(0).getJSONArray("values").getString(0);
-										}
-									}
-								}
-							} else if (("ProductImageDetail" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-								if (imageObject.has("_children")) {
-									children = imageObject.getJSONArray("_children");
-									chunk = new String[3];
-									chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
-									for (int c = 0; c < children.length(); c++) {
-										charId = children.getJSONObject(c).getJSONObject("_qualification")
-												.getJSONObject("characteristic").getString("_code");
-										if (("ProductImageDetail_Name" + (frozenImagesExists ? "2" : ""))
-												.equals(charId)) {
-											chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang")
-													.getJSONObject(0).getJSONArray("values").getString(0);
-										} else if (("ProductImageDetail_URL" + (frozenImagesExists ? "2" : ""))
-												.equals(charId)) {
-											chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang")
-													.getJSONObject(0).getJSONArray("values").getString(0);
-										}
-									}
-									details.addLast(chunk);
-								}
-							} else if (("ProductImageSmosh" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-								if (imageObject.has("_children")) {
-									children = imageObject.getJSONArray("_children");
-									chunk = new String[3];
-									chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
-									for (int c = 0; c < children.length(); c++) {
-										charId = children.getJSONObject(c).getJSONObject("_qualification")
-												.getJSONObject("characteristic").getString("_code");
-										if (("ProductImageSmosh_Name" + (frozenImagesExists ? "2" : ""))
-												.equals(charId)) {
-											chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang")
-													.getJSONObject(0).getJSONArray("values").getString(0);
-										} else if (("ProductImageSmosh_URL" + (frozenImagesExists ? "2" : ""))
-												.equals(charId)) {
-											chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang")
-													.getJSONObject(0).getJSONArray("values").getString(0);
-										}
-									}
-									smoshes.addLast(chunk);
-								}
-							} else if (("Illustration" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-								if (imageObject.has("_children")) {
-									children = imageObject.getJSONArray("_children");
-									chunk = new String[3];
-									chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
-									for (int c = 0; c < children.length(); c++) {
-										charId = children.getJSONObject(c).getJSONObject("_qualification")
-												.getJSONObject("characteristic").getString("_code");
-										if (("Illustration_Name" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-											chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang")
-													.getJSONObject(0).getJSONArray("values").getString(0);
-										} else if (("Illustration_URL" + (frozenImagesExists ? "2" : ""))
-												.equals(charId)) {
-											chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang")
-													.getJSONObject(0).getJSONArray("values").getString(0);
-										}
-									}
-									illustrations.addLast(chunk);
-								}
-							} else if ("SalesItem".equals(productType) && "TamanoUnicoSTD".equals(charId)) {
-								tallaNormalizada = imageObject.getJSONArray("_recordLang").getJSONObject(0)
-										.getJSONArray("values").getString(0);
-							} else if ("SalesItem".equals(productType) && "TamanoUnico".equals(charId)) {
-								tamanoUnico = imageObject.getJSONArray("_recordLang").getJSONObject(0)
-										.getJSONArray("values").getJSONObject(0).getString("_label");
-							} else if ("SalesItem".equals(productType) && "ColoursLiverpoolAtt".equals(charId)) {
-								color = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-										.getJSONObject(0).getString("_label");
-								codigoColor = imageObject.getJSONArray("_recordLang").getJSONObject(0)
-										.getJSONArray("values").getJSONObject(0).getString("_code");
-							}
-						}
-						if (piName != null && piUrl != null) {
-							break;
-						}
-					}
-					if (piName == null || piUrl == null) {
-						log("No tenía imágenes2: " + proposalId);
-						System.out.println("No tenía imágenes2 " + proposalId);
+					java.nio.file.Path p = java.nio.file.Paths
+							.get(PropertiesManager.get("p360.contingency.migration.to_skip_directory"), proposalId);
+					if (java.nio.file.Files.exists(p)) {
+						log("Skipped to be sent since this was reciently migrated --->" + proposalId + "<---");
+						System.out
+								.println("Skipped to be sent since this was reciently migrated --->" + proposalId + "<---");
 						reqPublishMessage.getJSONArray("rows")
 								.put(new org.json.JSONObject()
 										.put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1"))
-										.put("values", new org.json.JSONArray().put("Sin imágenes \"congeladas\"")));
+										.put("values", new org.json.JSONArray().put(
+												"Registro recién migrado, si persiste, solicitar mantenimiento manual")));
+						java.nio.file.Files.delete(p);
 						continue;
 					}
-				} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
-					logE(e);
-				}
-				System.out.println("Sí habían imágenes");
-				characteristicRecords = null;
-				java.util.Set<String> atributosGeneralesQueSi = null;
-				java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas = null;
-				String brandCode = null;
-				propiedadesCaracteristicas = templateMetadataSet.get(template);
-				atributosGeneralesQueSi = templateSets.get(template);
-				if (propiedadesCaracteristicas == null) {
-					propiedadesCaracteristicas = new java.util.TreeMap<>();
-					atributosGeneralesQueSi = new java.util.TreeSet<>();
-					templateSets.put(template, atributosGeneralesQueSi);
-					atributosGeneralesQueSi.addAll(globalSet);
-					templateMetadataSet.put(template, propiedadesCaracteristicas);
-					for (java.util.Map.Entry<String, org.json.JSONObject> globalPropertiesEntry : globalProperties.entrySet()) {
-						propiedadesCaracteristicas.put(globalPropertiesEntry.getKey(), globalPropertiesEntry.getValue());
+					log("--->" + proposalId + "<---");
+					System.out.println("--->" + proposalId + "<---");
+					// talla normalizada hacia ATG debe de salir como TC-NormalizedSize
+					final String[] productsToTestWith = new String[] { proposalId };
+					org.json.JSONObject rp = getMeTheCompa(proposalId);
+					if (rp == null || !rp.getJSONObject("_data").has("_characteristicRecords")) {
+						System.out.println("Returning this " + proposalId + " due to lack of data.");
+						continue;
 					}
-					log("Going to request Propiedades Característicias: ");
-					java.util.Map<String, org.json.JSONObject> propiedadesDePlantilla = dastub.getTemplateCharacteristicProperties(template);
-					propiedadesCaracteristicas.putAll(propiedadesDePlantilla);
-					for (java.util.Map.Entry<String, org.json.JSONObject> entry0 : propiedadesDePlantilla.entrySet()) {
-						org.json.JSONObject propiedades = entry0.getValue();
-						if (propiedades != null && "Y".equals( propiedades.optString("RelevantForATG") )) {
-							atributosGeneralesQueSi.add(entry0.getKey());
-						}
+					org.json.JSONArray characteristicArray = rp.getJSONObject("_data")
+							.getJSONArray("_characteristicRecords");
+					String sapObjectType = null;
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("sapObjectType")) {
+						sapObjectType = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("sapObjectType").getString("_code");
+					} else {
+						sapObjectType = getSAPObjectType(characteristicArray);
 					}
-					templateStructureGroupAttributeValues.put(template, dastub.getTemplateStructureGroupAttributeValues(template,10));
-				}
-				Element product = null;
-
-				product = doc.createElement("Product"); // <Product></Product>
-				product.setAttribute("ID", productsToTestWith[0]);
-				product.setAttribute("UserTypeID", productType);
-				product.setAttribute("ParentID", template);
-				product.setAttribute("Changed", "true");
-				productos.add(proposalId);
-				/*********************
-				 * El atributo en las entidades Changed="true", tiene el efecto de que broker
-				 * ignorda todo lo que no tenga Changed="true".
-				 ****************************************************************/
-				Element name = doc.createElement("Name");
-				name.setAttribute("Changed", "true");
-				product.appendChild(name);
-
-				Element keyValueSKU = null;
-				Element keyValueEAN = null;
-
-				Element attributeValues = null;
-
-				String charId = null;
-				org.json.JSONObject characteristic = null;
-
-				boolean behvo = false;
-				String almacenamientoAtt = null;
-				String skuType = null;
-				String mtart = null;
-
-				String pt = null;
-				String ptl = null;
-
-				Element helperElement = null;
-				Element prevHelperElement = null;
-				java.util.Map<String, Element> tableroDeControl = new java.util.TreeMap<>();
-				if (webCategory != null) {
-					if (lastApprovedCategories != null && !"".equals(lastApprovedCategories) && webCategory.length > 0) {
-						java.util.List<String> refCats = java.util.Arrays.asList(lastApprovedCategories.split(","));
-						java.util.List<String> webCatList = java.util.Arrays.asList(webCategory);
-						for (String refCat : refCats) {
-							if (!webCatList.contains(refCat)) {
-								Element classificationReference = null;
-								classificationReference = doc.createElement("DeleteClassificationReference");
-								classificationReference.setAttribute("ClassificationID", refCat);
-								classificationReference.setAttribute("Type", "WebsiteLink");
-								product.appendChild(classificationReference);
-							}
-						}
-					}
-					StringBuilder sb = new StringBuilder();
-					for (String element : webCategory) {
-						sb.append(sb.length() == 0 ? "" : ",").append(element);
-						hierarchyHelper = globalMap.get(element);
-						if (hierarchyHelper != null) {
-							entry = hierarchyHelper.get(element);
-							entryHelper = entry;
-							helperElement = pacheleWeb(entryHelper, doc);
-							if (!tableroDeControl.containsKey(entryHelper.getString("identifier"))) {
-								tableroDeControl.put(entryHelper.getString("identifier"), helperElement);
-							}
-							while (entryHelper.has("parentIdentifier")
-									&& !"".equals(entryHelper.get("parentIdentifier"))
-									&& !tableroDeControl.containsKey(entryHelper.getString("parentIdentifier"))) {
-								prevHelperElement = helperElement;
-								entryHelper = hierarchyHelper.get(entryHelper.getString("parentIdentifier"));
-								helperElement = pacheleWeb(entryHelper, doc);
-								if (helperElement == null) {
-									log("PANIC: No element could be made from: " + entryHelper);
-									break;
-								}
-								helperElement.appendChild(prevHelperElement);
-								tableroDeControl.put(entryHelper.getString("identifier"), helperElement);
-							}
+					java.util.Map<String, java.util.LinkedList<org.json.JSONObject>> dataMap = buildDataMap(
+							rp.getJSONObject("_data").getJSONArray("_characteristicRecords"));
+					String business = null;
+					try {
+						if (rp.getJSONObject("_data").has("business")) {
+							business = rp.getJSONObject("_data").getJSONObject("business").getString("_code");
 						} else {
-							log("Category not found... " + element);
+							if (dataMap.containsKey("Business")) {
+								business = dataMap.get("Business").getFirst().getJSONArray("_recordLang").getJSONObject(0)
+										.getJSONArray("values").getJSONObject(0).getString("_code");
+							}
 						}
-						Element classificationReference = null;
-						classificationReference = doc.createElement("ClassificationReference");
-						classificationReference.setAttribute("ClassificationID", element);
-						classificationReference.setAttribute("Type", "WebsiteLink");
-						classificationReference.setAttribute("Changed", "true");
-						product.appendChild(classificationReference);
+					} catch (org.json.JSONException e) {
+						logE(e);
 					}
-					if (sendIt)
-						reqLastApprovedCategories
+					java.util.LinkedList<org.json.JSONObject> lst = null;
+					if (sapObjectType != null && "CLK".equals(sapObjectType)) {
+						Element product = acl.handleCLK(proposalId, rp.getJSONObject("_data"), dataMap,
+								webHierarchyRootName, rescataLaRaiz, globalMap, doc, assetMap, assetReferencesMap, assets,
+								attributes, atgGroups, baseUrlDEV);
+						products.appendChild(product);
+						continue;
+					}
+					String template = !rp.getJSONObject("_data").has("structureGroupMap") ? null
+							: getPrimaryProductTaxonomyTemplate(
+									rp.getJSONObject("_data").getJSONArray("structureGroupMap")); // rp.getJSONObject("_data").getJSONArray("structureGroupMap").getJSONObject(0).getJSONObject("_qualification").getJSONObject("structureGroup").getString("_externalId").split("@")[0].replaceAll("^'|'$",
+																									// "");
+					if (template == null) {
+						reqPublishMessage
 								.getJSONArray(
 										"rows")
 								.put(new org.json.JSONObject()
 										.put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1"))
-										.put("values", new org.json.JSONArray().put(sb.toString())));
-				}
-
-				for (org.json.JSONObject laRaiz : rescataLaRaiz) {
-					helperElement = tableroDeControl.get(laRaiz.getString("identifier"));
-					if (helperElement != null) {
-						webHierarchyRoot.appendChild(helperElement);
-					}
-				}
-
-				java.util.ArrayList<String> unosQueQuiero = new java.util.ArrayList<>(YEA);
-				java.util.Map<String, org.json.JSONObject> heredables = new java.util.TreeMap<>();
-
-				attributeValues = doc.createElement("Values");
-				product.appendChild(attributeValues);
-				if ("SalesItem".equals(productType) && piName != null && piUrl != null && piKey != null) {
-					appendMediaAsset(piName, piUrl, "PrimaryProductImage", // String assetType,
-							piKey, "Imagen Producto", // String assetValueTextContent,
-							"ImageURL", // String assetValueAttributeId,
-							"ProductImage", // String assetUserTypeId,
-							"ProductImage", // String assetKeyPrefix,
-							itemId, characteristic, "ProductImage", // String baseAssetTypeName,
-							assetMap, assetReferencesMap, product, assets, doc, firstVariant);
-				}
-				if ("SalesItem".equals(productType) && details != null && !details.isEmpty()) {
-					for (String[] dt : details) {
-						appendMediaAsset(dt[0], dt[1], "ProductImage", // String assetType,
-								dt[2], "Imagen Detalle Producto", // String assetValueTextContent,
-								"ImageURL", // String assetValueAttributeId,
-								"ProductImageDetail", // String assetUserTypeId,
-								"ProductImageDetail", // String assetKeyPrefix,
-								itemId, characteristic, "ProductImageDetail", // String baseAssetTypeName,
-								assetMap, assetReferencesMap, product, assets, doc, firstVariant);
-					}
-				}
-				if ("SalesItem".equals(productType) && smoshes != null && !smoshes.isEmpty()) {
-					for (String[] dt : smoshes) {
-						appendMediaAsset(dt[0], dt[1], "ProductImageSmosh", // String assetType,
-								dt[2], "Imagen Smosh Producto", // String assetValueTextContent,
-								"ImageURL", // String assetValueAttributeId,
-								"ProductImageSmosh", // String assetUserTypeId,
-								"SmoshImg", // String assetKeyPrefix,
-								itemId, characteristic, "ProductImageDetail", // String baseAssetTypeName,
-								assetMap, assetReferencesMap, product, assets, doc, firstVariant);
-					}
-				}
-				if ("SalesItem".equals(productType) && illustrations != null && !illustrations.isEmpty()) {
-					for (String[] dt : illustrations) {
-						appendMediaAsset(dt[0], dt[1], "Illustration", // String assetType,
-								dt[2], "Imagen Isométrica del Producto", // String assetValueTextContent,
-								"ImageURL", // String assetValueAttributeId,
-								"Illustration", // String assetUserTypeId,
-								"Illustration", // String assetKeyPrefix,
-								itemId, characteristic, "Illustration", // String baseAssetTypeName,
-								assetMap, assetReferencesMap, product, assets, doc, firstVariant);
-					}
-				}
-				if ("SalesItem".equals(productType) && tallaNormalizada != null && !"".equals(tallaNormalizada)) {
-					appendPlainElementValue(tallaNormalizada, null, "TC-NormalizedSize", attributeValues, attributes,
-							doc, propiedadesCaracteristicas, atgGroups);
-				}
-				if ("SalesItem".equals(productType) && color != null && !"".equals(color)) {
-					appendPlainElementValue(color, codigoColor, "ColoursLiverpoolAtt", attributeValues, attributes, doc,
-							propiedadesCaracteristicas, atgGroups);
-				}
-
-//				String rr = null;
-//				try {
-//					rr = rc.getRequest("GET", baseUrlDEV + "/object/StructureGroup/'" + template
-//							+ "'@'PrimaryProductTaxonomy'?entityFilter=StructureGroupAttribute", null);
-//					org.json.JSONObject tratando = new org.json.JSONObject(rr);
-//					org.json.JSONArray attributeRow = tratando.getJSONObject("_data").has("attribute")
-//							? tratando.getJSONObject("_data").getJSONArray("attribute")
-//							: new org.json.JSONArray();
-//					for (int a = 0; a < attributeRow.length(); a++) {
-//						if ("DisplayGroupOrder".equals(attributeRow.getJSONObject(a).getJSONObject("_qualification")
-//								.getString("nameInKeyLang"))) {
-//							try {
-//								String val = attributeRow.getJSONObject(a).getJSONArray("value").getJSONObject(0)
-//										.getString("value");
-//								appendPlainElementValue(val, null,
-//										attributeRow.getJSONObject(a).getJSONObject("_qualification")
-//												.getString("nameInKeyLang"),
-//										attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-//							} catch (org.json.JSONException ex) {
-//								log("No DisplayOrder could be retrieved: " + attributeRow.getJSONObject(a));
-//							}
-//						} else if ("DisplayOrder".equals(attributeRow.getJSONObject(a).getJSONObject("_qualification")
-//								.getString("nameInKeyLang"))) {
-//							try {
-//								String val = attributeRow.getJSONObject(a).getJSONArray("value").getJSONObject(0)
-//										.getString("value");
-//								appendPlainElementValue(val, null,
-//										attributeRow.getJSONObject(a).getJSONObject("_qualification")
-//												.getString("nameInKeyLang"),
-//										attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-//							} catch (org.json.JSONException ex) {
-//								log("No DisplayOrder could be retrieved: " + attributeRow.getJSONObject(a));
-//							}
-//						} else if ("ConfigurableOrder".equals(attributeRow.getJSONObject(a)
-//								.getJSONObject("_qualification").getString("nameInKeyLang"))) {
-//							try {
-//								String val = attributeRow.getJSONObject(a).getJSONArray("value").getJSONObject(0)
-//										.getString("value");
-//								appendPlainElementValue(val, null,
-//										attributeRow.getJSONObject(a).getJSONObject("_qualification")
-//												.getString("nameInKeyLang"),
-//										attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-//							} catch (org.json.JSONException ex) {
-//								log("No DisplayOrder could be retrieved: " + attributeRow.getJSONObject(a));
-//							}
-//						}
-//					}
-//				} catch (IOException e) {
-//					logE(e);
-//				}
-
-				java.util.Map<String, String>
-				structureGroupAttributeValues =
-						templateStructureGroupAttributeValues.get(
-								template);
-
-				if (structureGroupAttributeValues == null) {
-					structureGroupAttributeValues = dastub.getTemplateStructureGroupAttributeValues(template, 10);
-					templateStructureGroupAttributeValues.put(template, structureGroupAttributeValues);
-				}
-		
-				String[] structureGroupAttributeNames = new String[] {
-							"DisplayGroupOrder",
-							"DisplayOrder",
-							"ConfigurableOrder"
-						};
-		
-				for (String attributeName : structureGroupAttributeNames) {
-					if (!structureGroupAttributeValues.containsKey(attributeName)) {
+										.put("values", new org.json.JSONArray().put("Sin plantilla")));
+						log("Skipped due to Sin plantilla");
+						System.out.println("Skipped due to Sin plantilla");
 						continue;
 					}
-					appendPlainElementValue(
-							structureGroupAttributeValues.get(attributeName),
-							null,
-							attributeName,
-							attributeValues,
-							attributes,
-							doc,
-							propiedadesCaracteristicas,
-							atgGroups);
-				}
-				
-				if (descLong != null) {
-					appendPlainElementValue(descLong, null, "DescriptionLong", attributeValues, attributes, doc,
-							propiedadesCaracteristicas, atgGroups);
-				}
-				if (descLong2 != null) {
-					appendPlainElementValue(descLong2, null, "DescriptionLong2", attributeValues, attributes, doc,
-							propiedadesCaracteristicas, atgGroups);
-				}
-
-				if (business != null) {
-					if ("MKP".equals(business)) {
-						appendPlainElementValue("true", "1", "isMarketPlace", attributeValues, attributes, doc,
-								propiedadesCaracteristicas, atgGroups);
+					String itemId = rp.getJSONObject("_entityItem").getString("_externalId").split("@")[0]
+							.replaceAll("^'|'$", "");
+					String[] webCategory = getWebCategory(rp.getJSONObject("_data").getJSONArray("structureGroupMap")); // new
+																														// String[]
+																														// {"cat1240607"};
+					String productType = null;
+					String descLong = rp.getJSONObject("_data").has("lang")
+							? grabDescLong(rp.getJSONObject("_data").getJSONArray("lang"))
+							: null;
+					String descLong2 = rp.getJSONObject("_data").has("lang")
+							? grabDescLong2(rp.getJSONObject("_data").getJSONArray("lang"))
+							: null;
+					String productName = rp.getJSONObject("_data").has("lang")
+							? grabProductName(rp.getJSONObject("_data").getJSONArray("lang"))
+							: null;
+					String nameLang = rp.getJSONObject("_data").has("lang")
+							? grabProductDescriptionShort(rp.getJSONObject("_data").getJSONArray("lang"))
+							: null;
+					String charactName = null;
+	
+					String brandName = null;
+					String brandIdS4H = null;
+					String brandNameLabel = null;
+					String brandIdS4HLabel = null;
+					String itemGroup = null;
+					String itemGroupS4H = null;
+					String itemGroupLabel = null;
+					String itemGroupS4HLabel = null;
+					String direccion = null;
+					String direccionLabel = null;
+					String seccion = null;
+					String seccionLabel = null;
+					String supplierPartNumber = null;
+					String supplierID = null;
+					String supplierIDLabel = null;
+					String mainBarCode = null;
+					String sku = null;
+					String embeddedCodeWEB = null;
+					String embeddedCodeWAP = null;
+					String refundPolicy = null;
+					String lastApprovedCategories = null;
+					String clothingSize = null;
+					String sizeVaD = null;
+	
+					String piName = null;
+					String piUrl = null;
+					String piKey = null;
+	
+					java.util.LinkedList<String[]> details = new java.util.LinkedList<>();
+					java.util.LinkedList<String[]> smoshes = new java.util.LinkedList<>();
+					java.util.LinkedList<String[]> illustrations = new java.util.LinkedList<>();
+	
+					String raw = null;
+					String firstVariant = null;
+					org.json.JSONObject imageObject = null;
+					String tamanoUnico = null;
+					String tallaNormalizada = null;
+					String codigoColor = null;
+					String color = null;
+	
+					org.json.JSONArray characteristicRecords = null;
+					org.json.JSONArray upperRows = null;
+	
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("brandName")) {
+						brandName = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("brandName").getString("_code");
+						brandNameLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("brandName").getString("_label");
 					}
-				}
-				for (int i = 0; i < characteristicArray.length(); i++) {
-					characteristic = characteristicArray.getJSONObject(i);
-					charId = characteristic.getJSONObject("_qualification").getJSONObject("characteristic")
-							.getString("_code");
-					if("clothingSize".equals(charId)) {
-						clothingSize = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-					}else if("sizeVaD".equals(charId)) {
-						sizeVaD = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("brandIdS4H")) {
+						brandIdS4H = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("brandIdS4H").getString("_code");
+						brandIdS4HLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("brandIdS4H").getString("_label");
 					}
-					if ("Business".equals(charId)) {
-						if (business == null || "".equals(business)) {
-							business = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-						}
-					} else if ("Direction".equals(charId)) {
-						direccion = direccion == null || "".equals(direccion)
-								? characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-										.getJSONObject(0).getString("_code")
-								: direccion;
-					} else if ("MainBarCode".equals(charId) || "MainBarCodeS4H".equals(charId)) {
-						String eanval = (treatment(characteristic.getJSONArray("_recordLang").getJSONObject(0)
-								.getJSONArray("values").getString(0)));
-						if ((mainBarCode == null || "".equals(mainBarCode)) && !"".equals(eanval)) {
-							mainBarCode = eanval;
-						}
-					} else if ("SupplierPartNumber".equals(charId)) {
-						supplierPartNumber = supplierPartNumber != null && !"".equals(supplierPartNumber)
-								? supplierPartNumber
-								: characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-										.getString(0);
-					} else if ("SupplierID".equals(charId)) {
-						supplierID = supplierID != null && !"".equals(supplierID) ? supplierID : characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-					} else if ("SKU".equals(charId)) {
-						String skuval = treatment(characteristic.getJSONArray("_recordLang").getJSONObject(0)
-								.getJSONArray("values").getString(0));
-						if ((sku == null || "".equals(sku)) && !"".equals(skuval)) {
-							sku = skuval;
-						} else {
-							System.out.println("No change on it. (sku)");
-						}
-					} else if ("ProductVideo2".equals(charId)) {
-						if (characteristic.has("_children")) {
-							org.json.JSONArray children = characteristic.getJSONArray("_children");
-							String[] chunk = new String[3];
-							chunk[2] = characteristic.getJSONObject("_qualification").getString("recordKey");
-							for (int c = 0; c < children.length(); c++) {
-								charId = children.getJSONObject(c).getJSONObject("_qualification")
-										.getJSONObject("characteristic").getString("_code");
-								if (("ProductVideo_Name" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-									chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getString(0);
-								} else if (("ProductVideo_URL" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-									chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getString(0);
-								}
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("itemGroup")) {
+						itemGroup = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("itemGroup").getString("_code");
+						itemGroupLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("itemGroup").getString("_label");
+					}
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("itemGroupS4H")) {
+						itemGroupS4H = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("itemGroupS4H").getString("_code");
+						itemGroupS4HLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("itemGroupS4H").getString("_label");
+					}
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("direction")) {
+						direccion = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("direction").getString("_code");
+						direccionLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("direction").getString("_label");
+					}
+					if (rp.getJSONObject("_data").has("productExtraData")
+							&& rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).has("section")) {
+						seccion = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("section").getString("_code");
+						seccionLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("section").getString("_label");
+					}
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("supplierID")) {
+						supplierID = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getJSONObject("supplierID").getString("_code");
+						supplierIDLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getJSONObject("supplierID").getString("_label");
+					}
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("supplierPartNumber")) {
+						supplierPartNumber = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getString("supplierPartNumber");
+					}
+					if (rp.getJSONObject("_data").has("gtin")) {
+						mainBarCode = rp.getJSONObject("_data").getString("gtin");
+					}
+					if (rp.getJSONObject("_data").has("sku")) {
+						sku = String.valueOf(rp.getJSONObject("_data").getLong("sku"));
+					}
+					if (rp.getJSONObject("_data").has("embeddedCodeWEB")) {
+						embeddedCodeWEB = rp.getJSONObject("_data").getString("embeddedCodeWEB");
+					}
+					if (rp.getJSONObject("_data").has("embeddedCodeWAP")) {
+						embeddedCodeWAP = rp.getJSONObject("_data").getString("embeddedCodeWAP");
+					}
+					if (rp.getJSONObject("_data").has("refundPolicy")) {
+						refundPolicy = rp.getJSONObject("_data").getString("refundPolicy");
+					}
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("lastApprovedCategories")) {
+						lastApprovedCategories = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getString("lastApprovedCategories");
+					}
+	
+					/***
+					 * 
+					 * Esto es para individual
+					 * 
+					 * 
+					 ****/
+					try {
+						String charId = null;
+						raw = rw.makeRequest("GET", "/list/Article/bySearch" + "?fields="
+								+ java.net.URLEncoder.encode("Article.SupplierAID"
+										+ ",ProductReference.ReferencedSupplierAid(\"" + itemId + "\")" + ",Article.SKU",
+										"UTF-8")
+								+ "&query=" + java.net.URLEncoder.encode("ProductReference.ReferencedSupplierAid(\""
+										+ itemId + "\") equals \"" + itemId + "\"", "UTF-8"),
+								null);
+						org.json.JSONObject resp = new org.json.JSONObject(raw);
+						upperRows = resp.getJSONArray("rows");
+						if ((sku == null || "".equals(sku)) && upperRows.length() == 1) {
+							try {
+								sku = upperRows.getJSONObject(0).getJSONArray("values").getString(2);
+							} catch (org.json.JSONException e) {
 							}
-							appendPlainElementValue(chunk[1], null, "Video", attributeValues, attributes, doc,
-									propiedadesCaracteristicas, atgGroups);
+							firstVariant = null;
 						}
-					} else if ("OwnersManual2".equals(charId)) {
-						if (characteristic.has("_children")) {
-							org.json.JSONArray children = characteristic.getJSONArray("_children");
-							String[] chunk = new String[3];
-							chunk[2] = characteristic.getJSONObject("_qualification").getString("recordKey");
-							for (int c = 0; c < children.length(); c++) {
-								charId = children.getJSONObject(c).getJSONObject("_qualification")
-										.getJSONObject("characteristic").getString("_code");
-								if (("OwnersManual_Name" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-									chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getString(0);
-								} else if (("OwnersManual_URL" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-									chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getString(0);
-								}
+						productType = "00".equals(sapObjectType) && !"MKP".equals(business) ? "SalesItem"
+								: "00".equals(sapObjectType) && "MKP".equals(business) ? "SalesItemFamilyMkt"
+										: !"00".equals(sapObjectType) && "MKP".equals(business) ? "SalesItemFamilyMkt"
+												: "SalesItemFamily";
+						for (int a = 0; a < upperRows.length(); a++) {
+							try {
+								firstVariant = upperRows.getJSONObject(a).getJSONArray("values").getString(0);
+							} catch (org.json.JSONException e) {
 							}
-							appendMediaAsset(chunk[0], chunk[1], "OwnersManual", // String assetType,
-									chunk[2], "Manual de Propietario", // String assetValueTextContent,
-									"ImageURL", // String assetValueAttributeId,
-									"OwnersManual", // String assetUserTypeId,
-									"OwnersManual", // String assetKeyPrefix,
-									itemId, characteristic, "OwnersManual", // String baseAssetTypeName,
-									assetMap, assetReferencesMap, product, assets, doc, productsToTestWith[0]);
-						}
-					} else if ("NOM2".equals(charId)) {
-						if (characteristic.has("_children")) {
-							org.json.JSONArray children = characteristic.getJSONArray("_children");
-							String[] chunk = new String[3];
-							chunk[2] = characteristic.getJSONObject("_qualification").getString("recordKey");
-							for (int c = 0; c < children.length(); c++) {
-								charId = children.getJSONObject(c).getJSONObject("_qualification")
-										.getJSONObject("characteristic").getString("_code");
-								if (("NOM_Name" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-									chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getString(0);
-								} else if (("NOM_URL" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-									chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getString(0);
-								}
-							}
-							appendMediaAsset(chunk[0], chunk[1], "NOM", // String assetType,
-									chunk[2], "NOM", // String assetValueTextContent,
-									"ImageURL", // String assetValueAttributeId,
-									"NOM", // String assetUserTypeId,
-									"NOM", // String assetKeyPrefix,
-									itemId, characteristic, "OwnersManual", // String baseAssetTypeName,
-									assetMap, assetReferencesMap, product, assets, doc, productsToTestWith[0]);
-						}
-					} else {
-						if ("ProductName".equals(charId)) {
-							productName = productName != null && !"".equals(productName) ? productName
-									: (productName = characteristic.getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getString(0));
-						} else if ("Name".equals(charId)) {
-							charactName = characteristic.getJSONArray("_recordLang").getJSONObject(0)
-									.getJSONArray("values").getString(0);
-						} else if ("ItemGroupS4H".equals(charId) || "ItemGroup".equals(charId)) {
-							if ("ItemGroupS4H".equals(charId)) {
-								itemGroupS4H = itemGroupS4H == null || "".equals(itemGroupS4H)
-										? characteristic.getJSONArray("_recordLang").getJSONObject(0)
-												.getJSONArray("values").getJSONObject(0).getString("_code")
-										: itemGroupS4H;
-								itemGroupS4HLabel = itemGroupS4HLabel == null || "".equals(itemGroupS4HLabel)
-										? characteristic.getJSONArray("_recordLang").getJSONObject(0)
-												.getJSONArray("values").getJSONObject(0).getString("_label")
-										: itemGroupS4HLabel;
-							} else if ("ItemGroup".equals(charId)) {
-								itemGroup = itemGroup == null || "".equals(itemGroup)
-										? characteristic.getJSONArray("_recordLang").getJSONObject(0)
-												.getJSONArray("values").getJSONObject(0).getString("_code")
-										: itemGroup;
-								itemGroupLabel = itemGroupLabel == null || "".equals(itemGroupLabel)
-										? characteristic.getJSONArray("_recordLang").getJSONObject(0)
-												.getJSONArray("values").getJSONObject(0).getString("_label")
-										: itemGroupLabel;
-							}
-						} else if ("BrandName".equals(charId) || "BRAND_ID_S4H".equals(charId)) {
-							brandName = brandName == null || "".equals(brandName)
-									? characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-											.getJSONObject(0).getString("_code")
-									: brandName;
-							brandNameLabel = brandNameLabel == null || "".equals(brandNameLabel)
-									? characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-											.getJSONObject(0).getString("_label")
-									: brandNameLabel;
-						} else if ("ProductType".equals(charId)) {
-							pt = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-									.getJSONObject(0).getString("_code");
-							ptl = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-									.getJSONObject(0).getString("_label");
-							if ("1".equals(pt)) {
-								lst = dataMap.get("ItemGroupS4H");
-								if (lst != null) {
-									itemGroupS4H = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getJSONObject(0).getString("_code");
-								}
-								lst = dataMap.get("AlmacenamientoAtt");
-								if (lst != null) {
-									almacenamientoAtt = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getJSONObject(0).getString("_code");
-								}
-								lst = dataMap.get("MTART_S4H");
-								if (lst != null) {
-									mtart = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getJSONObject(0).getString("_code");
-								}
-								lst = dataMap.get("SkuType");
-								if (lst != null) {
-									skuType = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getJSONObject(0).getString("_code");
-								}
-								if ("SERV".equals(skuType) && "0001".equals(almacenamientoAtt)) {
-									pt = "6";
-									ptl = "Digital";
-									appendPlainElementValue("Digital", pt, "ProductType", attributeValues, attributes,
-											doc, propiedadesCaracteristicas, atgGroups);
-								} else if ("DIEN".equals(mtart) && "SB87516".equals(itemGroupS4H)) {
-									pt = "6";
-									ptl = "Digital";
-									appendPlainElementValue("Digital", pt, "ProductType", attributeValues, attributes,
-											doc, propiedadesCaracteristicas, atgGroups);
-
-								} else {
-									appendPlainElementValue(
-											characteristic.getJSONArray("_recordLang").getJSONObject(0)
-													.getJSONArray("values").getJSONObject(0).getString("_label"),
-											characteristic.getJSONArray("_recordLang").getJSONObject(0)
-													.getJSONArray("values").getJSONObject(0).getString("_code"),
-											"ProductType", attributeValues, attributes, doc, propiedadesCaracteristicas,
-											atgGroups);
-								}
-							} else {
-								appendPlainElementValue(
-										characteristic.getJSONArray("_recordLang").getJSONObject(0)
-												.getJSONArray("values").getJSONObject(0).getString("_label"),
-										characteristic.getJSONArray("_recordLang").getJSONObject(0)
-												.getJSONArray("values").getJSONObject(0).getString("_code"),
-										"ProductType", attributeValues, attributes, doc, propiedadesCaracteristicas,
-										atgGroups);
-							}
-						} else {
-							if ("ItemGroup2".equals(charId)) {
-								continue;
-							} else {
-								if (atributosGeneralesQueSi.contains(charId)) {
-									if ("Section".equals(charId) && (seccion == null || "".equals(seccion))) {
-										appendPlainElementValue(
-												characteristic.getJSONArray("_recordLang").getJSONObject(0)
-														.getJSONArray("values").getJSONObject(0).getString("_label"),
-												characteristic.getJSONArray("_recordLang").getJSONObject(0)
-														.getJSONArray("values").getJSONObject(0).getString("_code"),
-												"Section", attributeValues, attributes, doc, propiedadesCaracteristicas,
-												atgGroups);
-									} else if ("Direction".equals(charId)
-											&& (direccion == null || "".equals(direccion))) {
-										appendPlainElementValue(
-												characteristic.getJSONArray("_recordLang").getJSONObject(0)
-														.getJSONArray("values").getJSONObject(0).getString("_label"),
-												characteristic.getJSONArray("_recordLang").getJSONObject(0)
-														.getJSONArray("values").getJSONObject(0).getString("_code"),
-												"Direction", attributeValues, attributes, doc,
-												propiedadesCaracteristicas, atgGroups);
-									} else {
-										if (unosQueQuiero.contains(charId)) {
-											heredables.put(charId, characteristic);
-										}
-										if ("LOOKUP".equals(characteristic.getString("_datatype"))) {
-											boolean skip = false;
-											if("Direction".equals(charId) && direccion != null && !"".equals(direccion)) {
-												skip = true;
-											}
-											if("Section".equals(charId) && seccion != null && !"".equals(seccion)) {
-												skip = true;
-											}
-											if("ItemGroup".equals(charId) && itemGroup != null && !"".equals(itemGroup)) {
-												skip = true;
-											}
-											if("ItemGroupS4H".equals(charId) && itemGroupS4H != null && !"".equals(itemGroupS4H)) {
-												skip = true;
-											}
-											if("BrandName".equals(charId) && brandName != null && !"".equals(brandName)) {
-												skip = true;
-											}
-											if("BRAND_ID_S4H".equals(charId) && brandIdS4H != null && !"".equals(brandIdS4H)) {
-												skip = true;
-											}
-											if(!skip) {
-												appendPlainElementValue(
-														characteristic.getJSONArray("_recordLang").getJSONObject(0)
-																.getJSONArray("values").getJSONObject(0)
-																.getString("_label"),
-														characteristic.getJSONArray("_recordLang").getJSONObject(0)
-																.getJSONArray("values").getJSONObject(0).getString("_code"),
-														charId, attributeValues, attributes, doc,
-														propiedadesCaracteristicas, atgGroups);
-											}
-										} else if (!"NONE".equals(characteristic.getString("_datatype"))) {
-											boolean skip = false;
-											if("SupplierPartNumber".equals(charId) && supplierPartNumber != null && !"".equals(supplierPartNumber)) {
-												skip = true;
-											}
-											if("SupplierID".equals(charId) && supplierID != null && !"".equals(supplierID)) {
-												skip = true;
-											}
-											if(!skip) {
-												java.util.LinkedList<String> vals = new java.util.LinkedList<>();
-												for (int m = 0; m < characteristic.getJSONArray("_recordLang")
-														.getJSONObject(0).getJSONArray("values").length(); m++) {
-													vals.addLast(
-															String.valueOf(parseDateForSpecificDateFields(
-																	characteristic.getJSONArray("_recordLang")
-																			.getJSONObject(0).getJSONArray("values").get(m),
-																	charId)));
-												}
-												appendPlainElementValue(String.join(",", vals), null, charId,
-														attributeValues, attributes, doc, propiedadesCaracteristicas,
-														atgGroups);
-											}
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-				if (embeddedCodeWEB != null && !"".equals(embeddedCodeWEB)) {
-					appendPlainElementValue(embeddedCodeWEB, null, "EmbedCodeWEB", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-				}
-				if (embeddedCodeWAP != null && !"".equals(embeddedCodeWAP)) {
-					appendPlainElementValue(embeddedCodeWAP, null, "EmbedCodeWAP", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-				}
-				if (refundPolicy != null && !"".equals(refundPolicy)) {
-					appendPlainElementValue(refundPolicy, null, "refundPolicy", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-				}
-				if (seccion != null && !"".equals(seccion)) {
-					appendPlainElementValue(seccionLabel, seccion, "Section", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-				}
-				if (direccion != null && !"".equals(direccion)) {
-					appendPlainElementValue(direccionLabel, direccion, "Direction", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-				}
-				if (supplierPartNumber != null && !"".equals(supplierPartNumber)) {
-					appendPlainElementValue(supplierPartNumber, "", "SupplierPartNumber", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-				}
-				if (supplierID != null && !"".equals(supplierID)) {
-					appendPlainElementValue(supplierIDLabel, supplierID, "SupplierID", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-				}
-
-				if (!behvo) {
-					String elese = "SBB".equals(business) ? itemGroupS4H : itemGroup; // characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-//					try {
-//						rawResponse = rw.makeRequest("GET",
-//								"/list/StandardizationValue/bySearch" + "?dictionaryProxy=" + encode(
-//										"'" + (!"SBB".equals(business) ? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H") + "'")
-//										+ "&query=" + encode("StandardizationValue.Value equals \"" + elese + "\"")
-//										+ "&fields=" + encode("StandardizationValue.AlternativeValue") + "",
-//								null);
-//						response = new org.json.JSONObject(rawResponse);
-//						characteristicRecords = response.getJSONArray("rows");
-//						log("Querying dictionary: "
-//								+ (!"SBB".equals(business) ? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H"));
-					String laetiqueta = queryDictionary(elese, (!"SBB".equals(business) ? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H"));
-//						if (characteristicRecords.length() > 0) {
-//							rawResponse = rw.makeRequest("GET",
-//									"/list/LookupValue/bySearch" + "?lookup=" + encode("SAP_BEHVOLOV") + "&query="
-//											+ encode("LookupValueLang.Name(es) equals \"" + laetiqueta + "\"")
-//											+ "&fields=" + encode("LookupValue.Code") + "",
-//									null);
-//							response = new org.json.JSONObject(rawResponse);
-//							characteristicRecords = response.getJSONArray("rows");
-//							if (characteristicRecords.length() > 0) {
-//								String elcode = characteristicRecords.getJSONObject(0).getJSONArray("values").getString(0);
-					String elcode = dastub.getLookupValueCodeByName("SAP_BEHVOLOV", 10, laetiqueta, true);
-					appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-					behvo = true;
-//							}
-//						}
-//					} catch (java.io.IOException | KeyManagementException | NoSuchAlgorithmException | URISyntaxException e) {
-//						logE(e);
-//					}
-				}
-				appendPlainElementValue(itemGroup != null && !"".equals(itemGroup) ? itemGroupLabel : itemGroupS4HLabel,
-						itemGroup != null && !"".equals(itemGroup) ? itemGroup : itemGroupS4H, "ItemGroup2",
-						attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-				appendPlainElementValue(!"SBB".equals(business) ? itemGroupLabel : itemGroupS4HLabel,
-						!"SBB".equals(business) ? itemGroup : itemGroupS4H,
-						!"SBB".equals(business) ? "ItemGroup" : "ItemGroupS4H", attributeValues, attributes, doc,
-						propiedadesCaracteristicas, atgGroups);
-				appendPlainElementValue(!"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel,
-						!"SBB".equals(business) ? brandName : brandIdS4H,
-						!"SBB".equals(business) ? "BrandName" : "BRAND_ID_S4H", attributeValues, attributes, doc,
-						propiedadesCaracteristicas, atgGroups);
-				appendPlainElementValue(!"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel, null,
-						"BrandNameATG", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-				appendPlainElementValue(!"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel, null, "BrandIDATG",
-						attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-
-				if (productName != null && !"".equals(productName)) {
-					name.setTextContent(productName);
-					appendPlainElementValue(productName, null, "ProductName", attributeValues, attributes, doc,
-							propiedadesCaracteristicas, atgGroups);
-				} else {
-					if (charactName != null && !"".equals(charactName)) {
-						name.setTextContent(charactName);
-						appendPlainElementValue(charactName, null, "ProductName", attributeValues, attributes, doc,
-								propiedadesCaracteristicas, atgGroups);
-					} else {
-						if (nameLang != null && !"".equals(nameLang)) {
-							name.setTextContent(nameLang);
-							appendPlainElementValue(nameLang, null, "ProductName", attributeValues, attributes, doc,
-									propiedadesCaracteristicas, atgGroups);
-						} else {
-							log("Sin product neim, no será posible publicar.");
-							System.out.println("Sin product neim, no será posible publicar.");
-							reqPublishMessage
-									.getJSONArray("rows").put(
-											new org.json.JSONObject()
-													.put("object",
-															new org.json.JSONObject().put("id",
-																	"'" + proposalId + "'@1"))
-													.put("values", new org.json.JSONArray().put("Sin ProductName")));
-							continue;
-						}
-					}
-				}
-
-				if (pt == null) {
-					lst = dataMap.get("AlmacenamientoAtt");
-					if (lst != null) {
-						almacenamientoAtt = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
-								.getJSONArray("values").getJSONObject(0).getString("_code");
-					}
-					lst = dataMap.get("MTART_S4H");
-					if (lst != null) {
-						mtart = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-								.getJSONObject(0).getString("_code");
-					}
-					lst = dataMap.get("SkuType");
-					if (lst != null) {
-						skuType = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-								.getJSONObject(0).getString("_code");
-					}
-					if ("SERV".equals(skuType) && "0001".equals(almacenamientoAtt)) {
-						pt = "6";
-						ptl = "Digital";
-						appendPlainElementValue("Digital", pt, "ProductType", attributeValues, attributes, doc,
-								propiedadesCaracteristicas, atgGroups);
-					} else if ("DIEN".equals(mtart) && "SB87516".equals(itemGroupS4H)) {
-						pt = "6";
-						ptl = "Digital";
-						appendPlainElementValue("Digital", pt, "ProductType", attributeValues, attributes, doc,
-								propiedadesCaracteristicas, atgGroups);
-
-					} else {
-						pt = "1";
-						ptl = "Soft line";
-						appendPlainElementValue("Soft line", pt, "ProductType", attributeValues, attributes, doc,
-								propiedadesCaracteristicas, atgGroups);
-					}
-				}
-				if (unosQueQuiero.contains("ProductType") && !heredables.containsKey("ProductType")) {
-					heredables.put("ProductType",
-							new org.json.JSONObject().put("_datatype", "LOOKUP")
-									.put("_qualification",
-											new org.json.JSONObject().put(
-													"characteristic",
-													new org.json.JSONObject().put("_code", "ProductType")))
-									.put("_recordLang", new org.json.JSONArray()
-											.put(new org.json.JSONObject().put("values", new org.json.JSONArray().put(
-													new org.json.JSONObject().put("_code", pt).put("_label", ptl))))));
-				}
-				if (unosQueQuiero.contains("SupplierPartNumber") && !heredables.containsKey("SupplierPartNumber")
-						&& !"".equals(supplierPartNumber) && supplierPartNumber != null) {
-					heredables.put("SupplierPartNumber",
-							new org.json.JSONObject().put("_datatype", "TEXT")
-									.put("_qualification",
-											new org.json.JSONObject().put("characteristic",
-													new org.json.JSONObject().put("_code", "ProductType")))
-									.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject()
-											.put("values", new org.json.JSONArray().put(supplierPartNumber)))));
-				}
-
-				if ("SalesItem".equals(productType) && tamanoUnico != null && !"".equals(tamanoUnico)) {
-					talla(clothingSize == null ? sizeVaD : clothingSize, tamanoUnico, business, itemGroup, template, direccion, brandCode, attributeValues, attributes,
-							doc, propiedadesCaracteristicas, atgGroups);
-					appendPlainElementValue(tamanoUnico, null, "TamanoUnico", attributeValues, attributes, doc,
-							propiedadesCaracteristicas, atgGroups);
-				}
-
-				if (productType.startsWith("SalesItemFamily")) {
-					org.json.JSONObject resp = null;
-					Element subProduct = null;
-					Element subAttributeValues = null;
-					Element varName = null;
-					String childSAPObjectType = null;
-					String childSAPObjectTypeLabel = null;
-					java.util.LinkedList<java.util.LinkedList<String[]>> losdetalles = new java.util.LinkedList<>();
-					java.util.LinkedList<java.util.LinkedList<String[]>> losesmoshes = new java.util.LinkedList<>();
-					java.util.LinkedList<java.util.LinkedList<String[]>> lasilustraciones = new java.util.LinkedList<>();
-					boolean theFirstTime = true;
-					org.json.JSONObject characteristicObject = null;
-					for (int a = 0; a < upperRows.length(); a++) {
-						tallaNormalizada = null;
-						tamanoUnico = null;
-						color = null;
-						codigoColor = null;
-						childSAPObjectType = null;
-						childSAPObjectTypeLabel = null;
-						try {
-							firstVariant = upperRows.getJSONObject(a).getJSONArray("values").getString(0);
-						} catch (org.json.JSONException e) {
-						}
-						procede = false;
-						subProduct = doc.createElement("Product");
-						subProduct.setAttribute("ID", firstVariant);
-						subProduct.setAttribute("UserTypeID",
-								"SalesItemFamily".equals(productType) ? "SalesItemVariant" : "SalesItem");
-						subProduct.setAttribute("ParentID", productsToTestWith[0]);
-						subProduct.setAttribute("Changed", "true");
-						subAttributeValues = doc.createElement("Values");
-						varName = doc.createElement("Name");
-						subProduct.appendChild(varName);
-						subProduct.appendChild(subAttributeValues);
-						if ("MKP".equals(business)) {
-							appendPlainElementValue("true", "1", "isMarketPlace", subAttributeValues, attributes, doc,
-									propiedadesCaracteristicas, atgGroups);
-						}
-
-						details = new java.util.LinkedList<>();
-						smoshes = new java.util.LinkedList<>();
-						illustrations = new java.util.LinkedList<>();
-						try {
 							raw = rw.makeRequest("GET", "/object/Article/'" + firstVariant
 									+ "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData",
 									null);
 							resp = new org.json.JSONObject(raw);
 							resp = resp.getJSONObject("_data");
 							if (!resp.has("_characteristicRecords")) {
-								log("Variante no tenía características");
-								System.out.println("Variante no tenía características");
+								log("No characteristic records for: " + itemId);
+								System.out.println("No characteristic records for: " + itemId);
 								continue;
 							}
 							characteristicRecords = resp.getJSONArray("_characteristicRecords");
 							org.json.JSONArray children = null;
 							String[] chunk = null;
-							String sku0 = resp.has("sku") ? String.valueOf(resp.getLong("sku")) : null;
-							String ean0 = resp.has("gtin") ? resp.getString("gtin") : null;
-							codigoColor = resp.has("articleExtraData")
-									&& resp.getJSONArray("articleExtraData").getJSONObject(0).has("coloursLiverpoolAtt")
-											? resp.getJSONArray("articleExtraData").getJSONObject(0)
-													.getJSONObject("coloursLiverpoolAtt").getString("_code")
-											: null;
-							color = resp.has("articleExtraData")
-									&& resp.getJSONArray("articleExtraData").getJSONObject(0).has("coloursLiverpoolAtt")
-											? resp.getJSONArray("articleExtraData").getJSONObject(0)
-													.getJSONObject("coloursLiverpoolAtt").getString("_label")
-											: null;
-							tamanoUnico = resp.has("articleExtraData")
-									&& resp.getJSONArray("articleExtraData").getJSONObject(0).has("tamanoUnico")
-											? resp.getJSONArray("articleExtraData").getJSONObject(0)
-													.getJSONObject("tamanoUnico").getString("_code")
-											: null;
-							log("Came to here, color: " + color + ", tamanoUnico: " + tamanoUnico);
-							java.util.List<String> misaidis = new java.util.ArrayList<>();
 							for (int b = 0; b < characteristicRecords.length(); b++) {
-								characteristicObject = characteristicRecords.getJSONObject(b);
-								charId = characteristicObject.getJSONObject("_qualification")
-										.getJSONObject("characteristic").getString("_code");
-								misaidis.add(charId);
-								if("clothingSize".equals(charId)) {
-									clothingSize = characteristicObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-								}else if("sizeVaD".equals(charId)) {
-									sizeVaD = characteristicObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-								}
-								if ("MainBarCode".equals(charId) || "MainBarCodeS4H".equals(charId)) {
-									ean0 = ean0 == null || "".equals(ean0)
-											? characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
-													.getJSONArray("values").getString(0)
-											: ean0;
-								} else if ("SKU".equals(charId)) {
-									sku0 = sku0 == null || "".equals(sku0)
-											? characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
-													.getJSONArray("values").getString(0)
-											: sku0;
-								} else if (("ProductImage" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-									if (characteristicObject.has("_children")) {
-										children = characteristicObject.getJSONArray("_children");
-										piKey = characteristicObject.getJSONObject("_qualification")
-												.getString("recordKey");
+								imageObject = characteristicRecords.getJSONObject(b);
+								charId = imageObject.getJSONObject("_qualification").getJSONObject("characteristic")
+										.getString("_code");
+								if (("ProductImage" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+									if (imageObject.has("_children")) {
+										children = imageObject.getJSONArray("_children");
+										piKey = imageObject.getJSONObject("_qualification").getString("recordKey");
 										for (int c = 0; c < children.length(); c++) {
 											charId = children.getJSONObject(c).getJSONObject("_qualification")
 													.getJSONObject("characteristic").getString("_code");
-											if (("ProductImage_Name" + (frozenImagesExists ? "2" : ""))
-													.equals(charId)) {
+											if (("ProductImage_Name" + (frozenImagesExists ? "2" : "")).equals(charId)) {
 												piName = children.getJSONObject(c).getJSONArray("_recordLang")
 														.getJSONObject(0).getJSONArray("values").getString(0);
 											} else if (("ProductImage_URL" + (frozenImagesExists ? "2" : ""))
@@ -1796,11 +778,10 @@ public class RealExportProducts {
 										}
 									}
 								} else if (("ProductImageDetail" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-									if (characteristicObject.has("_children")) {
-										children = characteristicObject.getJSONArray("_children");
-										chunk = new String[4];
-										chunk[2] = characteristicObject.getJSONObject("_qualification")
-												.getString("recordKey");
+									if (imageObject.has("_children")) {
+										children = imageObject.getJSONArray("_children");
+										chunk = new String[3];
+										chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
 										for (int c = 0; c < children.length(); c++) {
 											charId = children.getJSONObject(c).getJSONObject("_qualification")
 													.getJSONObject("characteristic").getString("_code");
@@ -1814,17 +795,13 @@ public class RealExportProducts {
 														.getJSONObject(0).getJSONArray("values").getString(0);
 											}
 										}
-										chunk[3] = firstVariant;
 										details.addLast(chunk);
-										if (theFirstTime)
-											losdetalles.addLast(details);
 									}
 								} else if (("ProductImageSmosh" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-									if (characteristicObject.has("_children")) {
-										children = characteristicObject.getJSONArray("_children");
-										chunk = new String[4];
-										chunk[2] = characteristicObject.getJSONObject("_qualification")
-												.getString("recordKey");
+									if (imageObject.has("_children")) {
+										children = imageObject.getJSONArray("_children");
+										chunk = new String[3];
+										chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
 										for (int c = 0; c < children.length(); c++) {
 											charId = children.getJSONObject(c).getJSONObject("_qualification")
 													.getJSONObject("characteristic").getString("_code");
@@ -1838,22 +815,17 @@ public class RealExportProducts {
 														.getJSONObject(0).getJSONArray("values").getString(0);
 											}
 										}
-										chunk[3] = firstVariant;
 										smoshes.addLast(chunk);
-										if (theFirstTime)
-											losesmoshes.addLast(smoshes);
 									}
 								} else if (("Illustration" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-									if (characteristicObject.has("_children")) {
-										children = characteristicObject.getJSONArray("_children");
-										chunk = new String[4];
-										chunk[2] = characteristicObject.getJSONObject("_qualification")
-												.getString("recordKey");
+									if (imageObject.has("_children")) {
+										children = imageObject.getJSONArray("_children");
+										chunk = new String[3];
+										chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
 										for (int c = 0; c < children.length(); c++) {
 											charId = children.getJSONObject(c).getJSONObject("_qualification")
 													.getJSONObject("characteristic").getString("_code");
-											if (("Illustration_Name" + (frozenImagesExists ? "2" : ""))
-													.equals(charId)) {
+											if (("Illustration_Name" + (frozenImagesExists ? "2" : "")).equals(charId)) {
 												chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang")
 														.getJSONObject(0).getJSONArray("values").getString(0);
 											} else if (("Illustration_URL" + (frozenImagesExists ? "2" : ""))
@@ -1862,309 +834,205 @@ public class RealExportProducts {
 														.getJSONObject(0).getJSONArray("values").getString(0);
 											}
 										}
-										chunk[3] = firstVariant;
 										illustrations.addLast(chunk);
-										if (theFirstTime)
-											lasilustraciones.addLast(illustrations);
 									}
-								} else if ("TamanoUnicoSTD".equals(charId)) {
-									tallaNormalizada = characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
+								} else if ("SalesItem".equals(productType) && "TamanoUnicoSTD".equals(charId)) {
+									tallaNormalizada = imageObject.getJSONArray("_recordLang").getJSONObject(0)
 											.getJSONArray("values").getString(0);
-								} else if ("TamanoUnico".equals(charId)) {
-									tamanoUnico = tamanoUnico != null ? tamanoUnico
-											: characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
-													.getJSONArray("values").getJSONObject(0).getString("_label");
-								} else if ("ColoursLiverpoolAtt".equals(charId)) {
-									color = color != null ? color
-											: characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
-													.getJSONArray("values").getJSONObject(0).getString("_label");
-									codigoColor = codigoColor != null ? codigoColor
-											: characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
-													.getJSONArray("values").getJSONObject(0).getString("_code");
-								} else if ("SAPObjectType".equals(charId)) {
-									childSAPObjectTypeLabel = characteristicObject.getJSONArray("_recordLang")
-											.getJSONObject(0).getJSONArray("values").getJSONObject(0)
-											.getString("_label");
-									childSAPObjectType = characteristicObject.getJSONArray("_recordLang")
-											.getJSONObject(0).getJSONArray("values").getJSONObject(0)
-											.getString("_code");
-								} else if ("ProcedeNoProcede".equals(charId)) {
-									procede = characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getBoolean(0);
-								} else {
-									if (atributosGeneralesQueSi.contains(charId)) {
-										if ("LOOKUP".equals(characteristicObject.getString("_datatype"))) {
-											appendPlainElementValue(
-													characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
-															.getJSONArray("values").getJSONObject(0)
-															.getString("_label"),
-													characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
-															.getJSONArray("values").getJSONObject(0).getString("_code"),
-													charId, subAttributeValues, attributes, doc,
-													propiedadesCaracteristicas, atgGroups);
-										} else if (!"NONE".equals(characteristicObject.getString("_datatype"))) {
-											java.util.LinkedList<String> vals = new java.util.LinkedList<>();
-											for (int m = 0; m < characteristicObject.getJSONArray("_recordLang")
-													.getJSONObject(0).getJSONArray("values").length(); m++) {
-												vals.addLast(String.valueOf(parseDateForSpecificDateFields(
-														characteristicObject.getJSONArray("_recordLang")
-																.getJSONObject(0).getJSONArray("values").get(m),
-														charId)));
-											}
-											appendPlainElementValue(String.join(",", vals), null, charId,
-													subAttributeValues, attributes, doc, propiedadesCaracteristicas,
-													atgGroups);
-										}
-									}
+								} else if ("SalesItem".equals(productType) && "TamanoUnico".equals(charId)) {
+									tamanoUnico = imageObject.getJSONArray("_recordLang").getJSONObject(0)
+											.getJSONArray("values").getJSONObject(0).getString("_label");
+								} else if ("SalesItem".equals(productType) && "ColoursLiverpoolAtt".equals(charId)) {
+									color = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+											.getJSONObject(0).getString("_label");
+									codigoColor = imageObject.getJSONArray("_recordLang").getJSONObject(0)
+											.getJSONArray("values").getJSONObject(0).getString("_code");
 								}
 							}
-							if (sku0 == null || "".equals(sku0)) {
-								sku0 = sku;
+							if (piName != null && piUrl != null) {
+								break;
 							}
-							if (sku0 != null && !"".equals(sku0)) {
-								if (sku == null || "".equals(sku)) {
-									sku = sku0;
-								}
-								keyValueSKU = doc.createElement("KeyValue");
-								keyValueSKU.setAttribute("KeyID", "SKUID");
-								keyValueSKU.setTextContent(sku0);
-								subProduct.appendChild(keyValueSKU);
-								artToSKU.put(firstVariant, sku0);
-								appendPlainElementValue(sku0, null, "SKU", subAttributeValues, attributes, doc,
-										propiedadesCaracteristicas, atgGroups);
-							}
-							if (ean0 == null || "".equals(ean0)) {
-								ean0 = mainBarCode;
-							}
-							if (ean0 != null && !"".equals(ean0)) {
-								if (mainBarCode == null || "".equals(mainBarCode)) {
-									mainBarCode = ean0;
-								}
-								keyValueEAN = doc.createElement("KeyValue");
-								keyValueEAN.setAttribute("KeyID", "SBB".equals(business) ? "EANS4HKey" : "EANKey");
-								keyValueEAN.setTextContent(ean0);
-								subProduct.appendChild(keyValueEAN);
-								appendPlainElementValue(ean0, null,
-										"SBB".equals(business) ? "MainBarCodeS4H" : "MainBarCode", subAttributeValues,
-										attributes, doc, propiedadesCaracteristicas, atgGroups);
-							}
-							if (!procede) {
-								procede = resp.has("procedeNoProcede") && resp.getBoolean("procedeNoProcede");
-							}
-							log("El procede: " + procede);
-							if (!procede) {
-								continue;
-							}
-							if (!misaidis.contains("ProductName") && "".equals(name.getTextContent())) {
-								reqPublishMessage
-										.getJSONArray("rows").put(
-												new org.json.JSONObject()
-														.put("object",
-																new org.json.JSONObject().put("id",
-																		"'" + proposalId + "'@1"))
-														.put("values",
-																new org.json.JSONArray().put("Sin ProductName")));
-								System.out.println("Sin product name (" + proposalId + ")");
-								continue;
-							}
-							articulosEnviados.add(firstVariant);
-							this.req.getJSONArray("rows").put(new org.json.JSONObject()
-									.put("object", new org.json.JSONObject().put("id", "'" + firstVariant + "'@1"))
-									.put("values", new org.json.JSONArray().put(
-											new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss").format(reqDate))));
-							product.appendChild(subProduct);
-							varName.setTextContent(name.getTextContent() + ", " + tamanoUnico + ", " + color);
-							for (java.util.Map.Entry<String, org.json.JSONObject> entr : heredables.entrySet()) {
-								if (!misaidis.contains(entr.getKey())) {
-									charId = entr.getKey();
-									characteristic = entr.getValue();
-									if ("LOOKUP".equals(characteristic.getString("_datatype"))) {
-										if (!characteristic.getJSONArray("_recordLang").getJSONObject(0)
-												.getJSONArray("values").getJSONObject(0).has("_label")) {
-											System.out.println("\n\t--->" + characteristic + "<---\n");
-											System.exit(0);
-										}
-										appendPlainElementValue(
-												characteristic.getJSONArray("_recordLang").getJSONObject(0)
-														.getJSONArray("values").getJSONObject(0).getString("_label"),
-												characteristic.getJSONArray("_recordLang").getJSONObject(0)
-														.getJSONArray("values").getJSONObject(0).getString("_code"),
-												charId, subAttributeValues, attributes, doc, propiedadesCaracteristicas,
-												atgGroups);
-									} else if (!"NONE".equals(characteristic.getString("_datatype"))) {
-										java.util.LinkedList<String> vals = new java.util.LinkedList<>();
-										for (int m = 0; m < characteristic.getJSONArray("_recordLang").getJSONObject(0)
-												.getJSONArray("values").length(); m++) {
-											vals.addLast(String.valueOf(parseDateForSpecificDateFields(
-													characteristic.getJSONArray("_recordLang").getJSONObject(0)
-															.getJSONArray("values").get(m),
-													charId)));
-										}
-										appendPlainElementValue(String.join(",", vals), null, charId,
-												subAttributeValues, attributes, doc, propiedadesCaracteristicas,
-												atgGroups);
-									}
-								}
-							}
-
-							if (productName != null) {
-								name.setTextContent(productName);
-								appendPlainElementValue(productName, null, "ProductName", subAttributeValues,
-										attributes, doc, propiedadesCaracteristicas, atgGroups);
-							} else {
-								if (charactName != null && !"".equals(charactName)) {
-									name.setTextContent(charactName);
-									appendPlainElementValue(charactName, null, "ProductName", subAttributeValues,
-											attributes, doc, propiedadesCaracteristicas, atgGroups);
-								} else {
-									if (nameLang != null && !"".equals(nameLang)) {
-										name.setTextContent(nameLang);
-										appendPlainElementValue(nameLang, null, "ProductName", subAttributeValues,
-												attributes, doc, propiedadesCaracteristicas, atgGroups);
-									} else {
-										log("Sin product neim, no será posible publicar.");
-										System.out.println("Sin product neim, no será posible publicar.");
-										reqPublishMessage.getJSONArray("rows")
-												.put(new org.json.JSONObject()
-														.put("object",
-																new org.json.JSONObject().put("id",
-																		"'" + proposalId + "'@1"))
-														.put("values",
-																new org.json.JSONArray().put("Sin ProductName")));
-										continue;
-									}
-								}
-							}
-							if (descLong != null) {
-								appendPlainElementValue(descLong, null, "DescriptionLong", subAttributeValues,
-										attributes, doc, propiedadesCaracteristicas, atgGroups);
-							}
-							appendPlainElementValue(sku, null, "ParentSKU", subAttributeValues, attributes, doc,
-									propiedadesCaracteristicas, atgGroups);
-							if (childSAPObjectType != null && !"".equals(childSAPObjectType)) {
-								appendPlainElementValue(childSAPObjectTypeLabel, childSAPObjectType, "SAPObjectType",
-										subAttributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-							}
-							if (tamanoUnico != null && !"".equals(tamanoUnico)) {
-								appendPlainElementValue(tamanoUnico, null, "TamanoUnico", subAttributeValues,
-										attributes, doc, propiedadesCaracteristicas, atgGroups);
-								talla(clothingSize == null ? sizeVaD : clothingSize, tamanoUnico, business, itemGroup, template, direccion, brandCode,
-										subAttributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-							}
-							if (tallaNormalizada != null && !"".equals(tallaNormalizada)) {
-								appendPlainElementValue(tallaNormalizada, null, "TC-NormalizedSize", subAttributeValues,
-										attributes, doc, propiedadesCaracteristicas, atgGroups);
-							}
-							if (color != null && !"".equals(color)) {
-								appendPlainElementValue(color, codigoColor, "ColoursLiverpoolAtt", subAttributeValues,
-										attributes, doc, propiedadesCaracteristicas, atgGroups);
-							}
-							appendPlainElementValue("".equals(itemGroupLabel) ? itemGroupS4HLabel : itemGroupLabel,
-									"".equals(itemGroup) ? itemGroupS4H : itemGroup, "ItemGroup2", subAttributeValues,
-									attributes, doc, propiedadesCaracteristicas, atgGroups);
-							if (piName != null && piUrl != null && piKey != null) {
-								appendMediaAsset(piName, piUrl, "PrimaryProductImage", // String assetType,
-										piKey, "Imagen Producto", // String assetValueTextContent,
-										"ImageURL", // String assetValueAttributeId,
-										"ProductImage", // String assetUserTypeId,
-										"ProductImage", // String assetKeyPrefix,
-										itemId, characteristic, "ProductImage", // String baseAssetTypeName,
-										assetMap, assetReferencesMap, subProduct, assets, doc, firstVariant);
-							}
-							if (details != null && !details.isEmpty()) {
-								for (String[] dt : details) {
-									appendMediaAsset(dt[0], dt[1], "ProductImage", // String assetType,
-											dt[2], "Imagen Detalle Producto", // String assetValueTextContent,
-											"ImageURL", // String assetValueAttributeId,
-											"ProductImageDetail", // String assetUserTypeId,
-											"ProductImageDetail", // String assetKeyPrefix,
-											itemId, characteristic, "ProductImageDetail", // String baseAssetTypeName,
-											assetMap, assetReferencesMap, subProduct, assets, doc, dt[3]);
-								}
-							}
-							if (smoshes != null && !smoshes.isEmpty()) {
-								for (String[] dt : smoshes) {
-									appendMediaAsset(dt[0], dt[1], "ProductImageSmosh", // String assetType,
-											dt[2], "Imagen Smosh Producto", // String assetValueTextContent,
-											"ImageURL", // String assetValueAttributeId,
-											"ProductImageSmosh", // String assetUserTypeId,
-											"SmoshImg", // String assetKeyPrefix,
-											itemId, characteristic, "ProductImageSmosh", // String baseAssetTypeName,
-											assetMap, assetReferencesMap, subProduct, assets, doc, firstVariant);
-								}
-							}
-							if (illustrations != null && !illustrations.isEmpty()) {
-								for (String[] dt : illustrations) {
-									appendMediaAsset(dt[0], dt[1], "Illustration", // String assetType,
-											dt[2], "Imagen Isométrica del Producto", // String assetValueTextContent,
-											"ImageURL", // String assetValueAttributeId,
-											"Illustration", // String assetUserTypeId,
-											"Illustration", // String assetKeyPrefix,
-											itemId, characteristic, "Illustration", // String baseAssetTypeName,
-											assetMap, assetReferencesMap, subProduct, assets, doc, firstVariant);
-								}
-							}
-
-						} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException
-								| IOException e) {
-							logE(e);
-							log("Exception on processing child. " + e.getMessage());
 						}
-						theFirstTime = false;
+						if (piName == null || piUrl == null) {
+							log("No tenía imágenes2: " + proposalId);
+							System.out.println("No tenía imágenes2 " + proposalId);
+							reqPublishMessage.getJSONArray("rows")
+									.put(new org.json.JSONObject()
+											.put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1"))
+											.put("values", new org.json.JSONArray().put("Sin imágenes \"congeladas\"")));
+							continue;
+						}
+					} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
+						logE(e);
 					}
-
-					if (sku != null && !"".equals(sku)) {
-						keyValueSKU = doc.createElement("KeyValue");
-						keyValueSKU.setAttribute("KeyID", "SKUID");
-						String skuval = sku;
-						keyValueSKU.setTextContent(skuval);
-						product.appendChild(keyValueSKU);
-						prodToSKU.put(proposalId, skuval);
-						appendPlainElementValue(skuval, null, "SKU", attributeValues, attributes, doc,
-								propiedadesCaracteristicas, atgGroups);
+					System.out.println("Sí habían imágenes");
+					characteristicRecords = null;
+					java.util.Set<String> atributosGeneralesQueSi = null;
+					java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas = null;
+					String brandCode = null;
+					propiedadesCaracteristicas = templateMetadataSet.get(template);
+					atributosGeneralesQueSi = templateSets.get(template);
+					if (propiedadesCaracteristicas == null) {
+						propiedadesCaracteristicas = new java.util.TreeMap<>();
+						atributosGeneralesQueSi = new java.util.TreeSet<>();
+						templateSets.put(template, atributosGeneralesQueSi);
+						atributosGeneralesQueSi.addAll(globalSet);
+						templateMetadataSet.put(template, propiedadesCaracteristicas);
+						for (java.util.Map.Entry<String, org.json.JSONObject> globalPropertiesEntry : globalProperties.entrySet()) {
+							propiedadesCaracteristicas.put(globalPropertiesEntry.getKey(), globalPropertiesEntry.getValue());
+						}
+						log("Going to request Propiedades Características: ");
+						java.util.Map<String, org.json.JSONObject> propiedadesDePlantilla =
+								dastub.getTemplateCharacteristicProperties(template);
+						propiedadesCaracteristicas.putAll(propiedadesDePlantilla);
+						for (java.util.Map.Entry<String, org.json.JSONObject> templateEntry : propiedadesDePlantilla.entrySet()) {
+							org.json.JSONObject propiedades = templateEntry.getValue();
+							if (propiedades != null && "Y".equals(propiedades.optString("RelevantForATG"))) {
+								atributosGeneralesQueSi.add(templateEntry.getKey());
+							}
+						}
+						templateStructureGroupAttributeValues.put(template,
+								dastub.getTemplateStructureGroupAttributeValues(template, 10));
 					}
-					if (mainBarCode != null && !"".equals(mainBarCode)) {
-						keyValueEAN = doc.createElement("KeyValue");
-						keyValueEAN.setAttribute("KeyID", "SBB".equals(business) ? "EANS4HKey" : "EANKey");
-						keyValueEAN.setTextContent(mainBarCode);
-						product.appendChild(keyValueEAN);
-						appendPlainElementValue(mainBarCode, null,
-								"SBB".equals(business) ? "MainBarCodeS4H" : "MainBarCode", attributeValues, attributes,
-								doc, propiedadesCaracteristicas, atgGroups);
+										Element product = null;
+	
+					product = doc.createElement("Product"); // <Product></Product>
+					product.setAttribute("ID", productsToTestWith[0]);
+					product.setAttribute("UserTypeID", productType);
+					product.setAttribute("ParentID", template);
+					product.setAttribute("Changed", "true");
+					productos.add(proposalId);
+					/*********************
+					 * El atributo en las entidades Changed="true", tiene el efecto de que broker
+					 * ignorda todo lo que no tenga Changed="true".
+					 ****************************************************************/
+					Element name = doc.createElement("Name");
+					name.setAttribute("Changed", "true");
+					product.appendChild(name);
+	
+					Element keyValueSKU = null;
+					Element keyValueEAN = null;
+	
+					Element attributeValues = null;
+	
+					String charId = null;
+					org.json.JSONObject characteristic = null;
+	
+					boolean behvo = false;
+					String almacenamientoAtt = null;
+					String skuType = null;
+					String mtart = null;
+	
+					String pt = null;
+					String ptl = null;
+	
+					Element helperElement = null;
+					Element prevHelperElement = null;
+					java.util.Map<String, Element> tableroDeControl = new java.util.TreeMap<>();
+					if (webCategory != null) {
+	
+						if (lastApprovedCategories != null && !"".equals(lastApprovedCategories)
+								&& webCategory.length > 0) {
+							java.util.List<String> refCats = java.util.Arrays.asList(lastApprovedCategories.split(","));
+							java.util.List<String> webCatList = java.util.Arrays.asList(webCategory);
+							for (String refCat : refCats) {
+								if (!webCatList.contains(refCat)) {
+									Element classificationReference = null;
+									classificationReference = doc.createElement("DeleteClassificationReference");
+									classificationReference.setAttribute("ClassificationID", refCat);
+									classificationReference.setAttribute("Type", "WebsiteLink");
+									product.appendChild(classificationReference);
+								}
+							}
+						}
+						StringBuilder sb = new StringBuilder();
+						for (String element : webCategory) {
+							sb.append(sb.length() == 0 ? "" : ",").append(element);
+							hierarchyHelper = globalMap.get(element);
+							if (hierarchyHelper != null) {
+								entry = hierarchyHelper.get(element);
+								entryHelper = entry;
+								helperElement = pacheleWeb(entryHelper, doc);
+								if (!tableroDeControl.containsKey(entryHelper.getString("identifier"))) {
+									tableroDeControl.put(entryHelper.getString("identifier"), helperElement);
+								}
+								while (entryHelper.has("parentIdentifier")
+										&& !"".equals(entryHelper.get("parentIdentifier"))
+										&& !tableroDeControl.containsKey(entryHelper.getString("parentIdentifier"))) {
+									prevHelperElement = helperElement;
+									entryHelper = hierarchyHelper.get(entryHelper.getString("parentIdentifier"));
+									helperElement = pacheleWeb(entryHelper, doc);
+									if (helperElement == null) {
+										log("PANIC: No element could be made from: " + entryHelper);
+										break;
+									}
+									helperElement.appendChild(prevHelperElement);
+									tableroDeControl.put(entryHelper.getString("identifier"), helperElement);
+								}
+							} else {
+								log("Category not found... " + element);
+							}
+							Element classificationReference = null;
+							classificationReference = doc.createElement("ClassificationReference");
+							classificationReference.setAttribute("ClassificationID", element);
+							classificationReference.setAttribute("Type", "WebsiteLink");
+							classificationReference.setAttribute("Changed", "true");
+							product.appendChild(classificationReference);
+						}
+						if (sendIt)
+							reqLastApprovedCategories
+									.getJSONArray(
+											"rows")
+									.put(new org.json.JSONObject()
+											.put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1"))
+											.put("values", new org.json.JSONArray().put(sb.toString())));
 					}
-					if (piName != null && piUrl != null && piKey != null) {
+	
+					for (org.json.JSONObject laRaiz : rescataLaRaiz) {
+						helperElement = tableroDeControl.get(laRaiz.getString("identifier"));
+						if (helperElement != null) {
+							webHierarchyRoot.appendChild(helperElement);
+						}
+					}
+	
+					java.util.ArrayList<String> unosQueQuiero = new java.util.ArrayList<>(YEA);
+					java.util.Map<String, org.json.JSONObject> heredables = new java.util.TreeMap<>();
+	
+					attributeValues = doc.createElement("Values");
+					product.appendChild(attributeValues);
+					if ("SalesItem".equals(productType) && piName != null && piUrl != null && piKey != null) {
 						appendMediaAsset(piName, piUrl, "PrimaryProductImage", // String assetType,
 								piKey, "Imagen Producto", // String assetValueTextContent,
 								"ImageURL", // String assetValueAttributeId,
 								"ProductImage", // String assetUserTypeId,
 								"ProductImage", // String assetKeyPrefix,
 								itemId, characteristic, "ProductImage", // String baseAssetTypeName,
-								assetMap, assetReferencesMap, product, assets, doc, proposalId);
+								assetMap, assetReferencesMap, product, assets, doc, firstVariant);
 					}
-					for (java.util.LinkedList<String[]> eldetalle : losdetalles) {
-						for (String[] dt : eldetalle) {
+					if ("SalesItem".equals(productType) && details != null && !details.isEmpty()) {
+						for (String[] dt : details) {
 							appendMediaAsset(dt[0], dt[1], "ProductImage", // String assetType,
 									dt[2], "Imagen Detalle Producto", // String assetValueTextContent,
 									"ImageURL", // String assetValueAttributeId,
 									"ProductImageDetail", // String assetUserTypeId,
 									"ProductImageDetail", // String assetKeyPrefix,
 									itemId, characteristic, "ProductImageDetail", // String baseAssetTypeName,
-									assetMap, assetReferencesMap, product, assets, doc, dt[3]);
+									assetMap, assetReferencesMap, product, assets, doc, firstVariant);
 						}
 					}
-					for (java.util.LinkedList<String[]> elesmoshes : losesmoshes) {
-						for (String[] dt : elesmoshes) {
+					if ("SalesItem".equals(productType) && smoshes != null && !smoshes.isEmpty()) {
+						for (String[] dt : smoshes) {
 							appendMediaAsset(dt[0], dt[1], "ProductImageSmosh", // String assetType,
 									dt[2], "Imagen Smosh Producto", // String assetValueTextContent,
 									"ImageURL", // String assetValueAttributeId,
 									"ProductImageSmosh", // String assetUserTypeId,
 									"SmoshImg", // String assetKeyPrefix,
-									itemId, characteristic, "ProductImageSmosh", // String baseAssetTypeName,
+									itemId, characteristic, "ProductImageDetail", // String baseAssetTypeName,
 									assetMap, assetReferencesMap, product, assets, doc, firstVariant);
 						}
 					}
-					for (java.util.LinkedList<String[]> lailustracion : lasilustraciones) {
-						for (String[] dt : lailustracion) {
+					if ("SalesItem".equals(productType) && illustrations != null && !illustrations.isEmpty()) {
+						for (String[] dt : illustrations) {
 							appendMediaAsset(dt[0], dt[1], "Illustration", // String assetType,
 									dt[2], "Imagen Isométrica del Producto", // String assetValueTextContent,
 									"ImageURL", // String assetValueAttributeId,
@@ -2174,395 +1042,1646 @@ public class RealExportProducts {
 									assetMap, assetReferencesMap, product, assets, doc, firstVariant);
 						}
 					}
-				} else {
-					try {
-						raw = rw.makeRequest("GET", "/object/Article/'" + firstVariant
-								+ "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData",
-								null);
-						org.json.JSONObject resp = new org.json.JSONObject(raw);
-						resp = resp.getJSONObject("_data");
-						if (!resp.has("_characteristicRecords")) {
-							System.out.println("No characteristic records.");
+					if ("SalesItem".equals(productType) && tallaNormalizada != null && !"".equals(tallaNormalizada)) {
+						appendPlainElementValue(tallaNormalizada, null, "TC-NormalizedSize", attributeValues, attributes,
+								doc, propiedadesCaracteristicas, atgGroups);
+					}
+					if ("SalesItem".equals(productType) && color != null && !"".equals(color)) {
+						appendPlainElementValue(color, codigoColor, "ColoursLiverpoolAtt", attributeValues, attributes, doc,
+								propiedadesCaracteristicas, atgGroups);
+					}
+	
+					java.util.Map<String, String> structureGroupAttributeValues =
+							templateStructureGroupAttributeValues.get(template);
+					if (structureGroupAttributeValues == null) {
+						structureGroupAttributeValues =
+								dastub.getTemplateStructureGroupAttributeValues(template, 10);
+						templateStructureGroupAttributeValues.put(template, structureGroupAttributeValues);
+					}
+
+					String[] structureGroupAttributeNames = new String[] {
+							"DisplayGroupOrder",
+							"DisplayOrder",
+							"ConfigurableOrder"
+					};
+					for (String attributeName : structureGroupAttributeNames) {
+						if (!structureGroupAttributeValues.containsKey(attributeName)) {
 							continue;
 						}
-						if (resp.has("procedeNoProcede")) {
-							procede = resp.getBoolean("procedeNoProcede");
+						appendPlainElementValue(
+								structureGroupAttributeValues.get(attributeName),
+								null,
+								attributeName,
+								attributeValues,
+								attributes,
+								doc,
+								propiedadesCaracteristicas,
+								atgGroups);
+					}
+										if (descLong != null) {
+						appendPlainElementValue(descLong, null, "DescriptionLong", attributeValues, attributes, doc,
+								propiedadesCaracteristicas, atgGroups);
+					}
+					if (descLong2 != null) {
+						appendPlainElementValue(descLong2, null, "DescriptionLong2", attributeValues, attributes, doc,
+								propiedadesCaracteristicas, atgGroups);
+					}
+	
+					if (business != null) {
+						if ("MKP".equals(business)) {
+							appendPlainElementValue("true", "1", "isMarketPlace", attributeValues, attributes, doc,
+									propiedadesCaracteristicas, atgGroups);
 						}
-						characteristicRecords = resp.getJSONArray("_characteristicRecords");
-						String sku0 = null;
-						String ean0 = null;
-						for (int b = 0; b < characteristicRecords.length(); b++) {
-							imageObject = characteristicRecords.getJSONObject(b);
-							charId = imageObject.getJSONObject("_qualification").getJSONObject("characteristic")
-									.getString("_code");
-							if (("ProductImage" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-							} else if (("ProductImageDetail" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-							} else if (("ProductImageSmosh" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-							} else if (("Illustration" + (frozenImagesExists ? "2" : "")).equals(charId)) {
-							} else if ("ProductImage".equals(charId)) {
-							} else if ("ProductImageDetail".equals(charId)) {
-							} else if ("ProductImageSmosh".equals(charId)) {
-							} else if ("Illustration".equals(charId)) {
-							} else if ("TamanoUnicoSTD".equals(charId)) {
-							} else if ("TamanoUnico".equals(charId)) {
-							} else if ("ColoursLiverpoolAtt".equals(charId)) {
-							} else if ("SKU".equals(charId)) {
-								sku0 = treatment(imageObject.getJSONArray("_recordLang").getJSONObject(0)
-										.getJSONArray("values").getString(0));
-							} else if ("MainBarCode".equals(charId)) {
-								ean0 = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-										.getString(0);
-							} else if ("MainBarCodeS4H".equals(charId)) {
-								ean0 = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-										.getString(0);
-							} else if ("SAPObjectType".equals(charId)) {
-							} else if ("ProcedeNoProcede".equals(charId)) {
-								procede = imageObject.getJSONArray("_recordLang").getJSONObject(0)
-										.getJSONArray("values").getBoolean(0);
+					}
+					for (int i = 0; i < characteristicArray.length(); i++) {
+						characteristic = characteristicArray.getJSONObject(i);
+						charId = characteristic.getJSONObject("_qualification").getJSONObject("characteristic")
+								.getString("_code");
+						if("clothingSize".equals(charId)) {
+							clothingSize = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+						}else if("sizeVaD".equals(charId)) {
+							sizeVaD = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+						}
+						if ("Business".equals(charId)) {
+							if (business == null || "".equals(business)) {
+								business = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+							}
+						} else if ("Direction".equals(charId)) {
+							direccion = direccion == null || "".equals(direccion)
+									? characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+											.getJSONObject(0).getString("_code")
+									: direccion;
+						} else if ("MainBarCode".equals(charId) || "MainBarCodeS4H".equals(charId)) {
+							String eanval = (treatment(characteristic.getJSONArray("_recordLang").getJSONObject(0)
+									.getJSONArray("values").getString(0)));
+							if ((mainBarCode == null || "".equals(mainBarCode)) && !"".equals(eanval)) {
+								mainBarCode = eanval;
+							}
+						} else if ("SupplierPartNumber".equals(charId)) {
+							supplierPartNumber = supplierPartNumber != null && !"".equals(supplierPartNumber)
+									? supplierPartNumber
+									: characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+											.getString(0);
+						} else if ("SupplierID".equals(charId)) {
+							supplierID = supplierID != null && !"".equals(supplierID) ? supplierID : characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+						} else if ("SKU".equals(charId)) {
+							String skuval = treatment(characteristic.getJSONArray("_recordLang").getJSONObject(0)
+									.getJSONArray("values").getString(0));
+							if ((sku == null || "".equals(sku)) && !"".equals(skuval)) {
+								sku = skuval;
 							} else {
-								if (atributosGeneralesQueSi.contains(charId)) {
-									if ("LOOKUP".equals(imageObject.getString("_datatype"))) {
+								System.out.println("No change on it. (sku)");
+							}
+						} else if ("ProductVideo2".equals(charId)) {
+							if (characteristic.has("_children")) {
+								org.json.JSONArray children = characteristic.getJSONArray("_children");
+								String[] chunk = new String[3];
+								chunk[2] = characteristic.getJSONObject("_qualification").getString("recordKey");
+								for (int c = 0; c < children.length(); c++) {
+									charId = children.getJSONObject(c).getJSONObject("_qualification")
+											.getJSONObject("characteristic").getString("_code");
+									if (("ProductVideo_Name" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+										chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getString(0);
+									} else if (("ProductVideo_URL" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+										chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getString(0);
+									}
+								}
+								appendPlainElementValue(chunk[1], null, "Video", attributeValues, attributes, doc,
+										propiedadesCaracteristicas, atgGroups);
+							}
+						} else if ("OwnersManual2".equals(charId)) {
+							if (characteristic.has("_children")) {
+								org.json.JSONArray children = characteristic.getJSONArray("_children");
+								String[] chunk = new String[3];
+								chunk[2] = characteristic.getJSONObject("_qualification").getString("recordKey");
+								for (int c = 0; c < children.length(); c++) {
+									charId = children.getJSONObject(c).getJSONObject("_qualification")
+											.getJSONObject("characteristic").getString("_code");
+									if (("OwnersManual_Name" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+										chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getString(0);
+									} else if (("OwnersManual_URL" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+										chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getString(0);
+									}
+								}
+								appendMediaAsset(chunk[0], chunk[1], "OwnersManual", // String assetType,
+										chunk[2], "Manual de Propietario", // String assetValueTextContent,
+										"ImageURL", // String assetValueAttributeId,
+										"OwnersManual", // String assetUserTypeId,
+										"OwnersManual", // String assetKeyPrefix,
+										itemId, characteristic, "OwnersManual", // String baseAssetTypeName,
+										assetMap, assetReferencesMap, product, assets, doc, productsToTestWith[0]);
+							}
+						} else if ("NOM2".equals(charId)) {
+							if (characteristic.has("_children")) {
+								org.json.JSONArray children = characteristic.getJSONArray("_children");
+								String[] chunk = new String[3];
+								chunk[2] = characteristic.getJSONObject("_qualification").getString("recordKey");
+								for (int c = 0; c < children.length(); c++) {
+									charId = children.getJSONObject(c).getJSONObject("_qualification")
+											.getJSONObject("characteristic").getString("_code");
+									if (("NOM_Name" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+										chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getString(0);
+									} else if (("NOM_URL" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+										chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getString(0);
+									}
+								}
+								appendMediaAsset(chunk[0], chunk[1], "NOM", // String assetType,
+										chunk[2], "NOM", // String assetValueTextContent,
+										"ImageURL", // String assetValueAttributeId,
+										"NOM", // String assetUserTypeId,
+										"NOM", // String assetKeyPrefix,
+										itemId, characteristic, "OwnersManual", // String baseAssetTypeName,
+										assetMap, assetReferencesMap, product, assets, doc, productsToTestWith[0]);
+							}
+						} else {
+							if ("ProductName".equals(charId)) {
+								productName = productName != null && !"".equals(productName) ? productName
+										: (productName = characteristic.getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getString(0));
+							} else if ("Name".equals(charId)) {
+								charactName = characteristic.getJSONArray("_recordLang").getJSONObject(0)
+										.getJSONArray("values").getString(0);
+							} else if ("ItemGroupS4H".equals(charId) || "ItemGroup".equals(charId)) {
+								if ("ItemGroupS4H".equals(charId)) {
+									itemGroupS4H = itemGroupS4H == null || "".equals(itemGroupS4H)
+											? characteristic.getJSONArray("_recordLang").getJSONObject(0)
+													.getJSONArray("values").getJSONObject(0).getString("_code")
+											: itemGroupS4H;
+									itemGroupS4HLabel = itemGroupS4HLabel == null || "".equals(itemGroupS4HLabel)
+											? characteristic.getJSONArray("_recordLang").getJSONObject(0)
+													.getJSONArray("values").getJSONObject(0).getString("_label")
+											: itemGroupS4HLabel;
+								} else if ("ItemGroup".equals(charId)) {
+									itemGroup = itemGroup == null || "".equals(itemGroup)
+											? characteristic.getJSONArray("_recordLang").getJSONObject(0)
+													.getJSONArray("values").getJSONObject(0).getString("_code")
+											: itemGroup;
+									itemGroupLabel = itemGroupLabel == null || "".equals(itemGroupLabel)
+											? characteristic.getJSONArray("_recordLang").getJSONObject(0)
+													.getJSONArray("values").getJSONObject(0).getString("_label")
+											: itemGroupLabel;
+								}
+							} else if ("BrandName".equals(charId) || "BRAND_ID_S4H".equals(charId)) {
+								brandName = brandName == null || "".equals(brandName)
+										? characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+												.getJSONObject(0).getString("_code")
+										: brandName;
+								brandNameLabel = brandNameLabel == null || "".equals(brandNameLabel)
+										? characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+												.getJSONObject(0).getString("_label")
+										: brandNameLabel;
+							} else if ("ProductType".equals(charId)) {
+								pt = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+										.getJSONObject(0).getString("_code");
+								ptl = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+										.getJSONObject(0).getString("_label");
+								if ("1".equals(pt)) {
+									lst = dataMap.get("ItemGroupS4H");
+									if (lst != null) {
+										itemGroupS4H = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getJSONObject(0).getString("_code");
+									}
+									lst = dataMap.get("AlmacenamientoAtt");
+									if (lst != null) {
+										almacenamientoAtt = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getJSONObject(0).getString("_code");
+									}
+									lst = dataMap.get("MTART_S4H");
+									if (lst != null) {
+										mtart = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getJSONObject(0).getString("_code");
+									}
+									lst = dataMap.get("SkuType");
+									if (lst != null) {
+										skuType = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getJSONObject(0).getString("_code");
+									}
+									if ("SERV".equals(skuType) && "0001".equals(almacenamientoAtt)) {
+										pt = "6";
+										ptl = "Digital";
+										appendPlainElementValue("Digital", pt, "ProductType", attributeValues, attributes,
+												doc, propiedadesCaracteristicas, atgGroups);
+									} else if ("DIEN".equals(mtart) && "SB87516".equals(itemGroupS4H)) {
+										pt = "6";
+										ptl = "Digital";
+										appendPlainElementValue("Digital", pt, "ProductType", attributeValues, attributes,
+												doc, propiedadesCaracteristicas, atgGroups);
+	
+									} else {
 										appendPlainElementValue(
-												imageObject.getJSONArray("_recordLang").getJSONObject(0)
+												characteristic.getJSONArray("_recordLang").getJSONObject(0)
 														.getJSONArray("values").getJSONObject(0).getString("_label"),
-												imageObject.getJSONArray("_recordLang").getJSONObject(0)
+												characteristic.getJSONArray("_recordLang").getJSONObject(0)
 														.getJSONArray("values").getJSONObject(0).getString("_code"),
-												charId, attributeValues, attributes, doc, propiedadesCaracteristicas,
+												"ProductType", attributeValues, attributes, doc, propiedadesCaracteristicas,
 												atgGroups);
-									} else if (!"NONE".equals(imageObject.getString("_datatype"))) {
-										java.util.LinkedList<String> vals = new java.util.LinkedList<>();
-										for (int m = 0; m < imageObject.getJSONArray("_recordLang").getJSONObject(0)
-												.getJSONArray("values").length(); m++) {
-											vals.addLast(String.valueOf(parseDateForSpecificDateFields(
-													imageObject.getJSONArray("_recordLang").getJSONObject(0)
-															.getJSONArray("values").get(m),
-													charId)));
+									}
+								} else {
+									appendPlainElementValue(
+											characteristic.getJSONArray("_recordLang").getJSONObject(0)
+													.getJSONArray("values").getJSONObject(0).getString("_label"),
+											characteristic.getJSONArray("_recordLang").getJSONObject(0)
+													.getJSONArray("values").getJSONObject(0).getString("_code"),
+											"ProductType", attributeValues, attributes, doc, propiedadesCaracteristicas,
+											atgGroups);
+								}
+							} else {
+								if ("ItemGroup2".equals(charId)) {
+									continue;
+								} else {
+									if (atributosGeneralesQueSi.contains(charId)) {
+										if ("Section".equals(charId) && (seccion == null || "".equals(seccion))) {
+											appendPlainElementValue(
+													characteristic.getJSONArray("_recordLang").getJSONObject(0)
+															.getJSONArray("values").getJSONObject(0).getString("_label"),
+													characteristic.getJSONArray("_recordLang").getJSONObject(0)
+															.getJSONArray("values").getJSONObject(0).getString("_code"),
+													"Section", attributeValues, attributes, doc, propiedadesCaracteristicas,
+													atgGroups);
+										} else if ("Direction".equals(charId)
+												&& (direccion == null || "".equals(direccion))) {
+											appendPlainElementValue(
+													characteristic.getJSONArray("_recordLang").getJSONObject(0)
+															.getJSONArray("values").getJSONObject(0).getString("_label"),
+													characteristic.getJSONArray("_recordLang").getJSONObject(0)
+															.getJSONArray("values").getJSONObject(0).getString("_code"),
+													"Direction", attributeValues, attributes, doc,
+													propiedadesCaracteristicas, atgGroups);
+										} else {
+											if (unosQueQuiero.contains(charId)) {
+												heredables.put(charId, characteristic);
+											}
+											if ("LOOKUP".equals(characteristic.getString("_datatype"))) {
+												boolean skip = false;
+												if("Direction".equals(charId) && direccion != null && !"".equals(direccion)) {
+													skip = true;
+												}
+												if("Section".equals(charId) && seccion != null && !"".equals(seccion)) {
+													skip = true;
+												}
+												if("ItemGroup".equals(charId) && itemGroup != null && !"".equals(itemGroup)) {
+													skip = true;
+												}
+												if("ItemGroupS4H".equals(charId) && itemGroupS4H != null && !"".equals(itemGroupS4H)) {
+													skip = true;
+												}
+												if("BrandName".equals(charId) && brandName != null && !"".equals(brandName)) {
+													skip = true;
+												}
+												if("BRAND_ID_S4H".equals(charId) && brandIdS4H != null && !"".equals(brandIdS4H)) {
+													skip = true;
+												}
+												if(!skip) {
+													appendPlainElementValue(
+															characteristic.getJSONArray("_recordLang").getJSONObject(0)
+																	.getJSONArray("values").getJSONObject(0)
+																	.getString("_label"),
+															characteristic.getJSONArray("_recordLang").getJSONObject(0)
+																	.getJSONArray("values").getJSONObject(0).getString("_code"),
+															charId, attributeValues, attributes, doc,
+															propiedadesCaracteristicas, atgGroups);
+												}
+											} else if (!"NONE".equals(characteristic.getString("_datatype"))) {
+												boolean skip = false;
+												if("SupplierPartNumber".equals(charId) && supplierPartNumber != null && !"".equals(supplierPartNumber)) {
+													skip = true;
+												}
+												if("SupplierID".equals(charId) && supplierID != null && !"".equals(supplierID)) {
+													skip = true;
+												}
+												if(!skip) {
+													java.util.LinkedList<String> vals = new java.util.LinkedList<>();
+													for (int m = 0; m < characteristic.getJSONArray("_recordLang")
+															.getJSONObject(0).getJSONArray("values").length(); m++) {
+														vals.addLast(
+																String.valueOf(parseDateForSpecificDateFields(
+																		characteristic.getJSONArray("_recordLang")
+																				.getJSONObject(0).getJSONArray("values").get(m),
+																		charId)));
+													}
+													appendPlainElementValue(String.join(",", vals), null, charId,
+															attributeValues, attributes, doc, propiedadesCaracteristicas,
+															atgGroups);
+												}
+											}
 										}
-										appendPlainElementValue(String.join(",", vals), null, charId, attributeValues,
-												attributes, doc, propiedadesCaracteristicas, atgGroups);
 									}
 								}
 							}
 						}
-
-						if (sku0 == null || "".equals(sku0)) {
-							sku0 = sku;
-						} else {
-							if (sku == null || "".equals(sku)) {
-								sku = sku0;
+					}
+					if (embeddedCodeWEB != null && !"".equals(embeddedCodeWEB)) {
+						appendPlainElementValue(embeddedCodeWEB, null, "EmbedCodeWEB", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+					}
+					if (embeddedCodeWAP != null && !"".equals(embeddedCodeWAP)) {
+						appendPlainElementValue(embeddedCodeWAP, null, "EmbedCodeWAP", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+					}
+					if (refundPolicy != null && !"".equals(refundPolicy)) {
+						appendPlainElementValue(refundPolicy, null, "refundPolicy", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+					}
+					if (seccion != null && !"".equals(seccion)) {
+						appendPlainElementValue(seccionLabel, seccion, "Section", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+					}
+					if (direccion != null && !"".equals(direccion)) {
+						appendPlainElementValue(direccionLabel, direccion, "Direction", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+					}
+					if (supplierPartNumber != null && !"".equals(supplierPartNumber)) {
+						appendPlainElementValue(supplierPartNumber, "", "SupplierPartNumber", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+					}
+					if (supplierID != null && !"".equals(supplierID)) {
+						appendPlainElementValue(supplierIDLabel, supplierID, "SupplierID", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+					}
+	
+					if (!behvo) {
+						String elese = "SBB".equals(business) ? itemGroupS4H : itemGroup;
+						String dictionary = !"SBB".equals(business)
+								? "GpoArtVsEnvase"
+								: "GpoArtVsEnvase_S4H";
+						log("Querying dictionary: " + dictionary);
+						String laetiqueta = queryDictionary(elese, dictionary);
+						if (laetiqueta != null && !laetiqueta.isBlank()) {
+							String elcode = dastub.getLookupValueCodeByName(
+									"SAP_BEHVOLOV", 10, laetiqueta, true);
+							if (elcode != null && !elcode.isBlank()) {
+								appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO",
+										attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+								behvo = true;
 							}
 						}
-						keyValueSKU = doc.createElement("KeyValue");
-						keyValueSKU.setAttribute("KeyID", "SKUID");
-						String skuval = sku0;
-						keyValueSKU.setTextContent(skuval);
-						product.appendChild(keyValueSKU);
-						prodToSKU.put(proposalId, skuval);
-						appendPlainElementValue(skuval, null, "SKU", attributeValues, attributes, doc,
+					}
+										appendPlainElementValue(itemGroup != null && !"".equals(itemGroup) ? itemGroupLabel : itemGroupS4HLabel,
+							itemGroup != null && !"".equals(itemGroup) ? itemGroup : itemGroupS4H, "ItemGroup2",
+							attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+					appendPlainElementValue(!"SBB".equals(business) ? itemGroupLabel : itemGroupS4HLabel,
+							!"SBB".equals(business) ? itemGroup : itemGroupS4H,
+							!"SBB".equals(business) ? "ItemGroup" : "ItemGroupS4H", attributeValues, attributes, doc,
+							propiedadesCaracteristicas, atgGroups);
+					appendPlainElementValue(!"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel,
+							!"SBB".equals(business) ? brandName : brandIdS4H,
+							!"SBB".equals(business) ? "BrandName" : "BRAND_ID_S4H", attributeValues, attributes, doc,
+							propiedadesCaracteristicas, atgGroups);
+					appendPlainElementValue(!"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel, null,
+							"BrandNameATG", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+					appendPlainElementValue(!"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel, null, "BrandIDATG",
+							attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+	
+					if (productName != null && !"".equals(productName)) {
+						name.setTextContent(productName);
+						appendPlainElementValue(productName, null, "ProductName", attributeValues, attributes, doc,
 								propiedadesCaracteristicas, atgGroups);
-						if (ean0 == null || "".equals(ean0)) {
-							ean0 = mainBarCode;
+					} else {
+						if (charactName != null && !"".equals(charactName)) {
+							name.setTextContent(charactName);
+							appendPlainElementValue(charactName, null, "ProductName", attributeValues, attributes, doc,
+									propiedadesCaracteristicas, atgGroups);
 						} else {
-							if (mainBarCode == null || "".equals(mainBarCode)) {
-								mainBarCode = ean0;
+							if (nameLang != null && !"".equals(nameLang)) {
+								name.setTextContent(nameLang);
+								appendPlainElementValue(nameLang, null, "ProductName", attributeValues, attributes, doc,
+										propiedadesCaracteristicas, atgGroups);
+							} else {
+								log("Sin product neim, no será posible publicar.");
+								System.out.println("Sin product neim, no será posible publicar.");
+								reqPublishMessage
+										.getJSONArray("rows").put(
+												new org.json.JSONObject()
+														.put("object",
+																new org.json.JSONObject().put("id",
+																		"'" + proposalId + "'@1"))
+														.put("values", new org.json.JSONArray().put("Sin ProductName")));
+								continue;
 							}
 						}
-						keyValueEAN = doc.createElement("KeyValue");
-						keyValueEAN.setAttribute("KeyID", "SBB".equals(business) ? "EANS4HKey" : "EANKey");
-						keyValueEAN.setTextContent(ean0);
-						product.appendChild(keyValueEAN);
-						appendPlainElementValue(ean0, null, "SBB".equals(business) ? "MainBarCodeS4H" : "MainBarCode",
-								attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-						if (!procede) {
-							procede = resp.has("procedeNoProcede") && resp.getBoolean("procedeNoProcede");
+					}
+	
+					if (pt == null) {
+						lst = dataMap.get("AlmacenamientoAtt");
+						if (lst != null) {
+							almacenamientoAtt = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
+									.getJSONArray("values").getJSONObject(0).getString("_code");
 						}
-						if (procede) {
-							articulosEnviados.add(firstVariant);
-							this.req.getJSONArray("rows").put(new org.json.JSONObject()
-									.put("object", new org.json.JSONObject().put("id", "'" + firstVariant + "'@1"))
-									.put("values", new org.json.JSONArray().put(
-											new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss").format(reqDate))));
+						lst = dataMap.get("MTART_S4H");
+						if (lst != null) {
+							mtart = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+									.getJSONObject(0).getString("_code");
+						}
+						lst = dataMap.get("SkuType");
+						if (lst != null) {
+							skuType = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+									.getJSONObject(0).getString("_code");
+						}
+						if ("SERV".equals(skuType) && "0001".equals(almacenamientoAtt)) {
+							pt = "6";
+							ptl = "Digital";
+							appendPlainElementValue("Digital", pt, "ProductType", attributeValues, attributes, doc,
+									propiedadesCaracteristicas, atgGroups);
+						} else if ("DIEN".equals(mtart) && "SB87516".equals(itemGroupS4H)) {
+							pt = "6";
+							ptl = "Digital";
+							appendPlainElementValue("Digital", pt, "ProductType", attributeValues, attributes, doc,
+									propiedadesCaracteristicas, atgGroups);
+	
 						} else {
-
+							pt = "1";
+							ptl = "Soft line";
+							appendPlainElementValue("Soft line", pt, "ProductType", attributeValues, attributes, doc,
+									propiedadesCaracteristicas, atgGroups);
 						}
-					} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
-						logE(e);
 					}
-
-				}
-				if (rw.getXmm().listImmediateChildElements(product).get("Product") != null
-						|| ("SalesItem".equals(productType) && procede)) {
-					products.appendChild(product);
-					System.out.println("Added. (" + proposalId + ")");
-					log("Added. (" + proposalId + ")");
-				} else {
-					log("Not added (" + proposalId + ") - procede: " + procede);
-					System.out.println("Not added (" + proposalId + ") - procede: " + procede);
-				}
-			}
-
-			if (reqPublishMessage.getJSONArray("rows").length() > 0) {
-				java.util.Map<String, String> qp = new java.util.HashMap<>();
-				qp.put("includeObjectsInProtocol", "false");
-				log("Sending this: " + reqPublishMessage);
-				wrapper.writeData("list", "Product2G", null, qp, reqPublishMessage, System.out::println);
-			}
-			if (reqAPublishMessage.getJSONArray("rows").length() > 0) {
-				java.util.Map<String, String> qp = new java.util.HashMap<>();
-				qp.put("includeObjectsInProtocol", "false");
-				log("Sending this (article): " + reqAPublishMessage);
-				wrapper.writeData("list", "Article", null, qp, reqAPublishMessage, this::log);
-			}
-
-			TransformerFactory transformerFactory = TransformerFactory.newInstance();
-			Transformer transformer = transformerFactory.newTransformer();
-			transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4");
-			java.io.StringWriter writer = new java.io.StringWriter();
-			transformer.transform(new DOMSource(doc), new StreamResult(writer));
-			String xmlOutput = writer.getBuffer().toString().replace("&lt;CRLF&gt;", "&#13;&#10;").replace("<CRLF>",
-					"&#13;&#10;");
-
-			transformer.setOutputProperty(OutputKeys.INDENT, "yes");
-			writer = new java.io.StringWriter();
-			transformer.transform(new DOMSource(doc), new StreamResult(writer));
-			String xmlOutputIndented = writer.getBuffer().toString().replace("&lt;CRLF&gt;", "&#13;&#10;")
-					.replace("<CRLF>", "&#13;&#10;");
-
-			long ctm = System.currentTimeMillis();
-			String fn = java.nio.file.Paths.get(fileSystemPrefix.toString(), "pépele" + ctm + ".xml").toString();
-			try {
-				writer.close();
-			} catch (java.io.IOException e) {
-				logE(e);
-			}
-			try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
-					new java.io.FileOutputStream(fn), java.nio.charset.StandardCharsets.UTF_8))) {
-				pw.println(xmlOutputIndented);
-			} catch (java.io.IOException e) {
-				logE(e);
-			}
-			java.util.LinkedList<Node> misProductos = rw.getXmm().listImmediateChildElements(products).get("Product");
-			if (misProductos != null) {
-				for (Node n : misProductos) {
-					if ("SalesItemFamilyMkt".equals(((Element) n).getAttribute("UserTypeID"))) {
-						((Element) n).setAttribute("UserTypeID", "SalesItemFamily");
+					if (unosQueQuiero.contains("ProductType") && !heredables.containsKey("ProductType")) {
+						heredables.put("ProductType",
+								new org.json.JSONObject().put("_datatype", "LOOKUP")
+										.put("_qualification",
+												new org.json.JSONObject().put(
+														"characteristic",
+														new org.json.JSONObject().put("_code", "ProductType")))
+										.put("_recordLang", new org.json.JSONArray()
+												.put(new org.json.JSONObject().put("values", new org.json.JSONArray().put(
+														new org.json.JSONObject().put("_code", pt).put("_label", ptl))))));
 					}
-				}
-			}
-			spim.removeChild(classifications);
-			spim.removeChild(attributes);
-			writer = new java.io.StringWriter();
-			transformer.transform(new DOMSource(doc), new StreamResult(writer));
-			String xmlOutput2 = writer.getBuffer().toString();
-			String fnO = java.nio.file.Paths
-					.get(fileSystemPrefixOMS.toString(), "pépele" + System.currentTimeMillis() + ".xml").toString();
-			try {
-				writer.close();
-			} catch (java.io.IOException e) {
-				logE(e);
-			}
-			try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
-					new java.io.FileOutputStream(fnO), java.nio.charset.StandardCharsets.UTF_8))) {
-				pw.println(xmlOutput2);
-			} catch (java.io.IOException e) {
-				logE(e);
-			}
-			java.util.List<Node> ma = rw.getXmm().listImmediateChildElements(products).get("Product");
-			System.out.println("Now going to send. " + (ma != null ? ma.size() : 0) + " on " + fn);
-			if (!productos.isEmpty())
-				if (sendIt) {
-					System.out.println("Sending FechaYHoraDePublicacion 111");
-					if (Boolean.parseBoolean(PropertiesManager.get("p360.contingency.dwh.enabled", "true"))) {
-						SshClient client = SshClient.setUpDefaultClient();
-						client.start();
-						try (ClientSession session = client.connect(user, host, port).verify(10, TimeUnit.SECONDS)
-								.getSession()) {
-							FileKeyPairProvider keyProvider = new FileKeyPairProvider(privateKeyPath);
-							keyProvider.setPasswordFinder(FilePasswordProvider.EMPTY);
-							keyProvider.loadKeys(null).forEach(session::addPublicKeyIdentity);
-							session.auth().verify(10, TimeUnit.SECONDS);
-							try (SftpClient sftp = SftpClientFactory.instance().createSftpClient(session)) {
-								writeToSftp(sftp, xmlOutputIndented,
-										PropertiesManager.get("p360.contingency.dwh.remote_directory_base"),
-										"eilstep_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss")
-												.format(new java.util.Date()) + ".xml");
+					if (unosQueQuiero.contains("SupplierPartNumber") && !heredables.containsKey("SupplierPartNumber")
+							&& !"".equals(supplierPartNumber) && supplierPartNumber != null) {
+						heredables.put("SupplierPartNumber",
+								new org.json.JSONObject().put("_datatype", "TEXT")
+										.put("_qualification",
+												new org.json.JSONObject().put("characteristic",
+														new org.json.JSONObject().put("_code", "ProductType")))
+										.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject()
+												.put("values", new org.json.JSONArray().put(supplierPartNumber)))));
+					}
+	
+					if ("SalesItem".equals(productType) && tamanoUnico != null && !"".equals(tamanoUnico)) {
+						talla(clothingSize == null ? sizeVaD : clothingSize, tamanoUnico, business, itemGroup, template, direccion, brandCode, attributeValues, attributes,
+								doc, propiedadesCaracteristicas, atgGroups);
+						appendPlainElementValue(tamanoUnico, null, "TamanoUnico", attributeValues, attributes, doc,
+								propiedadesCaracteristicas, atgGroups);
+					}
+	
+					if (productType.startsWith("SalesItemFamily")) {
+						org.json.JSONObject resp = null;
+						Element subProduct = null;
+						Element subAttributeValues = null;
+						Element varName = null;
+						String childSAPObjectType = null;
+						String childSAPObjectTypeLabel = null;
+						java.util.LinkedList<java.util.LinkedList<String[]>> losdetalles = new java.util.LinkedList<>();
+						java.util.LinkedList<java.util.LinkedList<String[]>> losesmoshes = new java.util.LinkedList<>();
+						java.util.LinkedList<java.util.LinkedList<String[]>> lasilustraciones = new java.util.LinkedList<>();
+						boolean theFirstTime = true;
+						org.json.JSONObject characteristicObject = null;
+						for (int a = 0; a < upperRows.length(); a++) {
+							tallaNormalizada = null;
+							tamanoUnico = null;
+							color = null;
+							codigoColor = null;
+							childSAPObjectType = null;
+							childSAPObjectTypeLabel = null;
+							try {
+								firstVariant = upperRows.getJSONObject(a).getJSONArray("values").getString(0);
+							} catch (org.json.JSONException e) {
 							}
-							log("DWH sent.");
-						} catch (java.io.IOException e) {
-							log("Could not send request to dwh: " + e.getMessage());
-							e.printStackTrace();
-						} finally {
-							client.stop();
-						}
-					}
-					RestClient rc = new RestClient("Content-Type: application/xml", "Accept: application/xml");
-					try {
-						String sendResponse = null;
-						log("[" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())
-								+ "] (ATG) Request sent for " + java.util.Arrays.asList(proposalIds) + ": "
-								+ (sendResponse = rc.getRequest("POST", urlDeATG, xmlOutput)));
-						aggregatedMessage.append(fn + "<::>" + sendResponse);
-						System.out.println("Sending FechaYHoraDePublicacion 2222");
-						if (sendResponse.contains("Se proceso correctamente")) {
-							java.util.List<EnvioAtgDao.EnvioAtgRow> lasfilas = new java.util.ArrayList<>();
-							if (misProductos != null) {
-								for (Node n : misProductos) {
-									reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject()
-											.put("object",
-													new org.json.JSONObject().put("id",
-															"'" + (((Element) n).getAttribute("ID")) + "'@1"))
-											.put("values", new org.json.JSONArray().put("Enviado a publicación el "
-													+ fm.format(java.time.Instant.ofEpochMilli(ctm)))));
-									req2.getJSONArray(
-											"rows").put(
+							procede = false;
+							subProduct = doc.createElement("Product");
+							subProduct.setAttribute("ID", firstVariant);
+							subProduct.setAttribute("UserTypeID",
+									"SalesItemFamily".equals(productType) ? "SalesItemVariant" : "SalesItem");
+							subProduct.setAttribute("ParentID", productsToTestWith[0]);
+							subProduct.setAttribute("Changed", "true");
+							subAttributeValues = doc.createElement("Values");
+							varName = doc.createElement("Name");
+							subProduct.appendChild(varName);
+							subProduct.appendChild(subAttributeValues);
+							if ("MKP".equals(business)) {
+								appendPlainElementValue("true", "1", "isMarketPlace", subAttributeValues, attributes, doc,
+										propiedadesCaracteristicas, atgGroups);
+							}
+	
+							details = new java.util.LinkedList<>();
+							smoshes = new java.util.LinkedList<>();
+							illustrations = new java.util.LinkedList<>();
+							try {
+								raw = rw.makeRequest("GET", "/object/Article/'" + firstVariant
+										+ "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData",
+										null);
+								resp = new org.json.JSONObject(raw);
+								resp = resp.getJSONObject("_data");
+								if (!resp.has("_characteristicRecords")) {
+									log("Variante no tenía características");
+									System.out.println("Variante no tenía características");
+									continue;
+								}
+								characteristicRecords = resp.getJSONArray("_characteristicRecords");
+								org.json.JSONArray children = null;
+								String[] chunk = null;
+								String sku0 = resp.has("sku") ? String.valueOf(resp.getLong("sku")) : null;
+								String ean0 = resp.has("gtin") ? resp.getString("gtin") : null;
+								codigoColor = resp.has("articleExtraData")
+										&& resp.getJSONArray("articleExtraData").getJSONObject(0).has("coloursLiverpoolAtt")
+												? resp.getJSONArray("articleExtraData").getJSONObject(0)
+														.getJSONObject("coloursLiverpoolAtt").getString("_code")
+												: null;
+								color = resp.has("articleExtraData")
+										&& resp.getJSONArray("articleExtraData").getJSONObject(0).has("coloursLiverpoolAtt")
+												? resp.getJSONArray("articleExtraData").getJSONObject(0)
+														.getJSONObject("coloursLiverpoolAtt").getString("_label")
+												: null;
+								tamanoUnico = resp.has("articleExtraData")
+										&& resp.getJSONArray("articleExtraData").getJSONObject(0).has("tamanoUnico")
+												? resp.getJSONArray("articleExtraData").getJSONObject(0)
+														.getJSONObject("tamanoUnico").getString("_code")
+												: null;
+								log("Came to here, color: " + color + ", tamanoUnico: " + tamanoUnico);
+								java.util.List<String> misaidis = new java.util.ArrayList<>();
+								for (int b = 0; b < characteristicRecords.length(); b++) {
+									characteristicObject = characteristicRecords.getJSONObject(b);
+									charId = characteristicObject.getJSONObject("_qualification")
+											.getJSONObject("characteristic").getString("_code");
+									misaidis.add(charId);
+									if("clothingSize".equals(charId)) {
+										clothingSize = characteristicObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+									}else if("sizeVaD".equals(charId)) {
+										sizeVaD = characteristicObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+									}
+									if ("MainBarCode".equals(charId) || "MainBarCodeS4H".equals(charId)) {
+										ean0 = ean0 == null || "".equals(ean0)
+												? characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
+														.getJSONArray("values").getString(0)
+												: ean0;
+									} else if ("SKU".equals(charId)) {
+										sku0 = sku0 == null || "".equals(sku0)
+												? characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
+														.getJSONArray("values").getString(0)
+												: sku0;
+									} else if (("ProductImage" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+										if (characteristicObject.has("_children")) {
+											children = characteristicObject.getJSONArray("_children");
+											piKey = characteristicObject.getJSONObject("_qualification")
+													.getString("recordKey");
+											for (int c = 0; c < children.length(); c++) {
+												charId = children.getJSONObject(c).getJSONObject("_qualification")
+														.getJSONObject("characteristic").getString("_code");
+												if (("ProductImage_Name" + (frozenImagesExists ? "2" : ""))
+														.equals(charId)) {
+													piName = children.getJSONObject(c).getJSONArray("_recordLang")
+															.getJSONObject(0).getJSONArray("values").getString(0);
+												} else if (("ProductImage_URL" + (frozenImagesExists ? "2" : ""))
+														.equals(charId)) {
+													piUrl = children.getJSONObject(c).getJSONArray("_recordLang")
+															.getJSONObject(0).getJSONArray("values").getString(0);
+												}
+											}
+										}
+									} else if (("ProductImageDetail" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+										if (characteristicObject.has("_children")) {
+											children = characteristicObject.getJSONArray("_children");
+											chunk = new String[4];
+											chunk[2] = characteristicObject.getJSONObject("_qualification")
+													.getString("recordKey");
+											for (int c = 0; c < children.length(); c++) {
+												charId = children.getJSONObject(c).getJSONObject("_qualification")
+														.getJSONObject("characteristic").getString("_code");
+												if (("ProductImageDetail_Name" + (frozenImagesExists ? "2" : ""))
+														.equals(charId)) {
+													chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang")
+															.getJSONObject(0).getJSONArray("values").getString(0);
+												} else if (("ProductImageDetail_URL" + (frozenImagesExists ? "2" : ""))
+														.equals(charId)) {
+													chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang")
+															.getJSONObject(0).getJSONArray("values").getString(0);
+												}
+											}
+											chunk[3] = firstVariant;
+											details.addLast(chunk);
+											if (theFirstTime)
+												losdetalles.addLast(details);
+										}
+									} else if (("ProductImageSmosh" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+										if (characteristicObject.has("_children")) {
+											children = characteristicObject.getJSONArray("_children");
+											chunk = new String[4];
+											chunk[2] = characteristicObject.getJSONObject("_qualification")
+													.getString("recordKey");
+											for (int c = 0; c < children.length(); c++) {
+												charId = children.getJSONObject(c).getJSONObject("_qualification")
+														.getJSONObject("characteristic").getString("_code");
+												if (("ProductImageSmosh_Name" + (frozenImagesExists ? "2" : ""))
+														.equals(charId)) {
+													chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang")
+															.getJSONObject(0).getJSONArray("values").getString(0);
+												} else if (("ProductImageSmosh_URL" + (frozenImagesExists ? "2" : ""))
+														.equals(charId)) {
+													chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang")
+															.getJSONObject(0).getJSONArray("values").getString(0);
+												}
+											}
+											chunk[3] = firstVariant;
+											smoshes.addLast(chunk);
+											if (theFirstTime)
+												losesmoshes.addLast(smoshes);
+										}
+									} else if (("Illustration" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+										if (characteristicObject.has("_children")) {
+											children = characteristicObject.getJSONArray("_children");
+											chunk = new String[4];
+											chunk[2] = characteristicObject.getJSONObject("_qualification")
+													.getString("recordKey");
+											for (int c = 0; c < children.length(); c++) {
+												charId = children.getJSONObject(c).getJSONObject("_qualification")
+														.getJSONObject("characteristic").getString("_code");
+												if (("Illustration_Name" + (frozenImagesExists ? "2" : ""))
+														.equals(charId)) {
+													chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang")
+															.getJSONObject(0).getJSONArray("values").getString(0);
+												} else if (("Illustration_URL" + (frozenImagesExists ? "2" : ""))
+														.equals(charId)) {
+													chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang")
+															.getJSONObject(0).getJSONArray("values").getString(0);
+												}
+											}
+											chunk[3] = firstVariant;
+											illustrations.addLast(chunk);
+											if (theFirstTime)
+												lasilustraciones.addLast(illustrations);
+										}
+									} else if ("TamanoUnicoSTD".equals(charId)) {
+										tallaNormalizada = characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getString(0);
+									} else if ("TamanoUnico".equals(charId)) {
+										tamanoUnico = tamanoUnico != null ? tamanoUnico
+												: characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
+														.getJSONArray("values").getJSONObject(0).getString("_label");
+									} else if ("ColoursLiverpoolAtt".equals(charId)) {
+										color = color != null ? color
+												: characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
+														.getJSONArray("values").getJSONObject(0).getString("_label");
+										codigoColor = codigoColor != null ? codigoColor
+												: characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
+														.getJSONArray("values").getJSONObject(0).getString("_code");
+									} else if ("SAPObjectType".equals(charId)) {
+										childSAPObjectTypeLabel = characteristicObject.getJSONArray("_recordLang")
+												.getJSONObject(0).getJSONArray("values").getJSONObject(0)
+												.getString("_label");
+										childSAPObjectType = characteristicObject.getJSONArray("_recordLang")
+												.getJSONObject(0).getJSONArray("values").getJSONObject(0)
+												.getString("_code");
+									} else if ("ProcedeNoProcede".equals(charId)) {
+										procede = characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getBoolean(0);
+									} else {
+										if (atributosGeneralesQueSi.contains(charId)) {
+											if ("LOOKUP".equals(characteristicObject.getString("_datatype"))) {
+												appendPlainElementValue(
+														characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
+																.getJSONArray("values").getJSONObject(0)
+																.getString("_label"),
+														characteristicObject.getJSONArray("_recordLang").getJSONObject(0)
+																.getJSONArray("values").getJSONObject(0).getString("_code"),
+														charId, subAttributeValues, attributes, doc,
+														propiedadesCaracteristicas, atgGroups);
+											} else if (!"NONE".equals(characteristicObject.getString("_datatype"))) {
+												java.util.LinkedList<String> vals = new java.util.LinkedList<>();
+												for (int m = 0; m < characteristicObject.getJSONArray("_recordLang")
+														.getJSONObject(0).getJSONArray("values").length(); m++) {
+													vals.addLast(String.valueOf(parseDateForSpecificDateFields(
+															characteristicObject.getJSONArray("_recordLang")
+																	.getJSONObject(0).getJSONArray("values").get(m),
+															charId)));
+												}
+												appendPlainElementValue(String.join(",", vals), null, charId,
+														subAttributeValues, attributes, doc, propiedadesCaracteristicas,
+														atgGroups);
+											}
+										}
+									}
+								}
+								if (sku0 == null || "".equals(sku0)) {
+									sku0 = sku;
+								}
+								if (sku0 != null && !"".equals(sku0)) {
+									if (sku == null || "".equals(sku)) {
+										sku = sku0;
+									}
+									keyValueSKU = doc.createElement("KeyValue");
+									keyValueSKU.setAttribute("KeyID", "SKUID");
+									keyValueSKU.setTextContent(sku0);
+									subProduct.appendChild(keyValueSKU);
+									artToSKU.put(firstVariant, sku0);
+									appendPlainElementValue(sku0, null, "SKU", subAttributeValues, attributes, doc,
+											propiedadesCaracteristicas, atgGroups);
+								}
+								if (ean0 == null || "".equals(ean0)) {
+									ean0 = mainBarCode;
+								}
+								if (ean0 != null && !"".equals(ean0)) {
+									if (mainBarCode == null || "".equals(mainBarCode)) {
+										mainBarCode = ean0;
+									}
+									keyValueEAN = doc.createElement("KeyValue");
+									keyValueEAN.setAttribute("KeyID", "SBB".equals(business) ? "EANS4HKey" : "EANKey");
+									keyValueEAN.setTextContent(ean0);
+									subProduct.appendChild(keyValueEAN);
+									appendPlainElementValue(ean0, null,
+											"SBB".equals(business) ? "MainBarCodeS4H" : "MainBarCode", subAttributeValues,
+											attributes, doc, propiedadesCaracteristicas, atgGroups);
+								}
+								if (!procede) {
+									procede = resp.has("procedeNoProcede") && resp.getBoolean("procedeNoProcede");
+								}
+								log("El procede: " + procede);
+								if (!procede) {
+									continue;
+								}
+								if (!misaidis.contains("ProductName") && "".equals(name.getTextContent())) {
+									reqPublishMessage
+											.getJSONArray("rows").put(
 													new org.json.JSONObject()
 															.put("object",
 																	new org.json.JSONObject().put("id",
-																			"'" + (((Element) n).getAttribute("ID"))
-																					+ "'@1"))
-															.put("values", new org.json.JSONArray().put(
-																	fmP.format(java.time.Instant.ofEpochMilli(ctm)))));
-									java.util.LinkedList<Node> misProductosHijos = rw.getXmm()
-											.listImmediateChildElements(n).get("Product");
-									if (misProductosHijos != null) {
-										for (Node n0 : misProductosHijos) {
-											lasfilas.add(new EnvioAtgRow((((Element) n).getAttribute("ID")),
-													Long.parseLong(prodToSKU.get(((Element) n).getAttribute("ID"))),
-													(((Element) n0).getAttribute("ID")),
-													Long.parseLong(artToSKU.get((((Element) n0).getAttribute("ID"))))));
-											logEsp("[Esta cala] ProductID: " + (((Element) n).getAttribute("ID"))
-													+ ", ArticleID: " + ((Element) n0).getAttribute("ID")
-													+ ", ProductSKU: " + prodToSKU.get(((Element) n).getAttribute("ID"))
-													+ ", ArticleSKU: " + artToSKU.get(((Element) n0).getAttribute("ID"))
-													+ " (" + fn + ", " + execId + ")");
-											reqAPublishMessage
-													.getJSONArray(
-															"rows")
-													.put(new org.json.JSONObject().put("object",
-															new org.json.JSONObject().put(
-																	"id",
-																	"'" + (((Element) n0).getAttribute("ID")) + "'@1"))
-															.put("values", new org.json.JSONArray()
-																	.put("Enviado a publicación el: " + fm.format(
-																			java.time.Instant.ofEpochMilli(ctm)))));
-											req.getJSONArray("rows")
-													.put(new org.json.JSONObject()
-															.put("object", new org.json.JSONObject().put("id",
-																	"'" + (((Element) n0).getAttribute("ID")) + "'@1"))
-															.put("values", new org.json.JSONArray().put(
-																	fmP.format(java.time.Instant.ofEpochMilli(ctm)))));
+																			"'" + proposalId + "'@1"))
+															.put("values",
+																	new org.json.JSONArray().put("Sin ProductName")));
+									System.out.println("Sin product name (" + proposalId + ")");
+									continue;
+								}
+								articulosEnviados.add(firstVariant);
+								req.getJSONArray("rows").put(new org.json.JSONObject()
+										.put("object", new org.json.JSONObject().put("id", "'" + firstVariant + "'@1"))
+										.put("values", new org.json.JSONArray().put(
+												new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss").format(reqDate))));
+								product.appendChild(subProduct);
+								varName.setTextContent(name.getTextContent() + ", " + tamanoUnico + ", " + color);
+								for (java.util.Map.Entry<String, org.json.JSONObject> entr : heredables.entrySet()) {
+									if (!misaidis.contains(entr.getKey())) {
+										charId = entr.getKey();
+										characteristic = entr.getValue();
+										if ("LOOKUP".equals(characteristic.getString("_datatype"))) {
+											if (!characteristic.getJSONArray("_recordLang").getJSONObject(0)
+													.getJSONArray("values").getJSONObject(0).has("_label")) {
+												System.out.println("\n\t--->" + characteristic + "<---\n");
+												System.exit(0);
+											}
+											appendPlainElementValue(
+													characteristic.getJSONArray("_recordLang").getJSONObject(0)
+															.getJSONArray("values").getJSONObject(0).getString("_label"),
+													characteristic.getJSONArray("_recordLang").getJSONObject(0)
+															.getJSONArray("values").getJSONObject(0).getString("_code"),
+													charId, subAttributeValues, attributes, doc, propiedadesCaracteristicas,
+													atgGroups);
+										} else if (!"NONE".equals(characteristic.getString("_datatype"))) {
+											java.util.LinkedList<String> vals = new java.util.LinkedList<>();
+											for (int m = 0; m < characteristic.getJSONArray("_recordLang").getJSONObject(0)
+													.getJSONArray("values").length(); m++) {
+												vals.addLast(String.valueOf(parseDateForSpecificDateFields(
+														characteristic.getJSONArray("_recordLang").getJSONObject(0)
+																.getJSONArray("values").get(m),
+														charId)));
+											}
+											appendPlainElementValue(String.join(",", vals), null, charId,
+													subAttributeValues, attributes, doc, propiedadesCaracteristicas,
+													atgGroups);
 										}
+									}
+								}
+	
+								if (productName != null) {
+									name.setTextContent(productName);
+									appendPlainElementValue(productName, null, "ProductName", subAttributeValues,
+											attributes, doc, propiedadesCaracteristicas, atgGroups);
+								} else {
+									if (charactName != null && !"".equals(charactName)) {
+										name.setTextContent(charactName);
+										appendPlainElementValue(charactName, null, "ProductName", subAttributeValues,
+												attributes, doc, propiedadesCaracteristicas, atgGroups);
 									} else {
-										lasfilas.add(new EnvioAtgRow((((Element) n).getAttribute("ID")),
-												Long.parseLong(prodToSKU.get(((Element) n).getAttribute("ID"))), null,
-												Long.parseLong(prodToSKU.get(((Element) n).getAttribute("ID")))));
-										logEsp("[Esta cala] ProductID: " + (((Element) n).getAttribute("ID"))
-												+ ", ArticleID: , ProductSKU: "
-												+ prodToSKU.get(((Element) n).getAttribute("ID")) + ", ArticleSKU: "
-												+ " (" + fn + ", " + execId + ")");
+										if (nameLang != null && !"".equals(nameLang)) {
+											name.setTextContent(nameLang);
+											appendPlainElementValue(nameLang, null, "ProductName", subAttributeValues,
+													attributes, doc, propiedadesCaracteristicas, atgGroups);
+										} else {
+											log("Sin product neim, no será posible publicar.");
+											System.out.println("Sin product neim, no será posible publicar.");
+											reqPublishMessage.getJSONArray("rows")
+													.put(new org.json.JSONObject()
+															.put("object",
+																	new org.json.JSONObject().put("id",
+																			"'" + proposalId + "'@1"))
+															.put("values",
+																	new org.json.JSONArray().put("Sin ProductName")));
+											continue;
+										}
 									}
 								}
-								java.util.Map<String, String> empty = new java.util.HashMap<>();
-								empty.put("includeObjectsInProtocol", "false");
-								wrapper.writeData("list", "Product2G", null, empty, reqLastApprovedCategories,
-										this::log);
-							}
-							java.util.Map<String, String> empty = new java.util.HashMap<>();
-							empty.put("includeObjectsInProtocol", "false");
-							System.out.println("Sending FechaYHoraDePublicacion");
-							wrapper.writeData("list", "Article", null, empty, req, System.out::println);
-							log("Eleseee...");
-							if (envioAtgExecId > -1 && exploitLayerExists) {
-								try (java.sql.Connection con = openConnection(jdbcConfig, false)) {
-									try {
-										log("En proceso procesando y así...");
-										long envioAtgXmlId = EnvioAtgDao.insertarXml(con, envioAtgExecId, xmlOutput);
-										EnvioAtgDao.insertarDetalleBatch(con, envioAtgXmlId, lasfilas, 1000);
-										EnvioAtgDao.actualizarExec(con, envioAtgExecId, "SUCCESS",
-												"Proceso terminado correctamente");
-										con.commit();
-										log("[ATG DB] envioAtgExecId=" + envioAtgExecId + ", envioAtgXmlId="
-												+ envioAtgXmlId + ", rows=" + lasfilas.size());
-									} catch (java.sql.SQLException e) {
-										logE(e);
-										con.rollback();
-										throw e;
+								if (descLong != null) {
+									appendPlainElementValue(descLong, null, "DescriptionLong", subAttributeValues,
+											attributes, doc, propiedadesCaracteristicas, atgGroups);
+								}
+								appendPlainElementValue(sku, null, "ParentSKU", subAttributeValues, attributes, doc,
+										propiedadesCaracteristicas, atgGroups);
+								if (childSAPObjectType != null && !"".equals(childSAPObjectType)) {
+									appendPlainElementValue(childSAPObjectTypeLabel, childSAPObjectType, "SAPObjectType",
+											subAttributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+								}
+								if (tamanoUnico != null && !"".equals(tamanoUnico)) {
+									appendPlainElementValue(tamanoUnico, null, "TamanoUnico", subAttributeValues,
+											attributes, doc, propiedadesCaracteristicas, atgGroups);
+									talla(clothingSize == null ? sizeVaD : clothingSize, tamanoUnico, business, itemGroup, template, direccion, brandCode,
+											subAttributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+								}
+								if (tallaNormalizada != null && !"".equals(tallaNormalizada)) {
+									appendPlainElementValue(tallaNormalizada, null, "TC-NormalizedSize", subAttributeValues,
+											attributes, doc, propiedadesCaracteristicas, atgGroups);
+								}
+								if (color != null && !"".equals(color)) {
+									appendPlainElementValue(color, codigoColor, "ColoursLiverpoolAtt", subAttributeValues,
+											attributes, doc, propiedadesCaracteristicas, atgGroups);
+								}
+								appendPlainElementValue("".equals(itemGroupLabel) ? itemGroupS4HLabel : itemGroupLabel,
+										"".equals(itemGroup) ? itemGroupS4H : itemGroup, "ItemGroup2", subAttributeValues,
+										attributes, doc, propiedadesCaracteristicas, atgGroups);
+								if (piName != null && piUrl != null && piKey != null) {
+									appendMediaAsset(piName, piUrl, "PrimaryProductImage", // String assetType,
+											piKey, "Imagen Producto", // String assetValueTextContent,
+											"ImageURL", // String assetValueAttributeId,
+											"ProductImage", // String assetUserTypeId,
+											"ProductImage", // String assetKeyPrefix,
+											itemId, characteristic, "ProductImage", // String baseAssetTypeName,
+											assetMap, assetReferencesMap, subProduct, assets, doc, firstVariant);
+								}
+								if (details != null && !details.isEmpty()) {
+									for (String[] dt : details) {
+										appendMediaAsset(dt[0], dt[1], "ProductImage", // String assetType,
+												dt[2], "Imagen Detalle Producto", // String assetValueTextContent,
+												"ImageURL", // String assetValueAttributeId,
+												"ProductImageDetail", // String assetUserTypeId,
+												"ProductImageDetail", // String assetKeyPrefix,
+												itemId, characteristic, "ProductImageDetail", // String baseAssetTypeName,
+												assetMap, assetReferencesMap, subProduct, assets, doc, dt[3]);
 									}
-								} catch (ClassNotFoundException | java.sql.SQLException e) {
-									logE(e);
-
-									try (java.sql.Connection con = openConnection(jdbcConfig, true)) {
-										EnvioAtgDao.actualizarExec(con, envioAtgExecId, "FAILED",
-												stackTraceToString(e));
-									} catch (Exception updateError) {
-										logE(updateError);
+								}
+								if (smoshes != null && !smoshes.isEmpty()) {
+									for (String[] dt : smoshes) {
+										appendMediaAsset(dt[0], dt[1], "ProductImageSmosh", // String assetType,
+												dt[2], "Imagen Smosh Producto", // String assetValueTextContent,
+												"ImageURL", // String assetValueAttributeId,
+												"ProductImageSmosh", // String assetUserTypeId,
+												"SmoshImg", // String assetKeyPrefix,
+												itemId, characteristic, "ProductImageSmosh", // String baseAssetTypeName,
+												assetMap, assetReferencesMap, subProduct, assets, doc, firstVariant);
+									}
+								}
+								if (illustrations != null && !illustrations.isEmpty()) {
+									for (String[] dt : illustrations) {
+										appendMediaAsset(dt[0], dt[1], "Illustration", // String assetType,
+												dt[2], "Imagen Isométrica del Producto", // String assetValueTextContent,
+												"ImageURL", // String assetValueAttributeId,
+												"Illustration", // String assetUserTypeId,
+												"Illustration", // String assetKeyPrefix,
+												itemId, characteristic, "Illustration", // String baseAssetTypeName,
+												assetMap, assetReferencesMap, subProduct, assets, doc, firstVariant);
+									}
+								}
+	
+							} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException
+									| IOException e) {
+								logE(e);
+								log("Exception on processing child. " + e.getMessage());
+							}
+							theFirstTime = false;
+						}
+	
+						if (sku != null && !"".equals(sku)) {
+							keyValueSKU = doc.createElement("KeyValue");
+							keyValueSKU.setAttribute("KeyID", "SKUID");
+							String skuval = sku;
+							keyValueSKU.setTextContent(skuval);
+							product.appendChild(keyValueSKU);
+							prodToSKU.put(proposalId, skuval);
+							appendPlainElementValue(skuval, null, "SKU", attributeValues, attributes, doc,
+									propiedadesCaracteristicas, atgGroups);
+						}
+						if (mainBarCode != null && !"".equals(mainBarCode)) {
+							keyValueEAN = doc.createElement("KeyValue");
+							keyValueEAN.setAttribute("KeyID", "SBB".equals(business) ? "EANS4HKey" : "EANKey");
+							keyValueEAN.setTextContent(mainBarCode);
+							product.appendChild(keyValueEAN);
+							appendPlainElementValue(mainBarCode, null,
+									"SBB".equals(business) ? "MainBarCodeS4H" : "MainBarCode", attributeValues, attributes,
+									doc, propiedadesCaracteristicas, atgGroups);
+						}
+						if (piName != null && piUrl != null && piKey != null) {
+							appendMediaAsset(piName, piUrl, "PrimaryProductImage", // String assetType,
+									piKey, "Imagen Producto", // String assetValueTextContent,
+									"ImageURL", // String assetValueAttributeId,
+									"ProductImage", // String assetUserTypeId,
+									"ProductImage", // String assetKeyPrefix,
+									itemId, characteristic, "ProductImage", // String baseAssetTypeName,
+									assetMap, assetReferencesMap, product, assets, doc, proposalId);
+						}
+						for (java.util.LinkedList<String[]> eldetalle : losdetalles) {
+							for (String[] dt : eldetalle) {
+								appendMediaAsset(dt[0], dt[1], "ProductImage", // String assetType,
+										dt[2], "Imagen Detalle Producto", // String assetValueTextContent,
+										"ImageURL", // String assetValueAttributeId,
+										"ProductImageDetail", // String assetUserTypeId,
+										"ProductImageDetail", // String assetKeyPrefix,
+										itemId, characteristic, "ProductImageDetail", // String baseAssetTypeName,
+										assetMap, assetReferencesMap, product, assets, doc, dt[3]);
+							}
+						}
+						for (java.util.LinkedList<String[]> elesmoshes : losesmoshes) {
+							for (String[] dt : elesmoshes) {
+								appendMediaAsset(dt[0], dt[1], "ProductImageSmosh", // String assetType,
+										dt[2], "Imagen Smosh Producto", // String assetValueTextContent,
+										"ImageURL", // String assetValueAttributeId,
+										"ProductImageSmosh", // String assetUserTypeId,
+										"SmoshImg", // String assetKeyPrefix,
+										itemId, characteristic, "ProductImageSmosh", // String baseAssetTypeName,
+										assetMap, assetReferencesMap, product, assets, doc, firstVariant);
+							}
+						}
+						for (java.util.LinkedList<String[]> lailustracion : lasilustraciones) {
+							for (String[] dt : lailustracion) {
+								appendMediaAsset(dt[0], dt[1], "Illustration", // String assetType,
+										dt[2], "Imagen Isométrica del Producto", // String assetValueTextContent,
+										"ImageURL", // String assetValueAttributeId,
+										"Illustration", // String assetUserTypeId,
+										"Illustration", // String assetKeyPrefix,
+										itemId, characteristic, "Illustration", // String baseAssetTypeName,
+										assetMap, assetReferencesMap, product, assets, doc, firstVariant);
+							}
+						}
+					} else {
+						try {
+							raw = rw.makeRequest("GET", "/object/Article/'" + firstVariant
+									+ "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData",
+									null);
+							org.json.JSONObject resp = new org.json.JSONObject(raw);
+							resp = resp.getJSONObject("_data");
+							if (!resp.has("_characteristicRecords")) {
+								System.out.println("No characteristic records.");
+								continue;
+							}
+							if (resp.has("procedeNoProcede")) {
+								procede = resp.getBoolean("procedeNoProcede");
+							}
+							characteristicRecords = resp.getJSONArray("_characteristicRecords");
+							String sku0 = null;
+							String ean0 = null;
+							for (int b = 0; b < characteristicRecords.length(); b++) {
+								imageObject = characteristicRecords.getJSONObject(b);
+								charId = imageObject.getJSONObject("_qualification").getJSONObject("characteristic")
+										.getString("_code");
+								if (("ProductImage" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+								} else if (("ProductImageDetail" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+								} else if (("ProductImageSmosh" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+								} else if (("Illustration" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+								} else if ("ProductImage".equals(charId)) {
+								} else if ("ProductImageDetail".equals(charId)) {
+								} else if ("ProductImageSmosh".equals(charId)) {
+								} else if ("Illustration".equals(charId)) {
+								} else if ("TamanoUnicoSTD".equals(charId)) {
+								} else if ("TamanoUnico".equals(charId)) {
+								} else if ("ColoursLiverpoolAtt".equals(charId)) {
+								} else if ("SKU".equals(charId)) {
+									sku0 = treatment(imageObject.getJSONArray("_recordLang").getJSONObject(0)
+											.getJSONArray("values").getString(0));
+								} else if ("MainBarCode".equals(charId)) {
+									ean0 = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+											.getString(0);
+								} else if ("MainBarCodeS4H".equals(charId)) {
+									ean0 = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+											.getString(0);
+								} else if ("SAPObjectType".equals(charId)) {
+								} else if ("ProcedeNoProcede".equals(charId)) {
+									procede = imageObject.getJSONArray("_recordLang").getJSONObject(0)
+											.getJSONArray("values").getBoolean(0);
+								} else {
+									if (atributosGeneralesQueSi.contains(charId)) {
+										if ("LOOKUP".equals(imageObject.getString("_datatype"))) {
+											appendPlainElementValue(
+													imageObject.getJSONArray("_recordLang").getJSONObject(0)
+															.getJSONArray("values").getJSONObject(0).getString("_label"),
+													imageObject.getJSONArray("_recordLang").getJSONObject(0)
+															.getJSONArray("values").getJSONObject(0).getString("_code"),
+													charId, attributeValues, attributes, doc, propiedadesCaracteristicas,
+													atgGroups);
+										} else if (!"NONE".equals(imageObject.getString("_datatype"))) {
+											java.util.LinkedList<String> vals = new java.util.LinkedList<>();
+											for (int m = 0; m < imageObject.getJSONArray("_recordLang").getJSONObject(0)
+													.getJSONArray("values").length(); m++) {
+												vals.addLast(String.valueOf(parseDateForSpecificDateFields(
+														imageObject.getJSONArray("_recordLang").getJSONObject(0)
+																.getJSONArray("values").get(m),
+														charId)));
+											}
+											appendPlainElementValue(String.join(",", vals), null, charId, attributeValues,
+													attributes, doc, propiedadesCaracteristicas, atgGroups);
+										}
 									}
 								}
 							}
-						} else {
-							System.out.println("Sending FechaYHoraDePublicacion 4444");
-							try (java.sql.Connection con = openConnection(jdbcConfig, true)) {
-								EnvioAtgDao.actualizarExec(con, envioAtgExecId, "FAILED", sendResponse);
-							} catch (Exception updateError) {
-								updateError.printStackTrace();
-								logE(updateError);
+	
+							if (sku0 == null || "".equals(sku0)) {
+								sku0 = sku;
+							} else {
+								if (sku == null || "".equals(sku)) {
+									sku = sku0;
+								}
 							}
+							keyValueSKU = doc.createElement("KeyValue");
+							keyValueSKU.setAttribute("KeyID", "SKUID");
+							String skuval = sku0;
+							keyValueSKU.setTextContent(skuval);
+							product.appendChild(keyValueSKU);
+							prodToSKU.put(proposalId, skuval);
+							appendPlainElementValue(skuval, null, "SKU", attributeValues, attributes, doc,
+									propiedadesCaracteristicas, atgGroups);
+							if (ean0 == null || "".equals(ean0)) {
+								ean0 = mainBarCode;
+							} else {
+								if (mainBarCode == null || "".equals(mainBarCode)) {
+									mainBarCode = ean0;
+								}
+							}
+							keyValueEAN = doc.createElement("KeyValue");
+							keyValueEAN.setAttribute("KeyID", "SBB".equals(business) ? "EANS4HKey" : "EANKey");
+							keyValueEAN.setTextContent(ean0);
+							product.appendChild(keyValueEAN);
+							appendPlainElementValue(ean0, null, "SBB".equals(business) ? "MainBarCodeS4H" : "MainBarCode",
+									attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+							if (!procede) {
+								procede = resp.has("procedeNoProcede") && resp.getBoolean("procedeNoProcede");
+							}
+							if (procede) {
+								articulosEnviados.add(firstVariant);
+								req.getJSONArray("rows").put(new org.json.JSONObject()
+										.put("object", new org.json.JSONObject().put("id", "'" + firstVariant + "'@1"))
+										.put("values", new org.json.JSONArray().put(
+												new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss").format(reqDate))));
+							} else {
+	
+							}
+						} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
+							logE(e);
 						}
-						java.util.Map<String, String> empty = new java.util.HashMap<>();
-						empty.put("includeObjectsInProtocol", "false");
-						wrapper.writeData("list", "Product2G", null, empty, reqPublishMessage, this::log);
-						wrapper.writeData("list", "Product2G", null, empty, req2, this::log);
-						wrapper.writeData("list", "Article", null, empty, reqAPublishMessage, this::log);
-					} catch (IOException e) {
-						e.printStackTrace();
-						logE(e);
-						log("Error$$ " + e);
-						try (java.sql.Connection con = openConnection(jdbcConfig, true)) {
-							EnvioAtgDao.actualizarExec(con, envioAtgExecId, "FAILED", stackTraceToString(e));
-						} catch (Exception updateError) {
-							logE(updateError);
-						}
+	
 					}
-					try {
-						String sendResponse = null;
-						log("[" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())
-								+ "] (OMS) Request sent for " + java.util.Arrays.asList(proposalIds) + ": "
-								+ (sendResponse = rc.getRequest("POST", urlDeOMS, xmlOutput2))
-							);
-						return aggregatedMessage.append("<;;>").append(fnO + "<::>" + sendResponse).toString();
-					} catch (IOException e) {
-						logE(e);
+					if (rw.getXmm().listImmediateChildElements(product).get("Product") != null
+							|| ("SalesItem".equals(productType) && procede)) {
+						products.appendChild(product);
+						System.out.println("Added. (" + proposalId + ")");
+						log("Added. (" + proposalId + ")");
+					} else {
+						log("Not added (" + proposalId + ") - procede: " + procede);
+						System.out.println("Not added (" + proposalId + ") - procede: " + procede);
+					}
+				} finally {
+					if (hasProducts(current)) {
+						long candidateBytes = measureMergedSize(batch, current);
+						if (hasProducts(batch) && candidateBytes > MAX_BATCH_BYTES) {
+							appendBatchResult(aggregatedMessage,
+									finishBatch(batch, sendIt, execId, envioAtgExecId, jdbcConfig, batchNumber));
+							batchNumber++;
+							batch = createExportContext();
+						}
+
+						mergeContext(batch, current, true);
+						long batchBytes = serializedAtgSize(batch.doc);
+						log("Batch " + batchNumber + ": " + batch.proposalIds.size() + " propuestas, "
+								+ batchBytes + " bytes");
+
+						if (batchBytes > MAX_BATCH_BYTES && batch.proposalIds.size() == 1) {
+							log("WARNING: La propuesta " + current.currentProposalId
+									+ " supera por sí sola el límite de " + MAX_BATCH_BYTES + " bytes.");
+							appendBatchResult(aggregatedMessage,
+									finishBatch(batch, sendIt, execId, envioAtgExecId, jdbcConfig, batchNumber));
+							batchNumber++;
+							batch = createExportContext();
+						}
+					} else {
+						mergeContext(batch, current, false);
 					}
 				}
-			return xmlOutputIndented;
+			}
+
+			if (hasPendingWork(batch)) {
+				appendBatchResult(aggregatedMessage,
+						finishBatch(batch, sendIt, execId, envioAtgExecId, jdbcConfig, batchNumber));
+			}
+			return aggregatedMessage.toString();
 		} catch (TransformerException e) {
 			e.printStackTrace();
 			logE(e);
-			try (java.sql.Connection con = openConnection(jdbcConfig, true)) {
-				EnvioAtgDao.actualizarExec(con, envioAtgExecId, "FAILED", stackTraceToString(e));
-			} catch (Exception updateError) {
-				logE(updateError);
-			}
+			markExecutionFailed(jdbcConfig, envioAtgExecId, e);
 		} catch (ParserConfigurationException e) {
 			e.printStackTrace();
 			logE(e);
-			try (java.sql.Connection con = openConnection(jdbcConfig, true)) {
-				EnvioAtgDao.actualizarExec(con, envioAtgExecId, "FAILED", stackTraceToString(e));
-			} catch (Exception updateError) {
-				logE(updateError);
-			}
+			markExecutionFailed(jdbcConfig, envioAtgExecId, e);
 		} catch (IOException e) {
 			e.printStackTrace();
 			logE(e);
-			try (java.sql.Connection con = openConnection(jdbcConfig, true)) {
-				EnvioAtgDao.actualizarExec(con, envioAtgExecId, "FAILED", stackTraceToString(e));
-			} catch (Exception updateError) {
-				logE(updateError);
-			}
+			markExecutionFailed(jdbcConfig, envioAtgExecId, e);
 		}
 		return null;
 	}
 	
+
+	private static final class ExportContext {
+		private Document doc;
+		private Element spim;
+		private Element attributes;
+		private Element assets;
+		private Element products;
+		private Element classifications;
+		private Element webHierarchyRoot;
+		private Element webHierarchyRootName;
+		private String currentProposalId;
+
+		private final java.util.Map<String, Element> assetMap = new java.util.TreeMap<String, Element>();
+		private final java.util.Map<String, java.util.LinkedList<String>> assetReferencesMap = new java.util.TreeMap<String, java.util.LinkedList<String>>();
+		private final java.util.Map<String, String> prodToSKU = new java.util.HashMap<String, String>();
+		private final java.util.Map<String, String> artToSKU = new java.util.HashMap<String, String>();
+		private final java.util.List<String> productos = new java.util.ArrayList<String>();
+		private final java.util.List<String> proposalIds = new java.util.ArrayList<String>();
+		private final java.util.Set<String> articulosEnviados = new java.util.TreeSet<String>();
+		private final java.util.LinkedList<org.json.JSONObject> rescataLaRaiz = new java.util.LinkedList<org.json.JSONObject>();
+		private final java.util.Map<String, java.util.Map<String, org.json.JSONObject>> globalMap = new java.util.TreeMap<String, java.util.Map<String, org.json.JSONObject>>();
+
+		private final org.json.JSONObject reqPublishMessage = newRequest(
+				"Product2GCharacteristicValueLang.Value('PublishMessage',root,\"0000.0000.RK\",'PublishMessage',-1)");
+		private final org.json.JSONObject req2 = newRequest(
+				"Product2GCharacteristicValueLang.Value('FechaUltimaPublicacion',root,\"0000.0000.RK\",'FechaUltimaPublicacion',-1)");
+		private final org.json.JSONObject reqLastApprovedCategories = newRequest(
+				"Product2GExtraData.LastApprovedCategories(MX)");
+		private final org.json.JSONObject req = newRequest(
+				"ArticleCharacteristicValueLang.Value('FechaYHoraDePublicacion',root,\"0000.0000.RK\",'FechaYHoraDePublicacion',-1)");
+		private final org.json.JSONObject reqAPublishMessage = newRequest(
+				"ArticleCharacteristicValueLang.Value('PublishMessage',root,\"0000.0000.RK\",'PublishMessage',-1)");
+	}
+
+	private static org.json.JSONObject newRequest(String identifier) {
+		return new org.json.JSONObject()
+				.put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", identifier)))
+				.put("rows", new org.json.JSONArray());
+	}
+
+	private ExportContext createExportContext() throws ParserConfigurationException {
+		DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+		DocumentBuilder builder = factory.newDocumentBuilder();
+		ExportContext context = new ExportContext();
+		context.doc = builder.newDocument();
+
+		context.spim = context.doc.createElement("STEP-ProductInformation");
+		context.spim.setAttribute("ExportTime",
+				new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()));
+		context.spim.setAttribute("ExportContext", "Context2");
+		context.spim.setAttribute("ContextID", "Context2");
+		context.spim.setAttribute("WorkspaceID", "Approved");
+		context.spim.setAttribute("UseContextLocale", "false");
+		context.doc.appendChild(context.spim);
+
+		context.attributes = context.doc.createElement("AttributeList");
+		context.assets = context.doc.createElement("Assets");
+		context.products = context.doc.createElement("Products");
+		context.classifications = context.doc.createElement("Classifications");
+		context.spim.appendChild(context.attributes);
+		context.spim.appendChild(context.assets);
+		context.spim.appendChild(context.products);
+		context.spim.appendChild(context.classifications);
+
+		Element raizClassification = context.doc.createElement("Classification");
+		raizClassification.setAttribute("ID", "Classification 1 root");
+		raizClassification.setAttribute("UserTypeID", "Classification 1 user-type root");
+		raizClassification.setAttribute("Selected", "false");
+
+		Element raizClassificationName = context.doc.createElement("Name");
+		raizClassificationName.setTextContent("Clasificaciones");
+		raizClassification.appendChild(raizClassificationName);
+
+		context.webHierarchyRoot = context.doc.createElement("Classification");
+		context.webHierarchyRoot.setAttribute("ID", "WebHierarchyRoot");
+		context.webHierarchyRoot.setAttribute("UserTypeID", "WebHierarchyRoot");
+		context.webHierarchyRoot.setAttribute("Selected", "false");
+
+		context.webHierarchyRootName = context.doc.createElement("Name");
+		context.webHierarchyRootName.setTextContent("Sitios Web");
+		context.webHierarchyRoot.appendChild(context.webHierarchyRootName);
+		raizClassification.appendChild(context.webHierarchyRoot);
+		context.classifications.appendChild(raizClassification);
+
+		return context;
+	}
+
+	private boolean hasProducts(ExportContext context) {
+		return hasDirectElementChild(context.products, "Product");
+	}
+
+	private boolean hasPendingWork(ExportContext context) {
+		return hasProducts(context)
+				|| hasRows(context.reqPublishMessage)
+				|| hasRows(context.reqAPublishMessage)
+				|| hasRows(context.reqLastApprovedCategories)
+				|| hasRows(context.req)
+				|| hasRows(context.req2);
+	}
+
+	private static boolean hasRows(org.json.JSONObject request) {
+		return request != null && request.getJSONArray("rows").length() > 0;
+	}
+
+	private static boolean hasDirectElementChild(Element parent, String tagName) {
+		for (Node child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
+			if (child instanceof Element && tagName.equals(((Element) child).getTagName())) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private long measureMergedSize(ExportContext batch, ExportContext current)
+			throws ParserConfigurationException, TransformerException {
+		Document candidate = cloneDocument(batch.doc);
+		mergeXml(candidate, current);
+		return serializedAtgSize(candidate);
+	}
+
+	private void mergeContext(ExportContext destination, ExportContext source, boolean includeXmlAndProductData) {
+		if (includeXmlAndProductData) {
+			mergeXml(destination.doc, source);
+			destination.assetMap.putAll(source.assetMap);
+			destination.assetReferencesMap.putAll(source.assetReferencesMap);
+			destination.prodToSKU.putAll(source.prodToSKU);
+			destination.artToSKU.putAll(source.artToSKU);
+			destination.productos.addAll(source.productos);
+			destination.articulosEnviados.addAll(source.articulosEnviados);
+			if (source.currentProposalId != null) {
+				destination.proposalIds.add(source.currentProposalId);
+			}
+		}
+
+		appendRows(destination.reqPublishMessage, source.reqPublishMessage);
+		appendRows(destination.reqAPublishMessage, source.reqAPublishMessage);
+		appendRows(destination.reqLastApprovedCategories, source.reqLastApprovedCategories);
+		appendRows(destination.req, source.req);
+		appendRows(destination.req2, source.req2);
+	}
+
+	private void mergeXml(Document destinationDocument, ExportContext source) {
+		Element destinationRoot = destinationDocument.getDocumentElement();
+		Element destinationAttributes = directChild(destinationRoot, "AttributeList");
+		Element destinationAssets = directChild(destinationRoot, "Assets");
+		Element destinationProducts = directChild(destinationRoot, "Products");
+		Element destinationClassifications = directChild(destinationRoot, "Classifications");
+
+		appendUniqueDirectChildren(destinationDocument, destinationAttributes, source.attributes, "ID");
+		appendUniqueDirectChildren(destinationDocument, destinationAssets, source.assets, "ID");
+		appendUniqueDirectChildren(destinationDocument, destinationProducts, source.products, "ID");
+
+		Element destinationWebRoot = findElementById(destinationClassifications, "WebHierarchyRoot");
+		Element sourceWebRoot = findElementById(source.classifications, "WebHierarchyRoot");
+		if (destinationWebRoot != null && sourceWebRoot != null) {
+			mergeClassificationChildren(destinationDocument, destinationWebRoot, sourceWebRoot);
+		}
+	}
+
+	private static Element directChild(Element parent, String tagName) {
+		for (Node child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
+			if (child instanceof Element && tagName.equals(((Element) child).getTagName())) {
+				return (Element) child;
+			}
+		}
+		throw new IllegalStateException("No se encontró el elemento " + tagName);
+	}
+
+	private static void appendUniqueDirectChildren(Document destinationDocument, Element destinationParent,
+			Element sourceParent, String idAttribute) {
+		for (Node child = sourceParent.getFirstChild(); child != null; child = child.getNextSibling()) {
+			if (!(child instanceof Element)) {
+				continue;
+			}
+			Element sourceElement = (Element) child;
+			String id = sourceElement.getAttribute(idAttribute);
+			if (id == null || id.isEmpty()
+					|| findDirectChildById(destinationParent, sourceElement.getTagName(), id) == null) {
+				destinationParent.appendChild(destinationDocument.importNode(sourceElement, true));
+			}
+		}
+	}
+
+	private static void mergeClassificationChildren(Document destinationDocument, Element destinationParent,
+			Element sourceParent) {
+		for (Node child = sourceParent.getFirstChild(); child != null; child = child.getNextSibling()) {
+			if (!(child instanceof Element)) {
+				continue;
+			}
+			Element sourceElement = (Element) child;
+			if (!"Classification".equals(sourceElement.getTagName())) {
+				continue;
+			}
+			String id = sourceElement.getAttribute("ID");
+			Element existing = id == null || id.isEmpty() ? null
+					: findDirectChildById(destinationParent, sourceElement.getTagName(), id);
+			if (existing == null) {
+				destinationParent.appendChild(destinationDocument.importNode(sourceElement, true));
+			} else {
+				mergeClassificationChildren(destinationDocument, existing, sourceElement);
+			}
+		}
+	}
+
+	private static Element findDirectChildById(Element parent, String tagName, String id) {
+		for (Node child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
+			if (child instanceof Element) {
+				Element element = (Element) child;
+				if (tagName.equals(element.getTagName()) && id.equals(element.getAttribute("ID"))) {
+					return element;
+				}
+			}
+		}
+		return null;
+	}
+
+	private static Element findElementById(Element root, String id) {
+		if (id.equals(root.getAttribute("ID"))) {
+			return root;
+		}
+		for (Node child = root.getFirstChild(); child != null; child = child.getNextSibling()) {
+			if (child instanceof Element) {
+				Element found = findElementById((Element) child, id);
+				if (found != null) {
+					return found;
+				}
+			}
+		}
+		return null;
+	}
+
+	private static void appendRows(org.json.JSONObject destination, org.json.JSONObject source) {
+		org.json.JSONArray destinationRows = destination.getJSONArray("rows");
+		org.json.JSONArray sourceRows = source.getJSONArray("rows");
+		for (int i = 0; i < sourceRows.length(); i++) {
+			destinationRows.put(sourceRows.get(i));
+		}
+	}
+
+	private static void clearRows(org.json.JSONObject request) {
+		request.put("rows", new org.json.JSONArray());
+	}
+
+	private Document cloneDocument(Document source) throws ParserConfigurationException {
+		DocumentBuilder builder = DocumentBuilderFactory.newInstance().newDocumentBuilder();
+		Document clone = builder.newDocument();
+		clone.appendChild(clone.importNode(source.getDocumentElement(), true));
+		return clone;
+	}
+
+	private String serializeAtgXml(Document doc, boolean indent) throws TransformerException {
+		return new String(serializeXml(doc, indent), StandardCharsets.UTF_8)
+				.replace("&lt;CRLF&gt;", "&#13;&#10;")
+				.replace("<CRLF>", "&#13;&#10;");
+	}
+
+	private long serializedAtgSize(Document doc) throws TransformerException {
+		return serializeAtgXml(doc, false).getBytes(StandardCharsets.UTF_8).length;
+	}
+
+	private String finishBatch(ExportContext batch, boolean sendIt, String execId, long envioAtgExecId,
+			JdbcConfig jdbcConfig, int batchNumber)
+			throws TransformerException, ParserConfigurationException, IOException {
+		sendRequestRows("Product2G", batch.reqPublishMessage, System.out::println);
+		sendRequestRows("Article", batch.reqAPublishMessage, this::log);
+
+		if (!hasProducts(batch)) {
+			return "";
+		}
+
+		String xmlOutput = serializeAtgXml(batch.doc, false);
+		String xmlOutputIndented = serializeAtgXml(batch.doc, true);
+		long xmlBytes = xmlOutput.getBytes(StandardCharsets.UTF_8).length;
+		long ctm = System.currentTimeMillis();
+		String suffix = String.format("%03d", batchNumber) + "_" + ctm + ".xml";
+		String fn = java.nio.file.Paths.get(fileSystemPrefix.toString(), "pepele" + suffix).toString();
+		writeUtf8File(fn, xmlOutputIndented);
+
+		Document omsDocument = cloneDocument(batch.doc);
+		Element omsRoot = omsDocument.getDocumentElement();
+		Element omsProducts = directChild(omsRoot, "Products");
+		java.util.List<Element> omsProductElements = directElementChildren(omsProducts, "Product");
+		for (Element product : omsProductElements) {
+			if ("SalesItemFamilyMkt".equals(product.getAttribute("UserTypeID"))) {
+				product.setAttribute("UserTypeID", "SalesItemFamily");
+			}
+		}
+		removeDirectChildIfPresent(omsRoot, "Classifications");
+		removeDirectChildIfPresent(omsRoot, "AttributeList");
+		String xmlOutputOms = new String(serializeXml(omsDocument, false), StandardCharsets.UTF_8);
+		String fnOms = java.nio.file.Paths.get(fileSystemPrefixOMS.toString(), "pepele" + suffix).toString();
+		writeUtf8File(fnOms, xmlOutputOms);
+
+		java.util.List<Element> productElements = directElementChildren(batch.products, "Product");
+		log("Batch " + batchNumber + " terminado: " + productElements.size() + " propuestas, " + xmlBytes
+				+ " bytes, archivo " + fn);
+
+		if (toDwhOnly && !sendIt) {
+			sendBatchToDwh(xmlOutputIndented, batchNumber);
+		}
+		if (!sendIt) {
+			return xmlOutputIndented;
+		}
+
+		if (Boolean.parseBoolean(PropertiesManager.get("p360.contingency.dwh.enabled", "true"))) {
+			sendBatchToDwh(xmlOutputIndented, batchNumber);
+		}
+
+		StringBuilder result = new StringBuilder();
+		RestClient batchClient = new RestClient("Content-Type: application/xml", "Accept: application/xml");
+		String atgResponse = null;
+		try {
+			atgResponse = batchClient.getRequest("POST", urlDeATG, xmlOutput);
+			log("[" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())
+					+ "] (ATG) Batch " + batchNumber + " request sent for " + batch.proposalIds + ": " + atgResponse);
+			result.append(fn).append("<::>").append(atgResponse);
+
+			if (atgResponse != null && atgResponse.contains("Se proceso correctamente")) {
+				handleSuccessfulAtgBatch(batch, xmlOutput, fn, execId, envioAtgExecId, jdbcConfig, ctm);
+			} else {
+				markExecutionFailed(jdbcConfig, envioAtgExecId,
+						new IllegalStateException(String.valueOf(atgResponse)));
+			}
+
+			sendRequestRows("Product2G", batch.reqPublishMessage, this::log);
+			sendRequestRows("Product2G", batch.req2, this::log);
+			sendRequestRows("Article", batch.reqAPublishMessage, this::log);
+		} catch (IOException e) {
+			logE(e);
+			markExecutionFailed(jdbcConfig, envioAtgExecId, e);
+		}
+
+		try {
+			String omsResponse = batchClient.getRequest("POST", urlDeOMS, xmlOutputOms);
+			log("[" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())
+					+ "] (OMS) Batch " + batchNumber + " request sent for " + batch.proposalIds + ": " + omsResponse);
+			result.append("<;;>").append(fnOms).append("<::>").append(omsResponse);
+		} catch (IOException e) {
+			logE(e);
+		}
+		return result.toString();
+	}
+
+	private void handleSuccessfulAtgBatch(ExportContext batch, String xmlOutput, String fn, String execId,
+			long envioAtgExecId, JdbcConfig jdbcConfig, long ctm) {
+		java.time.format.DateTimeFormatter fm = java.time.format.DateTimeFormatter
+				.ofPattern("dd/MM/yyyy HH:mm:ss.SSS").withZone(java.time.ZoneId.systemDefault());
+		java.time.format.DateTimeFormatter fmP = java.time.format.DateTimeFormatter
+				.ofPattern("yyyy-MM-dd'T'HH:mm:ss").withZone(java.time.ZoneId.systemDefault());
+		java.util.List<EnvioAtgDao.EnvioAtgRow> rows = new java.util.ArrayList<EnvioAtgDao.EnvioAtgRow>();
+
+		for (Element product : directElementChildren(batch.products, "Product")) {
+			String productId = product.getAttribute("ID");
+			batch.reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject()
+					.put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1"))
+					.put("values", new org.json.JSONArray().put(
+							"Enviado a publicación el " + fm.format(java.time.Instant.ofEpochMilli(ctm)))));
+			batch.req2.getJSONArray("rows").put(new org.json.JSONObject()
+					.put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1"))
+					.put("values", new org.json.JSONArray().put(fmP.format(java.time.Instant.ofEpochMilli(ctm)))));
+
+			java.util.List<Element> childProducts = directElementChildren(product, "Product");
+			if (!childProducts.isEmpty()) {
+				for (Element article : childProducts) {
+					String articleId = article.getAttribute("ID");
+					rows.add(new EnvioAtgRow(productId, Long.parseLong(batch.prodToSKU.get(productId)), articleId,
+							Long.parseLong(batch.artToSKU.get(articleId))));
+					logEsp("[Esta cala] ProductID: " + productId + ", ArticleID: " + articleId + ", ProductSKU: "
+							+ batch.prodToSKU.get(productId) + ", ArticleSKU: " + batch.artToSKU.get(articleId)
+							+ " (" + fn + ", " + execId + ")");
+					batch.reqAPublishMessage.getJSONArray("rows").put(new org.json.JSONObject()
+							.put("object", new org.json.JSONObject().put("id", "'" + articleId + "'@1"))
+							.put("values", new org.json.JSONArray().put(
+									"Enviado a publicación el: " + fm.format(java.time.Instant.ofEpochMilli(ctm)))));
+					batch.req.getJSONArray("rows").put(new org.json.JSONObject()
+							.put("object", new org.json.JSONObject().put("id", "'" + articleId + "'@1"))
+							.put("values", new org.json.JSONArray().put(fmP.format(java.time.Instant.ofEpochMilli(ctm)))));
+				}
+			} else {
+				long productSku = Long.parseLong(batch.prodToSKU.get(productId));
+				rows.add(new EnvioAtgRow(productId, productSku, null, productSku));
+				logEsp("[Esta cala] ProductID: " + productId + ", ArticleID: , ProductSKU: "
+						+ batch.prodToSKU.get(productId) + ", ArticleSKU:  (" + fn + ", " + execId + ")");
+			}
+		}
+
+		sendRequestRows("Product2G", batch.reqLastApprovedCategories, this::log);
+		sendRequestRows("Article", batch.req, System.out::println);
+
+		if (envioAtgExecId > -1 && exploitLayerExists && jdbcConfig != null) {
+			try (java.sql.Connection con = openConnection(jdbcConfig, false)) {
+				try {
+					long envioAtgXmlId = EnvioAtgDao.insertarXml(con, envioAtgExecId, xmlOutput);
+					EnvioAtgDao.insertarDetalleBatch(con, envioAtgXmlId, rows, 1000);
+					EnvioAtgDao.actualizarExec(con, envioAtgExecId, "SUCCESS", "Proceso terminado correctamente");
+					con.commit();
+					log("[ATG DB] envioAtgExecId=" + envioAtgExecId + ", envioAtgXmlId=" + envioAtgXmlId
+							+ ", rows=" + rows.size());
+				} catch (java.sql.SQLException e) {
+					con.rollback();
+					throw e;
+				}
+			} catch (ClassNotFoundException | java.sql.SQLException e) {
+				logE(e);
+				markExecutionFailed(jdbcConfig, envioAtgExecId, e);
+			}
+		}
+	}
+
+	private void sendRequestRows(String entity, org.json.JSONObject request,
+			java.util.function.Consumer<String> consumer) {
+		if (!hasRows(request)) {
+			return;
+		}
+		java.util.Map<String, String> params = new java.util.HashMap<String, String>();
+		params.put("includeObjectsInProtocol", "false");
+		wrapper.writeData("list", entity, null, params, request, consumer::accept);
+		clearRows(request);
+	}
+
+	private void sendBatchToDwh(String xml, int batchNumber) {
+		SshClient client = SshClient.setUpDefaultClient();
+		client.start();
+		try (ClientSession session = client.connect(user, host, port).verify(10, TimeUnit.SECONDS).getSession()) {
+			FileKeyPairProvider keyProvider = new FileKeyPairProvider(privateKeyPath);
+			keyProvider.setPasswordFinder(FilePasswordProvider.EMPTY);
+			keyProvider.loadKeys(null).forEach(session::addPublicKeyIdentity);
+			session.auth().verify(10, TimeUnit.SECONDS);
+			try (SftpClient sftp = SftpClientFactory.instance().createSftpClient(session)) {
+				writeToSftp(sftp, xml, PropertiesManager.get("p360.contingency.dwh.remote_directory_base"),
+						"eilstep_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss_SSS")
+								.format(new java.util.Date()) + "_batch" + String.format("%03d", batchNumber) + ".xml");
+			}
+			log("DWH sent.");
+		} catch (java.io.IOException e) {
+			log("Could not send request to dwh: " + e.getMessage());
+			logE(e);
+		} finally {
+			client.stop();
+		}
+	}
+
+	private static java.util.List<Element> directElementChildren(Element parent, String tagName) {
+		java.util.List<Element> result = new java.util.ArrayList<Element>();
+		for (Node child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
+			if (child instanceof Element && tagName.equals(((Element) child).getTagName())) {
+				result.add((Element) child);
+			}
+		}
+		return result;
+	}
+
+	private static void removeDirectChildIfPresent(Element parent, String tagName) {
+		for (Node child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
+			if (child instanceof Element && tagName.equals(((Element) child).getTagName())) {
+				parent.removeChild(child);
+				return;
+			}
+		}
+	}
+
+	private void writeUtf8File(String fileName, String content) {
+		try (java.io.PrintWriter writer = new java.io.PrintWriter(new java.io.OutputStreamWriter(
+				new java.io.FileOutputStream(fileName), StandardCharsets.UTF_8))) {
+			writer.print(content);
+		} catch (java.io.IOException e) {
+			logE(e);
+		}
+	}
+
+	private void appendBatchResult(StringBuilder aggregatedMessage, String batchResult) {
+		if (batchResult == null || batchResult.isEmpty()) {
+			return;
+		}
+		if (aggregatedMessage.length() > 0) {
+			aggregatedMessage.append("<;;;>");
+		}
+		aggregatedMessage.append(batchResult);
+	}
+
+	private void markExecutionFailed(JdbcConfig jdbcConfig, long envioAtgExecId, Throwable error) {
+		if (!exploitLayerExists || jdbcConfig == null || envioAtgExecId < 0) {
+			return;
+		}
+		try (java.sql.Connection con = openConnection(jdbcConfig, true)) {
+			EnvioAtgDao.actualizarExec(con, envioAtgExecId, "FAILED", stackTraceToString(error));
+		} catch (Exception updateError) {
+			logE(updateError);
+		}
+	}
+
 	private byte[] serializeXml(Document doc, boolean indent) throws TransformerException {
 		Transformer transformer = TransformerFactory.newInstance().newTransformer();
 
@@ -2587,7 +2706,6 @@ public class RealExportProducts {
 		if (t == null) {
 			return null;
 		}
-
 		java.io.StringWriter sw = new java.io.StringWriter();
 		java.io.PrintWriter pw = new java.io.PrintWriter(sw);
 		t.printStackTrace(pw);
@@ -2611,71 +2729,6 @@ public class RealExportProducts {
 	}
 
 	private void addCharacteristicData(java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas) {
-//		RESTWorkshop rw = new RESTWorkshop();
-//		rw.setBaseUrl(RealExportProducts.rw.getBaseUrl());
-//		rw.addHeader("Authorization", RealExportProducts.rw.getRc().getHeader().get("Authorization"));
-//		rw.putParameter("fields",
-//				"Characteristic.Identifier" + ",CharacteristicLang.Name(es)" + ",CharacteristicLang.Description(es)"
-//						+ ",Characteristic.DataType" + ",Characteristic.Lookup->Lookup.Identifier"
-//						+ ",Characteristic.IsMultiValue" + ",Characteristic.Purposes->LookupValue.Code"
-//						+ ",Characteristic.Order");
-//		rw.putParameter("query", "Characteristic.ParentCharacteristic is empty");
-//		rw.putParameter("orderBy", "0-ASC");
-//		rw.putParameter("pageSize", "2000");
-//		org.json.JSONObject response = null;
-//		org.json.JSONArray rows = null;
-//		org.json.JSONArray values = null;
-//		int totalSize = 0;
-//		int currentIndex = 0;
-//		org.json.JSONObject detail = new org.json.JSONObject();
-//		org.json.JSONArray prevValues = null;
-//		do {
-//			rw.putParameter("startIndex", String.valueOf(currentIndex));
-//			response = rw.makeRequest("GET", "/list/Characteristic/bySearch");
-//			if (response != null) {
-//				totalSize = response.getInt("totalSize");
-//				rows = response.getJSONArray("rows");
-//				for (int i = 0; i < rows.length(); i++) {
-//					currentIndex++;
-//					values = rows.getJSONObject(i).getJSONArray("values");
-//					if (prevValues != null && !prevValues.getString(0).equals(values.getString(0))
-//							&& !propiedadesCaracteristicas.containsKey(prevValues.getString(0))) {
-//						detail.put("name", prevValues.getString(1));
-//						detail.put("description", prevValues.getString(2));
-//						detail.put("dataType", prevValues.getString(3));
-//						detail.put("lookup", prevValues.getString(4));
-//						detail.put("isMultiValue", prevValues.getString(5));
-//						detail.put("purposes", prevValues.getJSONArray(6));
-//						detail.put("order", prevValues.getString(7));
-//						propiedadesCaracteristicas.put(prevValues.getString(0), detail);
-//						if (detail.getJSONArray("purposes").length() == 1
-//								&& detail.getJSONArray("purposes").getString(0).equals(""))
-//							detail.getJSONArray("purposes").remove(0);
-//						detail = new org.json.JSONObject();
-//					}
-//					prevValues = values;
-//				}
-//			} else {
-//				log("ERR: " + rw.getRawResponse());
-//			}
-//		} while (currentIndex < totalSize);
-//		currentIndex = 0;
-//		if (detail.length() > 0) {
-//			detail.put("name", prevValues.getString(3));
-//			detail.put("description", prevValues.getString(4));
-//			detail.put("dataType", prevValues.getString(5));
-//			detail.put("lookup", prevValues.getString(6));
-//			detail.put("isMultiValue", prevValues.getString(7));
-//			detail.put("purposes", prevValues.getJSONArray(8));
-//			detail.put("order", prevValues.getString(9));
-//			if (!propiedadesCaracteristicas.containsKey(prevValues.getString(0))) {
-//				propiedadesCaracteristicas.put(prevValues.getString(0), detail);
-//				if (detail.getJSONArray("purposes").length() == 1
-//						&& detail.getJSONArray("purposes").getString(0).equals(""))
-//					detail.getJSONArray("purposes").remove(0);
-//			}
-//			detail = null;
-//		}
 		for (java.util.Map.Entry<Integer, org.json.JSONObject> entry : characteristicMetadataByID.entrySet()) {
 			Integer characteristicID = entry.getKey();
 			String identifier = characteristicIdentifierByID.get( characteristicID );
@@ -2685,7 +2738,7 @@ public class RealExportProducts {
 			propiedadesCaracteristicas.put( identifier, copyCharacteristicMetadata( entry.getValue() ));
 		}
 	}
-	
+
 	private org.json.JSONObject getOrCreateCharacteristicProperties( int characteristicID, java.util.Map<String, org.json.JSONObject> target ) {
 		org.json.JSONObject metadata = characteristicMetadataByID.get(characteristicID);
 		String identifier = characteristicIdentifierByID.get(characteristicID);
@@ -2699,7 +2752,7 @@ public class RealExportProducts {
 		}
 		return properties;
 	}
-	
+
 	private void loadCharacteristicMetadata() {
 		java.util.Map<Integer, String> purposeCodes = dastub.getLookupValueCodeMap(2);
 		java.util.List<org.json.JSONObject> rows = dastub.getCharacteristicMetadataRows(10);
@@ -2725,7 +2778,7 @@ public class RealExportProducts {
 			}
 		}
 	}
-	
+
 	private org.json.JSONObject copyCharacteristicMetadata( org.json.JSONObject source ) {
 		org.json.JSONArray purposes = new org.json.JSONArray();
 		org.json.JSONArray sourcePurposes = source.optJSONArray("purposes");
@@ -2803,82 +2856,6 @@ public class RealExportProducts {
 	}
 
 	private void addGlobalData(java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas, java.util.Set<String> losQueSi) {
-//		RESTWorkshop rw = new RESTWorkshop();
-//		if (baseUrl != null) {
-//			rw.setBaseUrl(baseUrl);
-//			rw.addHeader("Authorization", RealExportProducts.rw.getRc().getHeader().get("Authorization"));
-//		}
-//		rw.putParameter("dictionaryProxy", "'GlobalTemplateAttributeConfiguration'");
-//		rw.putParameter("fields",
-//				"StandardizationValue.Characteristic->Characteristic.Identifier"
-//						+ ",StandardizationValue.Property->LookupValue.Code" + ",StandardizationValue.PropertyValue"
-//						+ ",StandardizationValue.Characteristic->CharacteristicLang.Name(es)"
-//						+ ",StandardizationValue.Characteristic->CharacteristicLang.Description(es)"
-//						+ ",StandardizationValue.Characteristic->Characteristic.DataType"
-//						+ ",StandardizationValue.Characteristic->Characteristic.Lookup->Lookup.Identifier"
-//						+ ",StandardizationValue.Characteristic->Characteristic.IsMultiValue"
-//						+ ",StandardizationValue.Characteristic->Characteristic.Purposes->LookupValue.Code"
-//						+ ",StandardizationValue.Characteristic->Characteristic.Order");
-//		rw.putParameter("query",
-//				"StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"GlobalTemplateAttributeConfiguration\"");
-//		rw.putParameter("orderBy", "0-ASC");
-//		rw.putParameter("pageSize", "1200");
-//		org.json.JSONObject response = null;
-//		org.json.JSONArray rows = null;
-//		org.json.JSONArray values = null;
-//		int totalSize = 0;
-//		int currentIndex = 0;
-//		org.json.JSONObject detail = new org.json.JSONObject();
-//		org.json.JSONArray prevValues = null;
-//		do {
-//			rw.putParameter("startIndex", String.valueOf(currentIndex));
-//			response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch");
-//			if (response != null) {
-//				totalSize = response.getInt("totalSize");
-//				rows = response.getJSONArray("rows");
-//				for (int i = 0; i < rows.length(); i++) {
-//					currentIndex++;
-//					values = rows.getJSONObject(i).getJSONArray("values");
-//					if (prevValues != null && !prevValues.getString(0).equals(values.getString(0))) {
-//						detail.put("name", prevValues.getString(3));
-//						detail.put("description", prevValues.getString(4));
-//						detail.put("dataType", prevValues.getString(5));
-//						detail.put("lookup", prevValues.getString(6));
-//						detail.put("isMultiValue", prevValues.getString(7));
-//						detail.put("purposes", prevValues.getJSONArray(8));
-//						detail.put("order", prevValues.getString(9));
-//						propiedadesCaracteristicas.put(prevValues.getString(0), detail);
-//						if (detail.getJSONArray("purposes").length() == 1
-//								&& detail.getJSONArray("purposes").getString(0).equals(""))
-//							detail.getJSONArray("purposes").remove(0);
-//						if (detail.has("RelevantForATG") && "Y".equals(detail.getString("RelevantForATG")))
-//							losQueSi.add(prevValues.getString(0));
-//						detail = new org.json.JSONObject();
-//					}
-//					detail.put(values.getString(1), values.getString(2));
-//					prevValues = values;
-//				}
-//			} else {
-//				log("ERR: " + rw.getRawResponse());
-//			}
-//		} while (currentIndex < totalSize);
-//		currentIndex = 0;
-//		if (detail.length() > 0) {
-//			detail.put("name", prevValues.getString(3));
-//			detail.put("description", prevValues.getString(4));
-//			detail.put("dataType", prevValues.getString(5));
-//			detail.put("lookup", prevValues.getString(6));
-//			detail.put("isMultiValue", prevValues.getString(7));
-//			detail.put("purposes", prevValues.getJSONArray(8));
-//			detail.put("order", prevValues.getString(9));
-//			propiedadesCaracteristicas.put(prevValues.getString(0), detail);
-//			if (detail.getJSONArray("purposes").length() == 1
-//					&& detail.getJSONArray("purposes").getString(0).equals(""))
-//				detail.getJSONArray("purposes").remove(0);
-//			if (detail.has("RelevantForATG") && "Y".equals(detail.getString("RelevantForATG")))
-//				losQueSi.add(prevValues.getString(0));
-//			detail = null;
-//		}
 		java.util.List<org.json.JSONObject> rows = dastub.getStandardizationValueCharacteristicRows( "GlobalTemplateAttributeConfiguration" );
 		for (org.json.JSONObject row : rows) {
 			int characteristicID = row.getInt("characteristicID");
@@ -2948,82 +2925,10 @@ public class RealExportProducts {
 			value = queryDictionary( itemGroup, "ItemGroupSAPSizeAttribute" );
 		}
 		return value;
-//		String value = null;
-//		RESTWorkshop rw = new RESTWorkshop();
-//		rw.setBaseUrl(RealExportProducts.rw.getBaseUrl());
-//		rw.addHeader("Authorization", RealExportProducts.rw.getRc().getHeader().get("Authorization"));
-//		String dp = ("SBB".equals(business) ? "TallaUnicavsTallaS4H" : "TallaUnicavsTallaERP");
-//		rw.putParameter("dictionaryProxy", "'" + dp + "'");
-//		rw.putParameter("fields", "StandardizationValue.AlternativeValue");
-//		rw.putParameter("query", "StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"" + dp + "\" and StandardizationValue.Value equals \"" + itemGroup + "\"");
-//		org.json.JSONObject response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch");
-//		if (response != null) {
-//			org.json.JSONArray rows = response.getJSONArray("rows");
-//			if (rows.length() > 0) {
-//				value = rows.getJSONObject(0).getJSONArray("values").getString(0);
-//			}
-//		} else {
-//			log("###$$ ERROR: " + rw.getRawResponse());
-//		}
-//		if (value == null || "".equals(value) && !"SBB".equals(business)) {
-//			dp = ("ItemGroupSAPSizeAttribute");
-//			rw.putParameter("dictionaryProxy", "'" + dp + "'");
-//			rw.putParameter("fields", "StandardizationValue.AlternativeValue");
-//			rw.putParameter("query", "StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \""
-//					+ dp + "\" and StandardizationValue.Value equals \"" + itemGroup + "\"");
-//
-//			response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch");
-//			if (response != null) {
-//				org.json.JSONArray rows = response.getJSONArray("rows");
-//				if (rows.length() > 0) {
-//					value = rows.getJSONObject(0).getJSONArray("values").getString(0);
-//				}
-//			} else {
-//				log("###$$ ERROR: " + rw.getRawResponse());
-//			}
-//		}
-//		return value;
 	}
 
 	private String queryDictionary(String key, String dictionary) {
 		return dastub.queryDictionary(key, dictionary);
-		/*
-		String rawResponse = null;
-		org.json.JSONObject response = null;
-//		org.json.JSONArray rows = null;
-		try {
-//			String url = null;
-			rawResponse = rw.makeRequest("GET",
-					"/object/StandardizationValue/" + encode("'" + key + "'@'" + dictionary + "'") + "",
-					null);
-			response = new org.json.JSONObject(rawResponse);
-//			rows = response.getJSONArray("rows");
-//			log("Querying: " + key + " in: " + dictionary + ", got: " + response);
-//			log("URL: " + url);
-//			if(rows.length() > 0) {
-//				return rows.getJSONObject(0).getJSONArray("values").getString(0);
-//			}
-			if (response.has("_data") && response.getJSONObject("_data").has("alternativeValue")) {
-				return response.getJSONObject("_data").getString("alternativeValue");
-			}
-		} catch (java.io.IOException | KeyManagementException | NoSuchAlgorithmException | URISyntaxException e) {
-//			logE(e);
-			log("ERR: " + rawResponse);
-		} catch (org.json.JSONException e) {
-//			logE(e);
-			log("ERR: " + rawResponse);
-		}
-		return null;
-		*/
-	}
-
-	private String encode(String val) {
-		try {
-			return java.net.URLEncoder.encode(val, "UTF-8");
-		} catch (java.io.IOException e) {
-
-		}
-		return null;
 	}
 
 	private String getPrimaryProductTaxonomyTemplate(org.json.JSONArray classifications) {
@@ -3189,32 +3094,6 @@ public class RealExportProducts {
 	}
 
 	private java.util.Map<String, String> loadLookupGroups() {
-//		java.util.Map<String, String> map = new java.util.TreeMap<>();
-//		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-//		qp.put("fields", "LookupValue.Code,LookupValueLang.Name(es)");
-//		qp.put("lookup", "ATGAttributeGroups");
-//		qp.put("query", "LookupValue.IsActive = true");
-//		org.json.JSONObject response = null;
-//		org.json.JSONArray rows = null;
-//		org.json.JSONArray values = null;
-//		int totalSize = 0;
-//		int currentIndex = 0;
-//		do {
-//			qp.put("startIndex", String.valueOf(currentIndex));
-//			response = rw.makeRequest("GET", "/list/LookupValue/bySearch", qp, null);
-//			if (response != null && response.has("rows")) {
-//				rows = response.getJSONArray("rows");
-//				for (int i = 0; i < rows.length(); i++) {
-//					currentIndex++;
-//					values = rows.getJSONObject(i).getJSONArray("values");
-//					map.put(values.getString(0), values.getString(1));
-//				}
-//			} else {
-//				log("ERR: " + rw.getRawResponse());
-//			}
-//		} while (currentIndex < totalSize);
-//		currentIndex = 0;
-//		return map;
 		return dastub.getLookupValueCodeNameMap("ATGAttributeGroups", 10, true);
 	}
 
@@ -3260,9 +3139,6 @@ public class RealExportProducts {
 							: "false");
 			attribute.setAttribute("Mandatory",
 					prop.has("IsMandatory") ? "1".equals(prop.getString("IsMandatory")) ? "true" : "false" : "false");
-//			if(!prop.has("name")) {
-//				log("No Name found for: " + attributeId);
-//			}else {
 			if (prop.has("order")) {
 				metadataAttribute = doc.createElement("Value");
 				metadataAttribute.setAttribute("AttributeID", "DisplaySequence");
@@ -3332,7 +3208,6 @@ public class RealExportProducts {
 					}
 				}
 			}
-//			}
 		} else {
 			// PANIC
 			log("PANIC: No property was found for characteristic: " + attributeId);
@@ -3433,27 +3308,6 @@ public class RealExportProducts {
 
 	private String queryVariantOrder(String key) {
 		return dastub.queryVariantOrder(key);
-//		org.json.JSONObject response = null;
-//		org.json.JSONArray rows = null;
-//		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-//		qp.put("dictionaryProxy", "'VariantOrder'");
-//		qp.put("query", "StandardizationValue.Value wildcard \"%-" + key.replaceAll("^.+-", "")
-//				+ "\" and StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"VariantOrder\"");
-//		qp.put("fields", "StandardizationValue.PropertyValue");
-//		try {
-//			response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch", qp, null);
-//			if (response != null) {
-//				rows = response.getJSONArray("rows");
-//				if (rows.length() > 0) {
-//					return rows.getJSONObject(0).getJSONArray("values").getString(0);
-//				}
-//			} else {
-//				log("<::>" + rw.getRawResponse());
-//			}
-//		} catch (org.json.JSONException e) {
-//			log("ERR: " + rw.getRawResponse());
-//		}
-//		return null;
 	}
 
 	private static final Logger LOGGER = Logger.getLogger(RealExportProducts.class.getName());
@@ -3501,9 +3355,6 @@ public class RealExportProducts {
 
 	private void log(String message) {
 		LOGGER.info(message);
-//		try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream( java.nio.file.Paths.get( "..","logs","real_export_products_atg.log").toString(), true)))){
-//		  pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())) + "]  " + message);
-//		}catch(java.io.IOException e){}
 	}
 
 	private void logE(Exception ex) {
@@ -3515,161 +3366,8 @@ public class RealExportProducts {
 		}
 	}
 
-//	private static void v() {
+	private java.util.Set<String> YEA; 
 
-	// <ClassificationReference ClassificationID="catst19895633" Type="WebsiteLink"
-	// Changed="true"/>
-//	}
-
-	private java.util.Set<String> YEA; /*
-												 * = new java.util.TreeSet<>(java.util.Arrays.asList(( "SKU\r\n" +
-												 * "BrandName\r\n" + "BRAND_ID_S4H\r\n" + "EXTWG_S4H\r\n" +
-												 * "Section\r\n" + "ZBREPQ\r\n" + "ProductName\r\n" + "PesoBruto\r\n" +
-												 * "MesdeEntregadeMercancIa\r\n" + "ChildrenSizeAtt\r\n" + "ZHOECJ\r\n"
-												 * + "clothingSize\r\n" + "TypeMainBarCode\r\n" + "IDTallaERP\r\n" +
-												 * "ZMEACJ\r\n" + "DisplayGroupOrder\r\n" + "TextoAdicional\r\n" +
-												 * "ZBRGPQ\r\n" + "ProductType\r\n" + "TImportacion\r\n" + "ZNTGCJ\r\n"
-												 * + "WESCH\r\n" + "AnoEstacion\r\n" + "ProductTypeSAP2\r\n" +
-												 * "IEPS\r\n" + "VOLUMAtt\r\n" + "ConditionforPublish\r\n" +
-												 * "BaseUnitOfMeasure\r\n" + "ZHOEPQ\r\n" + "ZLAEPQ\r\n" +
-												 * "StateSKU\r\n" + "ImpuestoALaVenta\r\n" + "ZLAECJ\r\n" +
-												 * "Negocio\r\n" + "ZBRGCJ\r\n" + "Temporada\r\n" + "SAP_BEHVO\r\n" +
-												 * "ZVOLPQ\r\n" + "ItemGroup2\r\n" + "MaterialAtt\r\n" +
-												 * "ProductTypeSAPTEMP\r\n" + "BrandNameATG\r\n" +
-												 * "UniversalMainBarCode\r\n" + "BrandIDATG\r\n" + "ZBRECJ\r\n" +
-												 * "Status\r\n" + "ZVOLCJ\r\n" + "IDLastParent\r\n" + "ZNTGPQ\r\n"
-												 * ).split("\\r\\n")));
-												 */
-
-	/*
-	 * public static void main(String[] args) {
-	 * 
-	 * RESTWorkshop rw = new RESTWorkshop(); org.json.JSONObject request = new
-	 * org.json.JSONObject(); org.json.JSONArray columns = new org.json.JSONArray();
-	 * org.json.JSONArray rows = new org.json.JSONArray(); request.put("columns",
-	 * columns); request.put("rows", rows); columns.put(new
-	 * org.json.JSONObject().put("identifier",
-	 * "StandardizationValue.AlternativeValue")); columns.put(new
-	 * org.json.JSONObject().put("identifier", "StandardizationValue.Active"));
-	 * String[] pieces = null; for(String tupla : lineasDireccionTallaWeb) { pieces
-	 * = tupla.split("\t"); rows.put(new org.json.JSONObject().put("object", new
-	 * org.json.JSONObject().put("id", "'" + pieces[0] +
-	 * "'@'RelAttribTallaATG'")).put("values", new
-	 * org.json.JSONArray().put(pieces[1]).put(true))); } java.util.Map<String,
-	 * String> qp = new java.util.TreeMap<>(); org.json.JSONObject response =
-	 * rw.makeRequest("POST", "/list/StandardizationValue", qp, request.toString());
-	 * if(response == null) { System.out.println("Error: " + rw.getRawResponse());
-	 * }else { System.out.println("Yosh: " + response); } }
-	 */
-
-	/*
-	 * public static void main(String[] args) {
-	 * 
-	 * RESTWorkshop rw = new RESTWorkshop(); org.json.JSONObject request = new
-	 * org.json.JSONObject(); org.json.JSONArray columns = new org.json.JSONArray();
-	 * org.json.JSONArray rows = new org.json.JSONArray(); request.put("columns",
-	 * columns); request.put("rows", rows); columns.put(new
-	 * org.json.JSONObject().put("identifier",
-	 * "StandardizationValue.AlternativeValue")); columns.put(new
-	 * org.json.JSONObject().put("identifier", "StandardizationValue.Active"));
-	 * String[] pieces = null; for(String tupla : lineasMapaDeDirecciones) { pieces
-	 * = tupla.split("\t"); rows.put(new org.json.JSONObject().put("object", new
-	 * org.json.JSONObject().put("id", "'" + pieces[0] +
-	 * "'@'RelAttribSTDATG'")).put("values", new
-	 * org.json.JSONArray().put(pieces[1]).put(true))); } java.util.Map<String,
-	 * String> qp = new java.util.TreeMap<>(); org.json.JSONObject response =
-	 * rw.makeRequest("POST", "/list/StandardizationValue", qp, request.toString());
-	 * if(response == null) { System.out.println("Error: " + rw.getRawResponse());
-	 * }else { System.out.println("Yosh: " + response); } }
-	 */
-
-	/*
-	 * public static void main(String[] args) { RESTWorkshop rw = new
-	 * RESTWorkshop(); org.json.JSONObject request = new org.json.JSONObject();
-	 * org.json.JSONArray columns = new org.json.JSONArray(); org.json.JSONArray
-	 * rows = new org.json.JSONArray(); request.put("columns", columns);
-	 * request.put("rows", rows); columns.put(new
-	 * org.json.JSONObject().put("identifier", "StandardizationValue.Value"));
-	 * columns.put(new org.json.JSONObject().put("identifier",
-	 * "StandardizationValue.AlternativeValue")); columns.put(new
-	 * org.json.JSONObject().put("identifier", "StandardizationValue.Active"));
-	 * 
-	 * java.util.Map<String, String> yeah = new java.util.TreeMap<>(); String[]
-	 * pieces = null; for(String tupla : lineasMapaDeDirecciones) { pieces =
-	 * tupla.split("\t"); yeah.put(pieces[1], pieces[0]); }
-	 * 
-	 * pieces = null; for(String tupla : lineasDireccionTallaWeb) { pieces =
-	 * tupla.split("\t"); rows.put(new org.json.JSONObject().put("object", new
-	 * org.json.JSONObject().put("id", "'" + pieces[0] +
-	 * "'@'RelAttribTallaATG'")).put("values", new org.json.JSONArray().put(
-	 * yeah.get(pieces[0]) ).put(pieces[1]).put(true))); } java.util.Map<String,
-	 * String> qp = new java.util.TreeMap<>(); org.json.JSONObject response =
-	 * rw.makeRequest("POST", "/list/StandardizationValue", qp, request.toString());
-	 * if(response == null) { System.out.println("Error: " + rw.getRawResponse());
-	 * }else { System.out.println("Yosh: " + response); } }
-	 */
-
-//	public static final java.lang.String[] lineasMapaDeDirecciones = ("ShoeSizeLivAtt	TallaZapatos\r\n"
-//			+ "LadiesSizeAtt	TallaDamas\r\n"
-//			+ "SportsSizeAtt	TallaDeportes\r\n"
-//			+ "MenSizeAtt	TallaCaballeros\r\n"
-//			+ "ChildrenSizeAtt	TallaInfantiles\r\n"
-//			+ "OpticalSizeAtt	TallaOptica\r\n"
-//			+ "SizeCosmeticsAccAtt	TallaCosmeticos\r\n"
-//			+ "SferaSizeAtt	TallaSfera\r\n"
-//			+ "Direction1SizeAtt	TamañoDirección1\r\n"
-//			+ "Direction3SizeAtt	TamañoDirección3\r\n"
-//			+ "TamanoDireccion6Att	TamañoDirección6\r\n"
-//			+ "TamanoDireccion8Att	TamañoDirección8\r\n"
-//			+ "TamanoPantallaAtt	TamañoPantalla\r\n"
-//			+ "SB_TCABALLEROS	SB_TCaballeros\r\n"
-//			+ "SB_TCALCETERIA	SB_TCalceteria\r\n"
-//			+ "SB_TDAMAS	SB_TDamas\r\n"
-//			+ "SB_TINFANTILES	SB_TInfantiles\r\n"
-//			+ "SB_TJUNIORS	SB_TJuniors\r\n"
-//			+ "SB_TLENCERIA	SB_TLenceria\r\n"
-//			+ "SB_TZAPATOS	SB_TZapatos\r\n"
-//			+ "SB_TBEBES	SB_TBebes\r\n"
-//			+ "SB_TROPAINTERIOR	SB_TRopaInterior\r\n"
-//			+ "SB_TJOYERIAYACCESORIOS	SB_TJoyeriayAccesorios\r\n"
-//			+ "SB_THOGAR	SB_THogar\r\n"
-//			+ "SB_0106	SB_0106\r\n"
-//			+ "SB_0107	SB_0107\r\n"
-//			+ "SB_0025	SB_0025\r\n"
-//			+ "SB_T_HARDLINE	SBTHardline\r\n"
-//			+ "SB_T_TECNO_ENTREN	SBTTecnoEntren").split("\\r\\n");
-//	
-//	
-//	public static final java.lang.String[] lineasDireccionTallaWeb = (
-//			  "TallaZapatos	clothingSize\r\n"
-//			+ "TallaDamas	clothingSize\r\n"
-//			+ "TallaDeportes	clothingSize\r\n"
-//			+ "TallaCaballeros	clothingSize\r\n"
-//			+ "TallaInfantiles	clothingSize\r\n"
-//			+ "TallaOptica	clothingSize\r\n"
-//			+ "TallaCosmeticos	clothingSize\r\n"
-//			+ "TallaSfera	clothingSize\r\n"
-//			+ "TamañoDirección1	SizeVaD\r\n"
-//			+ "TamañoDirección3	SizeVaD\r\n"
-//			+ "TamañoDirección6	SizeVaD\r\n"
-//			+ "TamañoDirección8	SizeVaD\r\n"
-//			+ "TamañoPantalla	SizeVaD\r\n"
-//			+ "SB_TCaballeros	clothingSize\r\n"
-//			+ "SB_TCalceteria	clothingSize\r\n"
-//			+ "SB_TDamas	clothingSize\r\n"
-//			+ "SB_TInfantiles	clothingSize\r\n"
-//			+ "SB_TJuniors	clothingSize\r\n"
-//			+ "SB_TLenceria	clothingSize\r\n"
-//			+ "SB_TZapatos	clothingSize\r\n"
-//			+ "SB_TBebes	clothingSize\r\n"
-//			+ "SB_TRopaInterior	clothingSize\r\n"
-//			+ "SB_TJoyeriayAccesorios	clothingSize\r\n"
-//			+ "SB_THogar	SizeVaD\r\n"
-//			+ "SB_0106	SizeVaD\r\n"
-//			+ "SB_0107	SizeVaD\r\n"
-//			+ "SB_0025	SizeVaD\r\n"
-//			+ "SBTHardline	SizeVaD\r\n"
-//			+ "SBTTecnoEntren	SizeVaD").split("\\r\\n");
 
 	public java.util.Map<String, String> mapaDeDirecciones; // = new java.util.TreeMap<>();
 	public java.util.Map<String, String> mapaDeDireccionesAtributoTallaWeb; // = new java.util.TreeMap<>();
@@ -3677,50 +3375,6 @@ public class RealExportProducts {
 
 	private java.util.Map<String, String> loadFieldDictionaries() throws ServiceUnavailableException {
 		return dastub.getDictionaryValueAlternativeValueMap("RelAttribSTDATG");
-//		java.util.Map<String, String> mapa = new java.util.TreeMap<>();
-//		try (java.io.BufferedReader br = new java.io.BufferedReader(
-//				new java.io.InputStreamReader(new java.io.FileInputStream(
-//						java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.templates_cache_directory"),
-//								"dictionaries", "RelAttribSTDATG").toFile())))) {
-//			String line = null;
-//			String[] pieces = null;
-//			while ((line = br.readLine()) != null) {
-//				pieces = rw.parseLine(line, "\"", ";", "\\");
-//				mapa.put(pieces[0], pieces[1]);
-//			}
-//		} catch (java.io.IOException e) {
-//			e.printStackTrace();
-//		}
-		
-//		RESTWorkshop rw = new RESTWorkshop();
-//		rw.setBaseUrl(baseUrlDEV);
-//		rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
-//		rw.putParameter("dictionary", "RelAttribSTDATG");
-//		rw.putParameter("fields", "StandardizationValue.Value,StandardizationValue.AlternativeValue");
-//		org.json.JSONObject response = null;
-//		org.json.JSONArray rows = null;
-//		org.json.JSONArray values = null;
-//		int currentIndex = 0;
-//		int totalSize = 0;
-//		do {
-//			rw.putParameter("startIndex", String.valueOf(currentIndex));
-//			response = rw.makeRequest("GET", "/list/StandardizationValue/byDictionary");
-//			if(response != null && response.has("rows") && response.has("totalSize")) {
-//				totalSize = response.getInt("totalSize");
-//				rows = response.getJSONArray("rows");
-//				for(int i=0;i<rows.length();i++) {
-//					values = rows.getJSONObject(i).getJSONArray("values");
-//					mapa.put(values.getString(0), values.getString(1));
-//				}
-//				currentIndex += response.getInt("pageSize");
-//			}else {
-//				System.out.println(rw.getRawResponse());
-//				if(rw.getException() != null) {
-//				}
-//			}
-//		}while(currentIndex < totalSize);
-//		currentIndex = 0;
-//		return mapa;
 	}
 
 	private java.util.Map<String, String> loadFieldTallaATG() {
@@ -3728,97 +3382,17 @@ public class RealExportProducts {
 		java.util.Map<String, String> mapaDeDirecciones = dastub.getDictionaryValueAlternativeValueMap( "RelAttribTallaATG");
 		System.out.println( "Loaded... " + mapaDeDirecciones.size());
 		return mapaDeDirecciones;
-//		java.util.Map<String, String> mapaDeDirecciones = new java.util.TreeMap<>();
-//		RESTWorkshop rw = new RESTWorkshop();
-//		rw.setBaseUrl(baseUrlDEV);
-//		rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
-//		rw.putParameter("dictionary", "RelAttribTallaATG");
-//		rw.putParameter("fields", "StandardizationValue.Value,StandardizationValue.AlternativeValue");
-//		org.json.JSONObject response = null;
-//		org.json.JSONArray rows = null;
-//		org.json.JSONArray values = null;
-//		int currentIndex = 0;
-//		int totalSize = 0;
-//		System.out.println("Loading...");
-//		do {
-//			rw.putParameter("startIndex", String.valueOf(currentIndex));
-//			response = rw.makeRequest("GET", "/list/StandardizationValue/byDictionary");
-//			if (response != null && response.has("totalSize")) {
-//				totalSize = response.getInt("totalSize");
-//				rows = response.getJSONArray("rows");
-//				for (int i = 0; i < rows.length(); i++) {
-//					values = rows.getJSONObject(i).getJSONArray("values");
-//					mapaDeDirecciones.put(values.getString(0), values.getString(1));
-//				}
-//				currentIndex += response.getInt("pageSize");
-//			}
-//		} while (currentIndex < totalSize);
-//		currentIndex = 0;
-//		System.out.println("Loaded... " + mapaDeDirecciones.size());
-//		return mapaDeDirecciones;
 	}
 
 	private java.util.Map<String, String> loadAtributosFecha() {
 		return dastub.getDictionaryCharacteristicAlternativeValueMap("ConversionFechaATG");
-//		java.util.Map<String, String> mapa = new java.util.TreeMap<>();
-//		RESTWorkshop rw = new RESTWorkshop();
-//		rw.setBaseUrl(baseUrlDEV);
-//		rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
-//		rw.putParameter("dictionary", "ConversionFechaATG");
-//		rw.putParameter("fields",
-//				"StandardizationValue.Characteristic->Characteristic.Identifier,StandardizationValue.AlternativeValue");
-//		org.json.JSONObject response = null;
-//		org.json.JSONArray rows = null;
-//		org.json.JSONArray values = null;
-//		int currentIndex = 0;
-//		int totalSize = 0;
-//		do {
-//			rw.putParameter("startIndex", String.valueOf(currentIndex));
-//			response = rw.makeRequest("GET", "/list/StandardizationValue/byDictionary");
-//			if (response != null && response.has("totalSize")) {
-//				totalSize = response.getInt("totalSize");
-//				rows = response.getJSONArray("rows");
-//				for (int i = 0; i < rows.length(); i++) {
-//					values = rows.getJSONObject(i).getJSONArray("values");
-//					mapa.put(values.getString(0), values.getString(1));
-//				}
-//				currentIndex += response.getInt("pageSize");
-//			}
-//		} while (currentIndex < totalSize);
-//		currentIndex = 0;
-//		return mapa;
 	}
 
 	private java.util.Set<String> loadInheritedFields() {
 		java.util.Map<String, String> rows = dastub.getDictionaryCharacteristicAlternativeValueMap("CaracteristicasHeredables");
 		return new java.util.TreeSet<>(rows.keySet());
-//		java.util.Set<String> mapa = new java.util.TreeSet<>();
-//		RESTWorkshop rw = new RESTWorkshop();
-//		rw.setBaseUrl(baseUrlDEV);
-//		rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
-//		rw.putParameter("dictionary", "CaracteristicasHeredables");
-//		rw.putParameter("fields", "StandardizationValue.Characteristic->Characteristic.Identifier");
-//		org.json.JSONObject response = null;
-//		org.json.JSONArray rows = null;
-//		org.json.JSONArray values = null;
-//		int currentIndex = 0;
-//		int totalSize = 0;
-//		do {
-//			rw.putParameter("startIndex", String.valueOf(currentIndex));
-//			response = rw.makeRequest("GET", "/list/StandardizationValue/byDictionary");
-//			if (response != null && response.has("totalSize")) {
-//				totalSize = response.getInt("totalSize");
-//				rows = response.getJSONArray("rows");
-//				for (int i = 0; i < rows.length(); i++) {
-//					values = rows.getJSONObject(i).getJSONArray("values");
-//					mapa.add(values.getString(0));
-//				}
-//				currentIndex += response.getInt("pageSize");
-//			}
-//		} while (currentIndex < totalSize);
-//		currentIndex = 0;
-//		return mapa;
 	}
+
 
 	private void loadDatabaseDictionaries() {
 		mapaDeDirecciones = loadFieldDictionaries();
@@ -3826,7 +3400,7 @@ public class RealExportProducts {
 		mapaDeAtributosFechas = loadAtributosFecha();
 		YEA = loadInheritedFields();
 	}
-	
+
 	private final class JdbcConfig {
 		private String jdbcDriver;
 		private String jdbcUrl;

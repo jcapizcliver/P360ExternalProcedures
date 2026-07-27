@@ -14,6 +14,7 @@ import java.util.logging.Logger;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.ParserConfigurationException;
+import javax.xml.transform.OutputKeys;
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerException;
 import javax.xml.transform.TransformerFactory;
@@ -22,7 +23,10 @@ import javax.xml.transform.stream.StreamResult;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
+import org.w3c.dom.Node;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
@@ -52,7 +56,6 @@ public class RealExportProducts2Mirakl {
 	private static final RESTWrapper wrapper = new RESTWrapper();
 	private static final RESTWorkshop rw = wrapper.getRw();
 	
-	private static final org.json.JSONObject reqPublishMessage = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('PublishMktMessage',root,\"0000.0000.RK\",'PublishMktMessage',-1)"))).put("rows", new org.json.JSONArray());
 
 	private org.json.JSONObject getMeTheCompa(String compa) throws ServiceUnavailableException{
 		String rawResponse = null;
@@ -66,10 +69,44 @@ public class RealExportProducts2Mirakl {
 		return response;
 	}
 	
-	private static final String USAGE = "Usage: RealExportProducts2Mirakl <File with IDs or SKUs> -t ID|SKU [-s]\n-t indicates which type of content is in the file: SKU or Proposal IDs\n-s if present, indicates to send the data to destination, default is not send the data.";
+	private static final String USAGE = "Usage: RealExportProducts2MiraklJdbcBatch <File with IDs or SKUs> -t ID|SKU [-s]\n-t indicates which type of content is in the file: SKU or Proposal IDs\n-s if present, indicates to send the data to destination, default is not send the data.";
 
 	private int products = 0;
 	private int dropped = 0;
+
+	private static final long MAX_BATCH_BYTES = 7L * 1024L * 1024L;
+	private final java.util.Map<String, java.util.Map<String, org.json.JSONObject>> templateMetadataSet = new java.util.TreeMap<>();
+	private final java.util.Map<String, java.util.Map<String, String>> templateStructureGroupAttributeValues = new java.util.TreeMap<>();
+	private final java.util.Map<String, java.util.Set<String>> templateSets = new java.util.TreeMap<>();
+	private final java.util.Map<String, org.json.JSONObject> globalProperties = new java.util.TreeMap<>();
+	private final java.util.Set<String> globalSet = new java.util.TreeSet<>();
+	private final java.util.Map<Integer, org.json.JSONObject> characteristicMetadataByID = new java.util.HashMap<>();
+	private final java.util.Map<Integer, String> characteristicIdentifierByID = new java.util.HashMap<>();
+
+	private final ELog dbLog = new ELog() {
+		@Override
+		public void logE(Exception e) {
+			RealExportProducts2Mirakl.this.logE(e);
+		}
+
+		@Override
+		public void log(String message) {
+			RealExportProducts2Mirakl.this.log(message);
+		}
+	};
+	private final RealExportProductsUtils rutils = new RealExportProductsUtils(dbLog);
+	private final DBAccessDataStub dastub = new DBAccessDataStub(dbLog);
+
+	public RealExportProducts2Mirakl() {
+		loadDatabaseDictionaries();
+		System.out.println("Loading characteristic metadata");
+		loadCharacteristicMetadata();
+		System.out.println("Characteristic metadata loaded");
+		System.out.println("Adding global metadata");
+		addGlobalData(globalProperties, globalSet);
+		System.out.println("Global metadata added");
+		addCharacteristicData(globalProperties);
+	}
 	
 	public static void main(String[] args) throws ServiceUnavailableException {
 		if(args.length < 1) {
@@ -111,30 +148,19 @@ public class RealExportProducts2Mirakl {
 		}
 		System.out.println("Me arranco " + type + " (sobre: " + data.length + " elementos del archivo)");
 		o.log("Me arranco " + type + " (sobre: " + data.length + " elementos del archivo)");
-		if(type == 0) {
-			int b = 0;
-			java.util.List<String> losesos = new java.util.ArrayList<>();
-			for(int a = 0; a<data.length; a++) {
-				b++;
-				losesos.add(data[a]);
-				if( b == 10 ) {
-					String[] ela = losesos.toArray( new String[] {} );
-					o.log("Voy a mandar: " + losesos.size() + " || " + ela.length + " || " + b);
-					o.doIt( ela , send, baseUrlDEV);
-					b = 0;
-					losesos = new java.util.ArrayList<>();
+		if (type == 0) {
+			o.doIt(cleanIds(data), send, baseUrlDEV);
+		} else if (type == 1) {
+			java.util.List<String> resolvedIds = new java.util.ArrayList<>();
+			for (String skuValue : data) {
+				String resolvedId = o.getIdFromSKU(skuValue);
+				if (resolvedId != null && !resolvedId.isBlank()) {
+					resolvedIds.add(resolvedId);
 				}
 			}
-			if(!losesos.isEmpty()) {
-				o.doIt( losesos.toArray(new String[] {}) , send, baseUrlDEV);
-			}
-		}else if(type == 1) {
-			String[] pedazos = data;
-			for (String element : pedazos) {
-				o.doIt(new String[] { o.getIdFromSKU( element ) }, send, baseUrlDEV);
-			}
+			o.doIt(resolvedIds.toArray(new String[0]), send, baseUrlDEV);
 		}
-		o.logger.close();
+				o.logger.close();
 		o.log("Total: " + o.products + " (dropped: " + o.dropped +  ")");
 	}
 	
@@ -171,63 +197,23 @@ public class RealExportProducts2Mirakl {
 	}
 
 	public void processBatch(String[] proposalIds) {
-		java.util.ArrayList<String> batch = new java.util.ArrayList<>();
-		for(String proposalId : proposalIds) {
-			batch.add(proposalId);
-			if(batch.size() == 10) {
-				//doIt(batch.toArray(new String[]{}));
-				batch.clear();
-			}
-		}
-		if(!batch.isEmpty()) {
-			//doIt(batch.toArray(new String[]{}));
-			batch.clear();
-		}
+		// El corte real se realiza dentro de doIt con base en bytes UTF-8.
 	}
 	
-	public static void runForProductIds( String[] proposalIds, boolean send )
-		    throws ServiceUnavailableException
-		{
-		  String[] data = cleanIds( proposalIds );
-
-		  RealExportProducts2Mirakl o = new RealExportProducts2Mirakl();
-		  o.log( "Iniciando RealExportProducts2Mirakl desde arreglo de IDs: " + data.length );
-
-		  java.util.List<String> batch = new java.util.ArrayList<String>();
-
-		  try
-		  {
-		    for ( int i = 0; i < data.length; i++ )
-		    {
-		      batch.add( data[i] );
-
-		      if ( batch.size() == 10 )
-		      {
-		        String[] chunk = batch.toArray( new String[batch.size()] );
-		        o.log( "Voy a mandar Mirakl: " + chunk.length );
-		        o.doIt( chunk, send, baseUrlDEV );
-		        batch.clear();
-		      }
-		    }
-
-		    if ( !batch.isEmpty() )
-		    {
-		      String[] chunk = batch.toArray( new String[batch.size()] );
-		      o.log( "Voy a mandar Mirakl final: " + chunk.length );
-		      o.doIt( chunk, send, baseUrlDEV );
-		    }
-
-		    o.log( "Total: " + o.products + " (dropped: " + o.dropped + ")" );
-		  }
-		  finally
-		  {
-		    if ( o.logger != null )
-		    {
-		      o.logger.close();
-		    }
-		  }
+	public static void runForProductIds(String[] proposalIds, boolean send)
+			throws ServiceUnavailableException {
+		String[] data = cleanIds(proposalIds);
+		RealExportProducts2Mirakl exporter = new RealExportProducts2Mirakl();
+		exporter.log("Iniciando RealExportProducts2MiraklJdbcBatch desde arreglo de IDs: " + data.length);
+		try {
+			exporter.doIt(data, send, baseUrlDEV);
+			exporter.log("Total: " + exporter.products + " (dropped: " + exporter.dropped + ")");
+		} finally {
+			if (exporter.logger != null) {
+				exporter.logger.close();
+			}
 		}
-
+	}
 		private static String[] cleanIds( String[] ids )
 		{
 		  java.util.Set<String> clean = new java.util.LinkedHashSet<String>();
@@ -333,51 +319,33 @@ public class RealExportProducts2Mirakl {
 		log("Going over: " + proposalIds.length + " proposalIds");
 		System.out.println("Going over: " + proposalIds.length + " proposalIds");
 		String proposalId = null;
-        try {
-        	DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-        	DocumentBuilder builder = factory.newDocumentBuilder();
-        	Document doc = builder.newDocument();
-        	Document docMKT = builder.newDocument();
-        	Element spim = doc.createElement("STEP-ProductInformation");
-        	spim.setAttribute("ExportTime", new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format( new java.util.Date() ));
-        	spim.setAttribute("ExportContext", "Context2");
-        	spim.setAttribute("ContextID", "Context2");
-        	spim.setAttribute("WorkspaceID", "Approved");
-        	spim.setAttribute("UseContextLocale", "false");
-        	Element attributes = doc.createElement("AttributeList");
-        	Element assets = doc.createElement("Assets");
-        	java.util.Map<String, Element> assetMap = new java.util.TreeMap<>();
-        	java.util.Map<String, java.util.LinkedList<String>> assetReferencesMap = new java.util.TreeMap<>();
-        	spim.appendChild(assets);
-        	Element products = doc.createElement("Products");
-        	doc.appendChild(spim);
-        	spim.appendChild(products);
-
-        	Element spimMKT = docMKT.createElement("STEP-ProductInformation");
-        	spimMKT.setAttribute("ExportTime", new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format( new java.util.Date() ));
-        	spimMKT.setAttribute("ExportContext", "Context2");
-        	spimMKT.setAttribute("ContextID", "Context2");
-        	spimMKT.setAttribute("WorkspaceID", "Approved");
-        	spimMKT.setAttribute("UseContextLocale", "false");
-        	Element attributesMKT = docMKT.createElement("AttributeList");
-        	Element assetsMKT = docMKT.createElement("Assets");
-        	java.util.Map<String, Element> assetMapMKT = new java.util.TreeMap<>();
-        	java.util.Map<String, java.util.LinkedList<String>> assetReferencesMapMKT = new java.util.TreeMap<>();
-        	spimMKT.appendChild(assetsMKT);
-        	Element productsMKT = docMKT.createElement("Products");
-        	docMKT.appendChild(spimMKT);
-        	spimMKT.appendChild(productsMKT);
-        	
-        	java.util.LinkedList<String> productosLiverpool = new java.util.LinkedList<>();
-        	java.util.LinkedList<String> productosMarketplace = new java.util.LinkedList<>();
-        	final java.util.Map<String, java.util.Map<String, org.json.JSONObject>> templateMetadataSet =new java.util.TreeMap<>();
-        	final java.util.Map<String, java.util.Set<String>> templateSets = new java.util.TreeMap<>();
-        	final java.util.Map<String, org.json.JSONObject> globalProperties = new java.util.TreeMap<>();
-        	final java.util.Set<String> globalSet = new java.util.TreeSet<>();
-        	boolean procede;
-        	boolean brk = false;
-			addGlobalData(globalProperties, globalSet, baseUrlDEV);
+		StringBuilder result = new StringBuilder();
+		int batchNumber = 1;
+		try {
+			MiraklExportContext batch = createMiraklExportContext();
+			boolean procede;
+			boolean brk = false;
 			for(int index = 0; index<proposalIds.length; index++) {
+				MiraklExportContext current = createMiraklExportContext();
+				Document doc = current.doc;
+				Element spim = current.spim;
+				Element attributes = current.attributes;
+				Element assets = current.assets;
+				Element products = current.products;
+				java.util.Map<String, Element> assetMap = current.assetMap;
+				java.util.Map<String, java.util.LinkedList<String>> assetReferencesMap = current.assetReferencesMap;
+				Document docMKT = current.docMKT;
+				Element spimMKT = current.spimMKT;
+				Element attributesMKT = current.attributesMKT;
+				Element assetsMKT = current.assetsMKT;
+				Element productsMKT = current.productsMKT;
+				java.util.Map<String, Element> assetMapMKT = current.assetMapMKT;
+				java.util.Map<String, java.util.LinkedList<String>> assetReferencesMapMKT = current.assetReferencesMapMKT;
+				java.util.LinkedList<String> productosLiverpool = current.productosLiverpool;
+				java.util.LinkedList<String> productosMarketplace = current.productosMarketplace;
+				org.json.JSONObject reqPublishMessage = current.reqPublishMessage;
+				current.currentProposalId = proposalIds[index];
+				try {
 				procede = false;
 				proposalId = proposalIds[index];
 				java.nio.file.Path p = java.nio.file.Paths.get( PropertiesManager.get("p360.contingency.migration.to_skip_directory"), proposalId );
@@ -624,103 +592,37 @@ public class RealExportProducts2Mirakl {
 				} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
 					logE(e);
 				}
-				String rawResponse = null;
-				org.json.JSONObject response = null;
-				rows = null;
-				int currentIndex = 0;
-				int totalSize = 0;
-				org.json.JSONArray values = null;
-				currentIndex = 0;
-				String prevC = null;
-				currentIndex = 0;
-				java.util.Set<String> atributosGeneralesQueSi = null;
-				java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas = null;
-				String currC = null;
-				prevC = null;
+				java.util.Set<String> atributosGeneralesQueSi = templateSets.get(template);
+				java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas = templateMetadataSet.get(template);
 				String brandCode = null;
-				org.json.JSONObject prop = new org.json.JSONObject();
-				org.json.JSONArray prevV = null;
-				propiedadesCaracteristicas = templateMetadataSet.get(template);
-				atributosGeneralesQueSi = templateSets.get(template);
-				if(propiedadesCaracteristicas == null) {
+				if (propiedadesCaracteristicas == null) {
 					propiedadesCaracteristicas = new java.util.TreeMap<>();
 					atributosGeneralesQueSi = new java.util.TreeSet<>();
 					templateSets.put(template, atributosGeneralesQueSi);
 					atributosGeneralesQueSi.addAll(globalSet);
 					templateMetadataSet.put(template, propiedadesCaracteristicas);
-					for(java.util.Map.Entry<String, org.json.JSONObject> globalPropertiesEntry : globalProperties.entrySet()) {
-						propiedadesCaracteristicas.put(globalPropertiesEntry.getKey(), globalPropertiesEntry.getValue());
-					}
-					try {
-						do {
-							rawResponse = rc.getRequest("GET", baseUrlDEV + "/list/StandardizationValue/bySearch?dictionaryProxy=" + java.net.URLEncoder.encode("'ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla'", "UTF-8")
-									+ "&query="
-										+ java.net.URLEncoder.encode(
-											"StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla\""
-											+ " and StandardizationValue.CreationType->LookupValue.Code equals \"CreateProposal\""
-											+ " and StandardizationValue.StructureGroup->LookupValue.Code equals \"" + template + "\""
-										, "UTF-8")
-									+ "&fields="
-										+ java.net.URLEncoder.encode(
-											  "StandardizationValue.StructureGroup->LookupValue.Code"
-											+ ",StandardizationValue.Characteristic->Characteristic.Identifier"
-											+ ",StandardizationValue.Property->LookupValue.Code"
-											+ ",StandardizationValue.PropertyValue"
-											+ ",StandardizationValue.Characteristic->CharacteristicLang.Name(es)"
-											+ ",StandardizationValue.Characteristic->CharacteristicLang.Description(es)"
-											+ ",StandardizationValue.Characteristic->Characteristic.DataType"
-											+ ",StandardizationValue.Characteristic->Characteristic.Lookup->Lookup.Identifier"
-											+ ",StandardizationValue.Characteristic->Characteristic.IsMultiValue"
-											+ ",StandardizationValue.Characteristic->Characteristic.Purposes->LookupValue.Code"
-											+ ",StandardizationValue.Characteristic->Characteristic.Order"
-										, "UTF-8") 
-									+ "&orderBy=1-ASC"
-									+ "&pageSize=1000"
-									+ "&startIndex=" + currentIndex, null);
-							response = new org.json.JSONObject(rawResponse);
-							totalSize = response.getInt("totalSize");
-							rows = response.getJSONArray("rows");
-							for(int i=0; i<rows.length(); i++) {
-								values = rows.getJSONObject(i).getJSONArray("values");
-								currC = values.getString(1);
-								if(prevC != null && !prevC.equals(currC)) {
-									prop.put("name", prevV.getString(4));
-									prop.put("description", prevV.getString(5));
-									prop.put("dataType", prevV.getString(6));
-									prop.put("lookup", prevV.getString(7));
-									prop.put("isMultiValue", prevV.getString(8));
-									prop.put("purposes", prevV.getJSONArray(9));
-									prop.put("order", prevV.getString(10));
-									propiedadesCaracteristicas.put(prevC, prop);
-									if(prop.getJSONArray("purposes").length() == 1 && prop.getJSONArray("purposes").getString(0).equals(""))
-										prop.getJSONArray("purposes").remove(0);
-									if(prop.has("RelevantForATG") && "Y".equals(prop.getString("RelevantForATG")))
-										atributosGeneralesQueSi.add(prevC);
-									prop = new org.json.JSONObject();
-								}
-								prop.put(values.getString(2), values.getString(3));
-								prevC = currC;
-								prevV = values;
-								currentIndex++;
+					for (java.util.Map.Entry<String, org.json.JSONObject> entry : globalProperties.entrySet()) {
+						org.json.JSONObject copied = copyCharacteristicMetadata(entry.getValue());
+						java.util.Iterator<?> propertyKeys = entry.getValue().keys();
+						while (propertyKeys.hasNext()) {
+							String propertyKey = String.valueOf(propertyKeys.next());
+							if (!copied.has(propertyKey)) {
+								copied.put(propertyKey, entry.getValue().get(propertyKey));
 							}
-						}while(currentIndex < totalSize);
-						currentIndex = 0;
-					} catch (org.json.JSONException | IOException e) {
-						logE(e);
+						}
+						propiedadesCaracteristicas.put(entry.getKey(), copied);
 					}
-					if(prop.length() > 0) {
-						prop.put("name", prevV.getString(4));
-						prop.put("description", prevV.getString(5));
-						prop.put("dataType", prevV.getString(6));
-						prop.put("lookup", prevV.getString(7));
-						prop.put("isMultiValue", prevV.getString(8));
-						propiedadesCaracteristicas.put(prevC, prop);
-						if(prop.has("RelevantForATG") && "Y".equals(prop.getString("RelevantForATG")))
-							atributosGeneralesQueSi.add(prevC);
-						prop = new org.json.JSONObject();
+					java.util.Map<String, org.json.JSONObject> templateProperties =
+							dastub.getTemplateCharacteristicProperties(template);
+					propiedadesCaracteristicas.putAll(templateProperties);
+					for (java.util.Map.Entry<String, org.json.JSONObject> entry : templateProperties.entrySet()) {
+						if ("Y".equals(entry.getValue().optString("RelevantForATG", ""))) {
+							atributosGeneralesQueSi.add(entry.getKey());
+						}
 					}
+					templateStructureGroupAttributeValues.put(template,
+							dastub.getTemplateStructureGroupAttributeValues(template, 10));
 				}
-
 	        	Element product = null;
 
 	        	if("MKP".equals(business)) {
@@ -833,31 +735,20 @@ public class RealExportProducts2Mirakl {
 	    					propiedadesCaracteristicas);
 	        	}
 	        	log("********************* PT: " + productType);
-				String rr = null;
-				try {
-					rr = rc.getRequest("GET", baseUrlDEV + "/object/StructureGroup/'" + template + "'@'PrimaryProductTaxonomy'?entityFilter=StructureGroupAttribute", null);
-					org.json.JSONObject tratando = new org.json.JSONObject(rr);
-					org.json.JSONArray attributeRow = tratando.getJSONObject("_data").has("attribute") ? tratando.getJSONObject("_data").getJSONArray("attribute") : new org.json.JSONArray();
-					for(int a = 0; a<attributeRow.length(); a++) {
-						try{
-							String val = attributeRow.getJSONObject(a).getJSONArray("value").getJSONObject(0).getString("value");
-							appendPlainElementValue(
-									val,
-									null,
-									attributeRow.getJSONObject(a).getJSONObject("_qualification").getString("nameInKeyLang"),
-									attributeValues,
-									"MKP".equals(business) ? attributesMKT : attributes,
-											"MKP".equals(business) ? docMKT : doc,
-													propiedadesCaracteristicas);
-						}catch(org.json.JSONException e) {
-							log("Value not in expected format: " + attributeRow);
-							logE(e);
-						}
+				java.util.Map<String, String> structureAttributeValues =
+						templateStructureGroupAttributeValues.get(template);
+				if (structureAttributeValues == null) {
+					structureAttributeValues = dastub.getTemplateStructureGroupAttributeValues(template, 10);
+					templateStructureGroupAttributeValues.put(template, structureAttributeValues);
+				}
+				for (String attributeName : new String[] {
+						"DisplayGroupOrder", "DisplayOrder", "ConfigurableOrder" }) {
+					if (!structureAttributeValues.containsKey(attributeName)) {
+						continue;
 					}
-				} catch (org.json.JSONException | IOException e) {
-					log("Error in response, got: " + rr);
-					System.out.println("Error in response, got: " + rr);
-					logE(e);
+					appendPlainElementValue(structureAttributeValues.get(attributeName), null, attributeName,
+							attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+							"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
 				}
 
 				if(descLong != null) {
@@ -1045,46 +936,23 @@ public class RealExportProducts2Mirakl {
 												.getJSONArray("values").getJSONObject(0).getString("_label")
 										: itemGroupLabel;
 	        				}
-	        				if(!behvo) {
-		        				String elese = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-		        				try {
-		        					rawResponse = rw.makeRequest("GET", "/list/StandardizationValue/bySearch"
-		        							+ "?dictionaryProxy=" + encode("'" + ("ItemGroup".equals( charId ) ? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H") + "'")
-		        							+ "&query=" + encode("StandardizationValue.Value equals \"" + elese + "\"")
-		        							+ "&fields=" + encode("StandardizationValue.AlternativeValue")
-		        							+ ""
-		        							, null);
-		        					response = new org.json.JSONObject(rawResponse);
-		        					rows = response.getJSONArray("rows");
-		        					String laetiqueta = queryDictionary(elese, ("ItemGroup".equals( charId ) ? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H"));
-		        					if(rows.length() > 0) {
-		        						rawResponse = rw.makeRequest("GET", "/list/LookupValue/bySearch"
-		            							+ "?lookup=" + encode("SAP_BEHVOLOV")
-		            							+ "&query=" + encode("LookupValueLang.Name(es) equals \"" + laetiqueta + "\"")
-		            							+ "&fields=" + encode("LookupValue.Code")
-		            							+ ""
-		            							, null);
-		            					response = new org.json.JSONObject(rawResponse);
-		            					rows = response.getJSONArray("rows");
-		            					if(rows.length() > 0) {
-		            						String elcode = rows.getJSONObject(0).getJSONArray("values").getString(0);
-		            						appendPlainElementValue(
-		            								laetiqueta,
-		            								elcode,
-		            								"SAP_BEHVO",
-		            								attributeValues,
-		            								"MKP".equals(business) ? attributesMKT : attributes,
-                    								"MKP".equals(business) ? docMKT : doc,
-		            								propiedadesCaracteristicas);
-		            						behvo = true;
-		            					}else {
-		            						log("No SAB_BEHVO found for value: " + elese + "|" + laetiqueta);
-		            					}
+	        				if (!behvo) {
+		        				String elese = characteristic.getJSONArray("_recordLang").getJSONObject(0)
+		        						.getJSONArray("values").getJSONObject(0).getString("_code");
+		        				String dictionary = "ItemGroup".equals(charId)
+		        						? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H";
+		        				String laetiqueta = queryDictionary(elese, dictionary);
+		        				if (laetiqueta != null && !laetiqueta.isBlank()) {
+		        					String elcode = dastub.getLookupValueCodeByName(
+		        							"SAP_BEHVOLOV", 10, laetiqueta, true);
+		        					if (elcode != null && !elcode.isBlank()) {
+		        						appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO",
+		        								attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+		        								"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+		        						behvo = true;
 		        					}
-		        				}catch(java.io.IOException | KeyManagementException | NoSuchAlgorithmException | URISyntaxException e) {
-
 		        				}
-		        				appendPlainElementValue(
+		        						        				appendPlainElementValue(
 		        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
 		        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
 		        						"ItemGroup2",
@@ -1320,40 +1188,22 @@ public class RealExportProducts2Mirakl {
 							propiedadesCaracteristicas);
 				}
 				if (!behvo) {
-					String elese = "SBB".equals(business) ? itemGroupS4H : itemGroup; // characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-					try {
-						rawResponse = rw.makeRequest("GET",
-								"/list/StandardizationValue/bySearch" + "?dictionaryProxy=" + encode(
-										"'" + (!"SBB".equals(business) ? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H") + "'")
-										+ "&query=" + encode("StandardizationValue.Value equals \"" + elese + "\"")
-										+ "&fields=" + encode("StandardizationValue.AlternativeValue") + "",
-								null);
-						response = new org.json.JSONObject(rawResponse);
-						org.json.JSONArray characteristicRecords = response.getJSONArray("rows");
-						log("Querying dictionary: "
-								+ (!"SBB".equals(business) ? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H"));
-						String laetiqueta = queryDictionary(elese,
-								(!"SBB".equals(business) ? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H"));
-						if (characteristicRecords.length() > 0) {
-							rawResponse = rw.makeRequest("GET",
-									"/list/LookupValue/bySearch" + "?lookup=" + encode("SAP_BEHVOLOV") + "&query="
-											+ encode("LookupValueLang.Name(es) equals \"" + laetiqueta + "\"")
-											+ "&fields=" + encode("LookupValue.Code") + "",
-									null);
-							response = new org.json.JSONObject(rawResponse);
-							characteristicRecords = response.getJSONArray("rows");
-							if (characteristicRecords.length() > 0) {
-								String elcode = characteristicRecords.getJSONObject(0).getJSONArray("values")
-										.getString(0);
-								appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
-								behvo = true;
-							}
+					String elese = "SBB".equals(business) ? itemGroupS4H : itemGroup;
+					String dictionary = !"SBB".equals(business)
+							? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H";
+					String laetiqueta = queryDictionary(elese, dictionary);
+					if (laetiqueta != null && !laetiqueta.isBlank()) {
+						String elcode = dastub.getLookupValueCodeByName(
+								"SAP_BEHVOLOV", 10, laetiqueta, true);
+						if (elcode != null && !elcode.isBlank()) {
+							appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO", attributeValues,
+									"MKP".equals(business) ? attributesMKT : attributes,
+									"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+							behvo = true;
 						}
-					} catch (java.io.IOException | KeyManagementException | NoSuchAlgorithmException
-							| URISyntaxException e) {
-
 					}
 				}
+
 				if (unosQueQuiero.contains("ProductType") && !heredables.containsKey("ProductType")) {
 					heredables.put("ProductType",
 							new org.json.JSONObject().put("_datatype", "LOOKUP")
@@ -2250,94 +2100,317 @@ public class RealExportProducts2Mirakl {
 	        		log("Dropped. " + product.getAttribute("ID"));
 	        		this.dropped++;
 	        	}
-    			System.out.println(sku_ + " - " + proposalId);
-			}
-			if(reqPublishMessage.getJSONArray("rows").length() > 0) {
-				java.util.Map<String, String> qp = new java.util.HashMap<>();
-				qp.put("includeObjectsInProtocol", "false");
-				wrapper.writeData("list", "Product2G", null, qp, reqPublishMessage, this::log);
-			}
-			java.util.List<?> l1 = rw.getXmm().listImmediateChildElements(productsMKT).get("Product");
-			java.util.List<?> l2 = rw.getXmm().listImmediateChildElements(products).get("Product");
-			l1 = l1 == null ? new java.util.ArrayList<>() : l1;
-			l2 = l2 == null ? new java.util.ArrayList<>() : l2;
-			this.products +=  l1.size() + l2.size();
-			TransformerFactory transformerFactory = TransformerFactory.newInstance();
-			Transformer transformer = transformerFactory.newTransformer();
-			String serviceResponse = null;
-			
-			if(!productosLiverpool.isEmpty()) {
-				log("LVP products...");
-				java.io.StringWriter writer = new java.io.StringWriter();
-				transformer.transform(new DOMSource(doc), new StreamResult(writer));
-				String xmlOutput = writer
-				        .getBuffer()
-				        .toString()
-				        .replace("&lt;CRLF&gt;", "&#13;&#10;")
-				        .replace("<CRLF>", "&#13;&#10;")
-				        .replaceAll("&#0*(?:[0-8]|11|12|1[4-9]|2[0-9]|3[01]);", "")
-				        .replaceAll("(?i)&#x0*(?:[0-8]|B|C|E|F|1[0-9A-F]);", "");
-				java.nio.file.Path fn = java.nio.file.Paths.get( fileSystemPrefixLvp, "pépele" + System.currentTimeMillis() + ".xml" );
-				try {
-					java.nio.file.Files.writeString(fn, xmlOutput);
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-				if(send) {
-					RestClient rc = new RestClient("Content-Type: application/xml", "Accept: application/xml");
-					try {
-						String ll = null;
-						log(ll = "[" + new java.text.SimpleDateFormat().format(new java.util.Date()) + "] (Mkt) Request containing: " + productosLiverpool + " sent (local file is: " + fn + "). Resp: " + (serviceResponse = rc.getRequest("POST", urlDeMktStockout, xmlOutput) ) );
-						System.out.println("(From Multioferta) " + ll);
-						return fn + "<::>" + serviceResponse;
-					} catch (IOException e) {
-						logE(e);
+    				    			System.out.println(sku_ + " - " + proposalId);
+				} finally {
+					if (hasProducts(current)) {
+						long[] candidateBytes = measureMergedSizes(batch, current);
+						if (hasProducts(batch) && exceedsLimit(candidateBytes)) {
+							appendResult(result, finishBatch(batch, send, batchNumber++));
+							batch = createMiraklExportContext();
+						}
+						mergeContext(batch, current, true);
+						long[] batchBytes = serializedSizes(batch);
+						if (exceedsLimit(batchBytes) && batch.proposalIds.size() == 1) {
+							log("La propuesta " + current.currentProposalId
+									+ " supera individualmente 7 MB (LVP=" + batchBytes[0]
+									+ ", MKT=" + batchBytes[1] + "). Se conserva íntegra.");
+							appendResult(result, finishBatch(batch, send, batchNumber++));
+							batch = createMiraklExportContext();
+						}
+					} else {
+						mergeContext(batch, current, false);
 					}
 				}
-			}else {
-				log("No LVP products...");
 			}
-			if(!productosMarketplace.isEmpty()) {
-				log("Mkt products...");
-				java.io.StringWriter writer = new java.io.StringWriter();
-				transformer.transform(new DOMSource(docMKT), new StreamResult(writer));
-				String xmlOutput = writer
-						.getBuffer()
-				        .toString()
-				        .replace("&lt;CRLF&gt;", "&#13;&#10;")
-				        .replace("<CRLF>", "&#13;&#10;")
-				        .replaceAll("&#0*(?:[0-8]|11|12|1[4-9]|2[0-9]|3[01]);", "")
-				        .replaceAll("(?i)&#x0*(?:[0-8]|B|C|E|F|1[0-9A-F]);", "")
-								;
-				java.nio.file.Path fn = java.nio.file.Paths.get( fileSystemPrefix, "pépele" + System.currentTimeMillis() + ".xml" );
-				try {
-					java.nio.file.Files.writeString(fn, xmlOutput);
-				} catch (IOException e) {
-					e.printStackTrace();
-				}
-				if(send) {
-					RestClient rc = new RestClient("Content-Type: application/xml", "Accept: application/xml");
-					try {
-						String ll = null;
-						log("A total size to send: " + xmlOutput.length());
-						log( ll = ("[" + new java.text.SimpleDateFormat().format(new java.util.Date()) + "] (Mkt) Request containing: " + productosMarketplace + " sent (local file is: " + fn + "). Resp: " + (serviceResponse = rc.getRequest("POST", urlDeMkt, xmlOutput) ) ) );
-						System.out.println(ll);
-						return fn + "<::>" + serviceResponse;
-					} catch (IOException e) {
-						logE(e);
-					}
-				}
-			}else {
-				log("No MKT products...");
+			if (hasPendingWork(batch)) {
+				appendResult(result, finishBatch(batch, send, batchNumber));
 			}
 		} catch (TransformerException e) {
 			logE(e);
 		} catch (ParserConfigurationException e) {
 			logE(e);
 		}
-        return null;
+		return result.length() == 0 ? null : result.toString();
 	}
 	
+
+	private static final class MiraklExportContext {
+		private Document doc;
+		private Element spim;
+		private Element attributes;
+		private Element assets;
+		private Element products;
+		private Document docMKT;
+		private Element spimMKT;
+		private Element attributesMKT;
+		private Element assetsMKT;
+		private Element productsMKT;
+		private String currentProposalId;
+		private final java.util.Map<String, Element> assetMap = new java.util.TreeMap<>();
+		private final java.util.Map<String, java.util.LinkedList<String>> assetReferencesMap = new java.util.TreeMap<>();
+		private final java.util.Map<String, Element> assetMapMKT = new java.util.TreeMap<>();
+		private final java.util.Map<String, java.util.LinkedList<String>> assetReferencesMapMKT = new java.util.TreeMap<>();
+		private final java.util.LinkedList<String> productosLiverpool = new java.util.LinkedList<>();
+		private final java.util.LinkedList<String> productosMarketplace = new java.util.LinkedList<>();
+		private final java.util.List<String> proposalIds = new java.util.ArrayList<>();
+		private final org.json.JSONObject reqPublishMessage = newRequest(
+				"Product2GCharacteristicValueLang.Value('PublishMktMessage',root,\"0000.0000.RK\",'PublishMktMessage',-1)");
+	}
+
+	private static org.json.JSONObject newRequest(String identifier) {
+		return new org.json.JSONObject()
+				.put("columns", new org.json.JSONArray()
+						.put(new org.json.JSONObject().put("identifier", identifier)))
+				.put("rows", new org.json.JSONArray());
+	}
+
+	private MiraklExportContext createMiraklExportContext() throws ParserConfigurationException {
+		DocumentBuilder builder = DocumentBuilderFactory.newInstance().newDocumentBuilder();
+		MiraklExportContext context = new MiraklExportContext();
+		context.doc = builder.newDocument();
+		context.spim = createStepRoot(context.doc);
+		context.attributes = context.doc.createElement("AttributeList");
+		context.assets = context.doc.createElement("Assets");
+		context.products = context.doc.createElement("Products");
+		context.spim.appendChild(context.attributes);
+		context.spim.appendChild(context.assets);
+		context.spim.appendChild(context.products);
+
+		context.docMKT = builder.newDocument();
+		context.spimMKT = createStepRoot(context.docMKT);
+		context.attributesMKT = context.docMKT.createElement("AttributeList");
+		context.assetsMKT = context.docMKT.createElement("Assets");
+		context.productsMKT = context.docMKT.createElement("Products");
+		context.spimMKT.appendChild(context.attributesMKT);
+		context.spimMKT.appendChild(context.assetsMKT);
+		context.spimMKT.appendChild(context.productsMKT);
+		return context;
+	}
+
+	private Element createStepRoot(Document document) {
+		Element root = document.createElement("STEP-ProductInformation");
+		root.setAttribute("ExportTime",
+				new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()));
+		root.setAttribute("ExportContext", "Context2");
+		root.setAttribute("ContextID", "Context2");
+		root.setAttribute("WorkspaceID", "Approved");
+		root.setAttribute("UseContextLocale", "false");
+		document.appendChild(root);
+		return root;
+	}
+
+	private boolean hasProducts(MiraklExportContext context) {
+		return hasDirectElementChild(context.products, "Product")
+				|| hasDirectElementChild(context.productsMKT, "Product");
+	}
+
+	private boolean hasPendingWork(MiraklExportContext context) {
+		return hasProducts(context) || hasRows(context.reqPublishMessage);
+	}
+
+	private static boolean hasRows(org.json.JSONObject request) {
+		return request != null && request.getJSONArray("rows").length() > 0;
+	}
+
+	private static boolean hasDirectElementChild(Element parent, String tagName) {
+		for (Node child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
+			if (child instanceof Element && tagName.equals(((Element) child).getTagName())) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private long[] measureMergedSizes(MiraklExportContext batch, MiraklExportContext current)
+			throws ParserConfigurationException, TransformerException {
+		Document candidateLvp = cloneDocument(batch.doc);
+		Document candidateMkt = cloneDocument(batch.docMKT);
+		mergeDocument(candidateLvp, current.attributes, current.assets, current.products);
+		mergeDocument(candidateMkt, current.attributesMKT, current.assetsMKT, current.productsMKT);
+		return new long[] { serializedSize(candidateLvp), serializedSize(candidateMkt) };
+	}
+
+	private long[] serializedSizes(MiraklExportContext context) throws TransformerException {
+		return new long[] { serializedSize(context.doc), serializedSize(context.docMKT) };
+	}
+
+	private static boolean exceedsLimit(long[] sizes) {
+		return sizes[0] > MAX_BATCH_BYTES || sizes[1] > MAX_BATCH_BYTES;
+	}
+
+	private void mergeContext(MiraklExportContext destination, MiraklExportContext source,
+			boolean includeXml) {
+		if (includeXml) {
+			mergeDocument(destination.doc, source.attributes, source.assets, source.products);
+			mergeDocument(destination.docMKT, source.attributesMKT, source.assetsMKT, source.productsMKT);
+			destination.assetMap.putAll(source.assetMap);
+			destination.assetReferencesMap.putAll(source.assetReferencesMap);
+			destination.assetMapMKT.putAll(source.assetMapMKT);
+			destination.assetReferencesMapMKT.putAll(source.assetReferencesMapMKT);
+			destination.productosLiverpool.addAll(source.productosLiverpool);
+			destination.productosMarketplace.addAll(source.productosMarketplace);
+			if (source.currentProposalId != null) {
+				destination.proposalIds.add(source.currentProposalId);
+			}
+		}
+		appendRows(destination.reqPublishMessage, source.reqPublishMessage);
+	}
+
+	private void mergeDocument(Document destinationDocument, Element sourceAttributes,
+			Element sourceAssets, Element sourceProducts) {
+		Element root = destinationDocument.getDocumentElement();
+		appendUniqueDirectChildren(destinationDocument, directChild(root, "AttributeList"),
+				sourceAttributes, "ID");
+		appendUniqueDirectChildren(destinationDocument, directChild(root, "Assets"),
+				sourceAssets, "ID");
+		appendUniqueDirectChildren(destinationDocument, directChild(root, "Products"),
+				sourceProducts, "ID");
+	}
+
+	private static Element directChild(Element parent, String tagName) {
+		for (Node child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
+			if (child instanceof Element && tagName.equals(((Element) child).getTagName())) {
+				return (Element) child;
+			}
+		}
+		throw new IllegalStateException("No se encontró el elemento " + tagName);
+	}
+
+	private static void appendUniqueDirectChildren(Document destinationDocument,
+			Element destinationParent, Element sourceParent, String idAttribute) {
+		for (Node child = sourceParent.getFirstChild(); child != null; child = child.getNextSibling()) {
+			if (!(child instanceof Element)) {
+				continue;
+			}
+			Element sourceElement = (Element) child;
+			String id = sourceElement.getAttribute(idAttribute);
+			if (id == null || id.isEmpty()
+					|| findDirectChildById(destinationParent, sourceElement.getTagName(), id) == null) {
+				destinationParent.appendChild(destinationDocument.importNode(sourceElement, true));
+			}
+		}
+	}
+
+	private static Element findDirectChildById(Element parent, String tagName, String id) {
+		for (Node child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
+			if (child instanceof Element) {
+				Element element = (Element) child;
+				if (tagName.equals(element.getTagName()) && id.equals(element.getAttribute("ID"))) {
+					return element;
+				}
+			}
+		}
+		return null;
+	}
+
+	private static void appendRows(org.json.JSONObject destination, org.json.JSONObject source) {
+		org.json.JSONArray destinationRows = destination.getJSONArray("rows");
+		org.json.JSONArray sourceRows = source.getJSONArray("rows");
+		for (int i = 0; i < sourceRows.length(); i++) {
+			destinationRows.put(sourceRows.get(i));
+		}
+	}
+
+	private Document cloneDocument(Document source) throws ParserConfigurationException {
+		Document clone = DocumentBuilderFactory.newInstance().newDocumentBuilder().newDocument();
+		clone.appendChild(clone.importNode(source.getDocumentElement(), true));
+		return clone;
+	}
+
+	private String serializeMiraklXml(Document document) throws TransformerException {
+		Transformer transformer = TransformerFactory.newInstance().newTransformer();
+		transformer.setOutputProperty(OutputKeys.ENCODING, StandardCharsets.UTF_8.name());
+		transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no");
+		java.io.ByteArrayOutputStream output = new java.io.ByteArrayOutputStream();
+		transformer.transform(new DOMSource(document), new StreamResult(output));
+		return new String(output.toByteArray(), StandardCharsets.UTF_8)
+				.replace("&lt;CRLF&gt;", "&#13;&#10;")
+				.replace("<CRLF>", "&#13;&#10;")
+				.replaceAll("&#0*(?:[0-8]|11|12|1[4-9]|2[0-9]|3[01]);", "")
+				.replaceAll("(?i)&#x0*(?:[0-8]|B|C|E|F|1[0-9A-F]);", "");
+	}
+
+	private long serializedSize(Document document) throws TransformerException {
+		return serializeMiraklXml(document).getBytes(StandardCharsets.UTF_8).length;
+	}
+
+	private String finishBatch(MiraklExportContext batch, boolean send, int batchNumber)
+			throws TransformerException {
+		sendPublishRows(batch.reqPublishMessage);
+		StringBuilder result = new StringBuilder();
+		if (hasDirectElementChild(batch.products, "Product")) {
+			appendResult(result, finishDocumentBatch(batch.doc, batch.productosLiverpool,
+					fileSystemPrefixLvp, urlDeMktStockout, "LVP", send, batchNumber));
+		}
+		if (hasDirectElementChild(batch.productsMKT, "Product")) {
+			appendResult(result, finishDocumentBatch(batch.docMKT, batch.productosMarketplace,
+					fileSystemPrefix, urlDeMkt, "MKT", send, batchNumber));
+		}
+		this.products += directElementCount(batch.products, "Product")
+				+ directElementCount(batch.productsMKT, "Product");
+		return result.toString();
+	}
+
+	private void sendPublishRows(org.json.JSONObject request) {
+		if (!hasRows(request)) {
+			return;
+		}
+		java.util.Map<String, String> params = new java.util.HashMap<>();
+		params.put("includeObjectsInProtocol", "false");
+		wrapper.writeData("list", "Product2G", null, params, request, this::log);
+	}
+
+	private String finishDocumentBatch(Document document, java.util.List<String> productIds,
+			String directory, String endpoint, String channel, boolean send, int batchNumber)
+			throws TransformerException {
+		String xmlOutput = serializeMiraklXml(document);
+		long bytes = xmlOutput.getBytes(StandardCharsets.UTF_8).length;
+		java.nio.file.Path outputDirectory = java.nio.file.Paths.get(directory);
+		java.nio.file.Path file = outputDirectory.resolve(
+				"pepele_" + channel.toLowerCase() + "_batch"
+				+ String.format("%03d", batchNumber) + "_" + System.currentTimeMillis() + ".xml");
+		try {
+			java.nio.file.Files.createDirectories(outputDirectory);
+			java.nio.file.Files.writeString(file, xmlOutput, StandardCharsets.UTF_8);
+		} catch (IOException e) {
+			logE(e);
+		}
+		log(channel + " batch " + batchNumber + ": " + productIds.size()
+				+ " propuestas, " + bytes + " bytes, archivo " + file);
+		if (!send) {
+			return file.toString();
+		}
+		try {
+			RestClient client = new RestClient("Content-Type: application/xml", "Accept: application/xml");
+			String response = client.getRequest("POST", endpoint, xmlOutput);
+			log(channel + " batch " + batchNumber + " enviado para " + productIds + ": " + response);
+			return file + "<::>" + response;
+		} catch (IOException e) {
+			logE(e);
+			return file.toString();
+		}
+	}
+
+	private static int directElementCount(Element parent, String tagName) {
+		int count = 0;
+		for (Node child = parent.getFirstChild(); child != null; child = child.getNextSibling()) {
+			if (child instanceof Element && tagName.equals(((Element) child).getTagName())) {
+				count++;
+			}
+		}
+		return count;
+	}
+
+	private static void appendResult(StringBuilder destination, String value) {
+		if (value == null || value.isEmpty()) {
+			return;
+		}
+		if (destination.length() > 0) {
+			destination.append(System.lineSeparator());
+		}
+		destination.append(value);
+	}
+
 	private Object parseDateForSpecificDateFields(Object value, String charId) {
 		if(value == null)
 			return null;
@@ -2366,7 +2439,7 @@ public class RealExportProducts2Mirakl {
 //	}
 //	
 //	public static void main(String[] args) {
-//		log( new RealExportProducts2Mirakl().isBannedForMarketplace("10110", "ItemGroups", "MATKLLOV") );
+//		log( new RealExportProducts2MiraklJdbcBatch().isBannedForMarketplace("10110", "ItemGroups", "MATKLLOV") );
 //	}
 	
 	private boolean isBannedForMarketplace(String value, String rule, String ref) {
@@ -2395,86 +2468,90 @@ public class RealExportProducts2Mirakl {
 		return null;
 	}
 	
-	private void addGlobalData(java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas, java.util.Set<String> losQueSi, String baseUrl) throws ServiceUnavailableException {
-		RESTWorkshop rw = new RESTWorkshop();
-		if(baseUrl != null) {
-			rw.setBaseUrl(baseUrl);
-		}
-		rw.addHeader("Authorization", RealExportProducts2Mirakl.rw.getRc().getHeader().get("Authorization"));
-		rw.putParameter("dictionaryProxy", "'GlobalTemplateAttributeConfiguration'");
-		rw.putParameter("fields", 
-				   "StandardizationValue.Characteristic->Characteristic.Identifier"
-				+ ",StandardizationValue.Property->LookupValue.Code"
-				+ ",StandardizationValue.PropertyValue"
-				+ ",StandardizationValue.Characteristic->CharacteristicLang.Name(es)"
-				+ ",StandardizationValue.Characteristic->CharacteristicLang.Description(es)"
-				+ ",StandardizationValue.Characteristic->Characteristic.DataType"
-				+ ",StandardizationValue.Characteristic->Characteristic.Lookup->Lookup.Identifier"
-				+ ",StandardizationValue.Characteristic->Characteristic.IsMultiValue"
-				+ ",StandardizationValue.Characteristic->Characteristic.Purposes->LookupValue.Code"
-				+ ",StandardizationValue.Characteristic->Characteristic.Order"
-			);
-		rw.putParameter("query", 
-				  "StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"GlobalTemplateAttributeConfiguration\""
-			);
-		rw.putParameter("orderBy", "0-ASC");
-		rw.putParameter("pageSize", "1200");
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		int totalSize = 0;
-		int currentIndex = 0;
-		org.json.JSONObject detail = new org.json.JSONObject();
-		org.json.JSONArray prevValues = null;
-		do {
-			rw.putParameter("startIndex", String.valueOf(currentIndex));
-			response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch");
-			if(response != null && response.has("totalSize")) {
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for(int i=0; i<rows.length(); i++) {
-					currentIndex++;
-					values = rows.getJSONObject(i).getJSONArray("values");
-					if(prevValues != null && !prevValues.getString(0).equals(values.getString(0))) {
-						detail.put("name", prevValues.getString(3));
-						detail.put("description", prevValues.getString(4));
-						detail.put("dataType", prevValues.getString(5));
-						detail.put("lookup", prevValues.getString(6));
-						detail.put("isMultiValue", prevValues.getString(7));
-						detail.put("purposes", prevValues.getJSONArray(8));
-						detail.put("order", prevValues.getString(9));
-						propiedadesCaracteristicas.put(prevValues.getString(0), detail);
-						if(detail.getJSONArray("purposes").length() == 1 && detail.getJSONArray("purposes").getString(0).equals(""))
-							detail.getJSONArray("purposes").remove(0);
-						if(detail.has("RelevantForATG") && "Y".equals(detail.getString("RelevantForATG")))
-							losQueSi.add(prevValues.getString(0));
-						detail = new org.json.JSONObject();
-					}
-					detail.put(values.getString(1), values.getString(2));
-					prevValues = values;
-				}
-			}else {
-				log("ERR: " + rw.getRawResponse());
+	private void addCharacteristicData(java.util.Map<String, org.json.JSONObject> propertiesByCharacteristic) {
+		for (java.util.Map.Entry<Integer, org.json.JSONObject> entry : characteristicMetadataByID.entrySet()) {
+			String identifier = characteristicIdentifierByID.get(entry.getKey());
+			if (identifier == null || identifier.isBlank() || propertiesByCharacteristic.containsKey(identifier)) {
+				continue;
 			}
-		}while(currentIndex < totalSize);
-		currentIndex = 0;
-		if(detail.length() > 0) {
-			detail.put("name", prevValues.getString(3));
-			detail.put("description", prevValues.getString(4));
-			detail.put("dataType", prevValues.getString(5));
-			detail.put("lookup", prevValues.getString(6));
-			detail.put("isMultiValue", prevValues.getString(7));
-			detail.put("purposes", prevValues.getJSONArray(8));
-			detail.put("order", prevValues.getString(9));
-			propiedadesCaracteristicas.put(prevValues.getString(0), detail);
-			if(detail.getJSONArray("purposes").length() == 1 && detail.getJSONArray("purposes").getString(0).equals(""))
-				detail.getJSONArray("purposes").remove(0);
-			if(detail.has("RelevantForATG") && "Y".equals(detail.getString("RelevantForATG")))
-				losQueSi.add(prevValues.getString(0));
-			detail = null;
+			propertiesByCharacteristic.put(identifier, copyCharacteristicMetadata(entry.getValue()));
 		}
 	}
 
+	private org.json.JSONObject getOrCreateCharacteristicProperties(int characteristicID,
+			java.util.Map<String, org.json.JSONObject> target) {
+		org.json.JSONObject metadata = characteristicMetadataByID.get(characteristicID);
+		String identifier = characteristicIdentifierByID.get(characteristicID);
+		if (metadata == null || identifier == null || identifier.isBlank()) {
+			return null;
+		}
+		org.json.JSONObject properties = target.get(identifier);
+		if (properties == null) {
+			properties = copyCharacteristicMetadata(metadata);
+			target.put(identifier, properties);
+		}
+		return properties;
+	}
+
+	private void loadCharacteristicMetadata() {
+		java.util.Map<Integer, String> purposeCodes = dastub.getLookupValueCodeMap(2);
+		for (org.json.JSONObject row : dastub.getCharacteristicMetadataRows(10)) {
+			String identifier = row.optString("identifier", "");
+			if (identifier.isBlank()) {
+				continue;
+			}
+			org.json.JSONObject metadata = new org.json.JSONObject()
+					.put("name", row.optString("name", ""))
+					.put("description", row.optString("description", ""))
+					.put("dataType", row.optString("dataType", ""))
+					.put("lookup", row.optString("lookup", ""))
+					.put("isMultiValue", row.optString("isMultiValue", ""))
+					.put("purposes", rutils.resolvePurposeCodes(row.optString("purposesRaw", ""), purposeCodes))
+					.put("order", row.optString("order", ""));
+			int characteristicID = row.getInt("characteristicID");
+			characteristicMetadataByID.put(characteristicID, metadata);
+			characteristicIdentifierByID.put(characteristicID, identifier);
+		}
+	}
+
+	private org.json.JSONObject copyCharacteristicMetadata(org.json.JSONObject source) {
+		org.json.JSONArray purposes = new org.json.JSONArray();
+		org.json.JSONArray sourcePurposes = source.optJSONArray("purposes");
+		if (sourcePurposes != null) {
+			for (int i = 0; i < sourcePurposes.length(); i++) {
+				purposes.put(sourcePurposes.get(i));
+			}
+		}
+		return new org.json.JSONObject()
+				.put("name", source.optString("name", ""))
+				.put("description", source.optString("description", ""))
+				.put("dataType", source.optString("dataType", ""))
+				.put("lookup", source.optString("lookup", ""))
+				.put("isMultiValue", source.optString("isMultiValue", ""))
+				.put("purposes", purposes)
+				.put("order", source.optString("order", ""));
+	}
+
+	private void addGlobalData(java.util.Map<String, org.json.JSONObject> propertiesByCharacteristic,
+			java.util.Set<String> relevantForAtg) {
+		for (org.json.JSONObject row : dastub
+				.getStandardizationValueCharacteristicRows("GlobalTemplateAttributeConfiguration")) {
+			org.json.JSONObject detail = getOrCreateCharacteristicProperties(
+					row.getInt("characteristicID"), propertiesByCharacteristic);
+			if (detail == null) {
+				continue;
+			}
+			String property = row.optString("property", "");
+			if (!property.isBlank()) {
+				detail.put(property, row.optString("propertyValue", ""));
+			}
+		}
+		for (java.util.Map.Entry<String, org.json.JSONObject> entry : propertiesByCharacteristic.entrySet()) {
+			if ("Y".equals(entry.getValue().optString("RelevantForATG", ""))) {
+				relevantForAtg.add(entry.getKey());
+			}
+		}
+	}
 	public void talla(String latallaFromCharacteristic, String latalla, String business, String itemGroup, String template, String direccion, String brand, Element attributeValues, Element attributes, Document doc, java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas) throws ServiceUnavailableException {
 		String elcampoLatalla = null;
 		elcampoLatalla = getAtributoSapLatalla(itemGroup, business);
@@ -2521,72 +2598,20 @@ public class RealExportProducts2Mirakl {
 	}
 
 
-	private String getAtributoSapLatalla(String itemGroup, String business) throws ServiceUnavailableException {
-		String value = null;
-		RESTWorkshop rw = new RESTWorkshop();
-		rw.setBaseUrl(baseUrlDEV);
-		rw.addHeader("Authorization", RealExportProducts2Mirakl.rw.getRc().getHeader().get("Authorization"));
-		String dp = ("SBB".equals(business) ? "TallaUnicavsTallaS4H" : "TallaUnicavsTallaERP");
-		rw.putParameter("dictionaryProxy", "'" + dp + "'");
-		rw.putParameter("fields", "StandardizationValue.AlternativeValue");
-		rw.putParameter("query", "StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"" + dp + "\" and StandardizationValue.Value equals \"" + itemGroup + "\"");
-
-		org.json.JSONObject response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch");
-		if(response != null) {
-			org.json.JSONArray rows = response.getJSONArray("rows");
-			if(rows.length() > 0) {
-				value = rows.getJSONObject(0).getJSONArray("values").getString(0);
-			}
-		}else {
-			log("###$$ ERROR: " + rw.getRawResponse());
-		}
-		if(value == null || "".equals(value) && !"SBB".equals(business)) {
-			dp = ("ItemGroupSAPSizeAttribute");
-			rw.putParameter("dictionaryProxy", "'" + dp + "'");
-			rw.putParameter("fields", "StandardizationValue.AlternativeValue");
-			rw.putParameter("query", "StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"" + dp + "\" and StandardizationValue.Value equals \"" + itemGroup + "\"");
-
-			response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch");
-			if(response != null) {
-				org.json.JSONArray rows = response.getJSONArray("rows");
-				if(rows.length() > 0) {
-					value = rows.getJSONObject(0).getJSONArray("values").getString(0);
-				}
-			}else {
-				log("###$$ ERROR: " + rw.getRawResponse());
-			}
+	private String getAtributoSapLatalla(String itemGroup, String business) {
+		String dictionary = "SBB".equals(business)
+				? "TallaUnicavsTallaS4H" : "TallaUnicavsTallaERP";
+		String value = queryDictionary(itemGroup, dictionary);
+		if (value == null || ("".equals(value) && !"SBB".equals(business))) {
+			value = queryDictionary(itemGroup, "ItemGroupSAPSizeAttribute");
 		}
 		return value;
 	}
 	
 	@SuppressWarnings("deprecation")
-	private String queryDictionary(String key, String dictionary) throws ServiceUnavailableException {
-		String rawResponse = null;
-		org.json.JSONObject response = null;
-//		org.json.JSONArray rows = null;
-		try {
-			rawResponse = rw.makeRequest("GET", "/object/StandardizationValue/" + encode("'" + key + "'@'" + dictionary + "'")
-					+ ""
-					, null);
-			response = new org.json.JSONObject(rawResponse);
-//			rows = response.getJSONArray("rows");
-//			log("Querying: " + key + " in: " + dictionary + ", got: " + response);
-//			log("URL: " + url);
-//			if(rows.length() > 0) {
-//				return rows.getJSONObject(0).getJSONArray("values").getString(0);
-//			}
-			if(response.has("_data") && response.getJSONObject("_data").has("alternativeValue")) {
-				return response.getJSONObject("_data").getString("alternativeValue");
-			}
-		}catch(java.io.IOException | KeyManagementException | NoSuchAlgorithmException | URISyntaxException e){
-			logE(e);
-		}catch(org.json.JSONException e) {
-			logE(e);
-			log("ERR: " + rawResponse);
-		}
-		return null;
+	private String queryDictionary(String key, String dictionary) {
+		return dastub.queryDictionary(key, dictionary);
 	}
-
 	private String encode(String val) {
 		try {
 			return java.net.URLEncoder.encode(val, "UTF-8");
@@ -2997,30 +3022,8 @@ public class RealExportProducts2Mirakl {
 	}
 	
 	private String queryVariantOrder(String key) {
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("dictionaryProxy", "'VariantOrder'");
-		qp.put("query", "StandardizationValue.Value wildcard \"%-" + key.replaceAll("^.+-", "") + "\" and StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"VariantOrder\"");
-		qp.put("fields", "StandardizationValue.PropertyValue");
-		try {
-			response  = rw.makeRequest("GET", "/list/StandardizationValue/bySearch", qp, null);
-			if(response != null) {
-				rows = response.getJSONArray("rows");
-				if(rows.length() > 0) {
-					return rows.getJSONObject(0).getJSONArray("values").getString(0);
-				}
-			}else {
-				log("<::>" + rw.getRawResponse());
-			}
-		}catch(org.json.JSONException e) {
-			log("ERR: " + rw.getRawResponse());
-//			System.exit(0);
-		}
-		return null;
+		return dastub.queryVariantOrder(key);
 	}
-
-
 	private static final Logger LOGGER = Logger.getLogger(RealExportProducts2Mirakl.class.getName());
 
     static {
@@ -3078,138 +3081,33 @@ public class RealExportProducts2Mirakl {
 		}catch(java.io.IOException e){}
 	}
 
-	public static java.util.Set<String> YEA;
+	private java.util.Set<String> YEA;
 
-	public static java.util.Map<String, String> mapaDeDirecciones; // = new java.util.TreeMap<>();
-	public static java.util.Map<String, String> mapaDeDireccionesAtributoTallaWeb; // = new java.util.TreeMap<>();
-	public static java.util.Map<String, String> mapaDeAtributosFechas; // = new java.util.TreeMap<>();
+	private java.util.Map<String, String> mapaDeDirecciones; // = new java.util.TreeMap<>();
+	private java.util.Map<String, String> mapaDeDireccionesAtributoTallaWeb; // = new java.util.TreeMap<>();
+	private java.util.Map<String, String> mapaDeAtributosFechas; // = new java.util.TreeMap<>();
 	
-	private static java.util.Map<String, String> loadFieldDictionaries() throws ServiceUnavailableException {
-		java.util.Map<String, String> mapa = new java.util.TreeMap<>();
-		RESTWorkshop rw = new RESTWorkshop();
-		rw.setBaseUrl(baseUrlDEV);
-		rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
-		rw.putParameter("dictionary", "RelAttribSTDATG");
-		rw.putParameter("fields", "StandardizationValue.Value,StandardizationValue.AlternativeValue");
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		int currentIndex = 0;
-		int totalSize = 0;
-		do {
-			rw.putParameter("startIndex", String.valueOf(currentIndex));
-			response = rw.makeRequest("GET", "/list/StandardizationValue/byDictionary");
-			if(response != null && response.has("totalSize")) {
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for(int i=0;i<rows.length();i++) {
-					currentIndex++;
-					values = rows.getJSONObject(i).getJSONArray("values");
-					mapa.put(values.getString(0), values.getString(1));
-				}
-			}
-		}while(currentIndex < totalSize);
-		currentIndex = 0;
-		return mapa;
+	private java.util.Map<String, String> loadFieldDictionaries() {
+		return dastub.getDictionaryValueAlternativeValueMap("RelAttribSTDATG");
 	}
-
-	private static java.util.Map<String, String> loadFieldTallaATG() throws ServiceUnavailableException {
-		java.util.Map<String, String> mapaDeDirecciones = new java.util.TreeMap<>();
-		RESTWorkshop rw = new RESTWorkshop();
-		rw.setBaseUrl(baseUrlDEV);
-		rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
-		rw.putParameter("dictionary", "RelAttribTallaATG");
-		rw.putParameter("fields", "StandardizationValue.Value,StandardizationValue.AlternativeValue");
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		int currentIndex = 0;
-		int totalSize = 0;
-		do {
-			rw.putParameter("startIndex", String.valueOf(currentIndex));
-			response = rw.makeRequest("GET", "/list/StandardizationValue/byDictionary");
-			if(response != null && response.has("totalSize")) {
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for(int i=0;i<rows.length();i++) {
-					currentIndex++;
-					values = rows.getJSONObject(i).getJSONArray("values");
-					mapaDeDirecciones.put(values.getString(0), values.getString(1));
-				}
-			}
-		}while(currentIndex < totalSize);
-		currentIndex = 0;
-		return mapaDeDirecciones;
+	private java.util.Map<String, String> loadFieldTallaATG() {
+		return dastub.getDictionaryValueAlternativeValueMap("RelAttribTallaATG");
 	}
 	
-	private static java.util.Map<String, String> loadAtributosFecha() throws ServiceUnavailableException {
-		java.util.Map<String, String> mapa = new java.util.TreeMap<>();
-		RESTWorkshop rw = new RESTWorkshop();
-		rw.setBaseUrl(baseUrlDEV);
-		rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
-		rw.putParameter("dictionary", "ConversionFechaATG");
-		rw.putParameter("fields", "StandardizationValue.Characteristic->Characteristic.Identifier,StandardizationValue.AlternativeValue");
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		int currentIndex = 0;
-		int totalSize = 0;
-		do {
-			rw.putParameter("startIndex", String.valueOf(currentIndex));
-			response = rw.makeRequest("GET", "/list/StandardizationValue/byDictionary");
-			if(response != null && response.has("totalSize")) {
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for(int i=0;i<rows.length();i++) {
-					currentIndex++;
-					values = rows.getJSONObject(i).getJSONArray("values");
-					mapa.put(values.getString(0), values.getString(1));
-				}
-			}
-		}while(currentIndex < totalSize);
-		currentIndex = 0;
-		return mapa;
+	private java.util.Map<String, String> loadAtributosFecha() {
+		return dastub.getDictionaryCharacteristicAlternativeValueMap("ConversionFechaATG");
 	}
 	
-	private static java.util.Set<String> loadInheritedFields() throws ServiceUnavailableException{
-		java.util.Set<String> mapa = new java.util.TreeSet<>();
-		RESTWorkshop rw = new RESTWorkshop();
-		rw.setBaseUrl(baseUrlDEV);
-		rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
-		rw.putParameter("dictionary", "CaracteristicasHeredables");
-		rw.putParameter("fields", "StandardizationValue.Characteristic->Characteristic.Identifier");
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		int currentIndex = 0;
-		int totalSize = 0;
-		do {
-			rw.putParameter("startIndex", String.valueOf(currentIndex));
-			response = rw.makeRequest("GET", "/list/StandardizationValue/byDictionary");
-			if(response != null && response.has("totalSize")) {
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for(int i=0;i<rows.length();i++) {
-					currentIndex++;
-					values = rows.getJSONObject(i).getJSONArray("values");
-					mapa.add(values.getString(0));
-				}
-			}
-		}while(currentIndex < totalSize);
-		currentIndex = 0;
-		return mapa;
+	private java.util.Set<String> loadInheritedFields() {
+		return new java.util.TreeSet<>(
+				dastub.getDictionaryCharacteristicAlternativeValueMap("CaracteristicasHeredables").keySet());
 	}
 	
-	static {
-		try {
-			mapaDeDirecciones = loadFieldDictionaries();
-			mapaDeDireccionesAtributoTallaWeb = loadFieldTallaATG();
-			mapaDeAtributosFechas = loadAtributosFecha();
-			YEA = loadInheritedFields();
-		} catch (ServiceUnavailableException e) {
-			e.printStackTrace();
-		}
+	private void loadDatabaseDictionaries() {
+		mapaDeDirecciones = loadFieldDictionaries();
+		mapaDeDireccionesAtributoTallaWeb = loadFieldTallaATG();
+		mapaDeAtributosFechas = loadAtributosFecha();
+		YEA = loadInheritedFields();
 	}
-
 
 }
