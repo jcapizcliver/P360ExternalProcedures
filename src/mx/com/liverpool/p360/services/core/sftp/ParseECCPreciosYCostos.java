@@ -24,7 +24,7 @@ import org.apache.sshd.sftp.client.SftpClientFactory;
 import org.xml.sax.SAXException;
 
 import mx.com.liverpool.p360.services.core.DBAccessDataStub;
-import mx.com.liverpool.p360.services.core.DBAccessDataStub.ELog;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.PubSubGCP;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;

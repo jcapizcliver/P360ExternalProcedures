@@ -48,6 +48,8 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
@@ -59,10 +61,8 @@ public class RealExportProducts {
 
 	private static final String urlDeATG = PropertiesManager.get("p360.contingency.out.url_atg");// "http://172.16.203.46:7089/pimstepatg/service/";
 	private static final String urlDeOMS = PropertiesManager.get("p360.contingency.out.url_oms"); // "https://brokerqa.liverpool.com.mx:7053/oms/Int100/Items";
-	private static final String encoded = PropertiesManager.get("p360.contingency.basic_token_auth");// "cmVzdDpoZWlsZXI=";
 	private static final java.nio.file.Path fileSystemPrefixOMS = java.nio.file.Paths.get("..", "stage", "ToOMS");
-	private static final java.nio.file.Path fileSystemPrefix = java.nio.file.Paths.get("/", "u01", "workshop", "stage",
-			"ToATG");
+	private static final java.nio.file.Path fileSystemPrefix = java.nio.file.Paths.get("/", "u01", "workshop", "stage", "ToATG");
 	private static final String baseUrlDEV = PropertiesManager.get("p360.contingency.base_url");
 	private static final RESTWrapper wrapper = new RESTWrapper();
 	private static final RESTWorkshop rw = wrapper.getRw();
@@ -97,30 +97,43 @@ public class RealExportProducts {
 			.put("rows", new org.json.JSONArray());
 
 	private final java.util.Map<String, java.util.Map<String, org.json.JSONObject>> templateMetadataSet = new java.util.TreeMap<>();
+	private final java.util.Map<String, java.util.Map<String, String>> templateStructureGroupAttributeValues = new java.util.TreeMap<>();
 	private final java.util.Map<String, java.util.Set<String>> templateSets = new java.util.TreeMap<>();
 	private final java.util.Map<String, org.json.JSONObject> globalProperties = new java.util.TreeMap<>();
 	private final java.util.Set<String> globalSet = new java.util.TreeSet<>();
+	
+	private final ELog log = new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			RealExportProducts.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			RealExportProducts.this.log(message);
+		}
+	};
+	
+	private final RealExportProductsUtils rutils = new RealExportProductsUtils(log);
+	private final DBAccessDataStub dastub = new DBAccessDataStub( log );
 	private final java.util.Map<String, String> atgGroups = loadLookupGroups();
-
 	private final java.util.Set<String> articulosEnviados = new java.util.TreeSet<>();
 	private static final SecureRandom RANDOM = new SecureRandom();
-
 	private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
-
 	private boolean frozenImagesExists = true;
 	private boolean exploitLayerExists = true;
+	private final java.util.Map<Integer, org.json.JSONObject> characteristicMetadataByID = new java.util.HashMap<>();
+	private final java.util.Map<Integer, String> characteristicIdentifierByID = new java.util.HashMap<>();
+	private final java.util.Set<Integer> rootCharacteristicIDs = new java.util.TreeSet<>();
 
-//    private String execID = null;
 	private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
 
 	public String newExecutionId() {
 		byte[] randomBytes = new byte[16]; // 128 bits
 		RANDOM.nextBytes(randomBytes);
-
 		String randomPart = Base64.getUrlEncoder().withoutPadding().encodeToString(randomBytes);
-
 		String timestamp = LocalDateTime.now().format(TS_FORMAT);
-
 		return "EXEC-" + timestamp + "-" + randomPart;
 	}
 
@@ -140,32 +153,25 @@ public class RealExportProducts {
 
 	private static Path resolveServerPropertiesPath() {
 		String path = System.getenv("P360_SERVER_PROPERTIES");
-
 		if (path == null || path.trim().isEmpty()) {
 			path = "/u01/Informatica/server.properties";
 		} else {
 		}
-
 		Path resolved = Paths.get(path).toAbsolutePath().normalize();
-
 		if (!Files.exists(resolved)) {
 			throw new IllegalArgumentException("No existe server.properties en: " + resolved);
 		}
-
 		if (!Files.isRegularFile(resolved)) {
 			throw new IllegalArgumentException("La ruta no es archivo: " + resolved);
 		}
-
 		return resolved;
 	}
 
 	private static String resolveRequiredProperty(Properties raw, String key) {
 		String value = resolvePropertyValue(raw, key, new HashSet<String>());
-
 		if (value == null || value.trim().isEmpty()) {
 			throw new IllegalArgumentException("No se encontró la property requerida: " + key);
 		}
-
 		return value.trim();
 	}
 
@@ -173,39 +179,35 @@ public class RealExportProducts {
 		if (visiting.contains(key)) {
 			throw new IllegalArgumentException("Referencia circular detectada en properties para la clave: " + key);
 		}
-
 		String value = raw.getProperty(key);
 		if (value == null) {
 			return null;
 		}
-
 		visiting.add(key);
-
 		Matcher matcher = PLACEHOLDER_PATTERN.matcher(value);
 		StringBuffer sb = new StringBuffer();
-
 		while (matcher.find()) {
 			String referencedKey = matcher.group(1);
 			String referencedValue = resolvePropertyValue(raw, referencedKey, visiting);
-
 			if (referencedValue == null) {
 				throw new IllegalArgumentException("No se pudo resolver la property referenciada: " + referencedKey);
 			}
-
 			matcher.appendReplacement(sb, Matcher.quoteReplacement(referencedValue));
 		}
-
 		matcher.appendTail(sb);
 		visiting.remove(key);
-
 		return sb.toString();
 	}
 
 	public RealExportProducts() {
+		loadDatabaseDictionaries();
+		System.out.println("Loading characteristic metadata");
+		loadCharacteristicMetadata();
+		System.out.println("Characteristic metadata loaded");
 		System.out.println("Adding global metadata");
-		addGlobalData(globalProperties, globalSet, baseUrlDEV);
+		addGlobalData( globalProperties, globalSet );
 		System.out.println("Global metadata added");
-		addCharacteristicData(globalProperties, baseUrlDEV);
+		addCharacteristicData( globalProperties );
 	}
 
 	private org.json.JSONObject getMeTheCompa(String compa) throws ServiceUnavailableException {
@@ -330,23 +332,23 @@ public class RealExportProducts {
 	}
 
 	public String getIdFromSKU(String sku) {
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("fields", "Product2G.ProductNo");
-		qp.put("query", "characteristic('SKU',-1) wildcard \"" + sku + "\"");
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		response = rw.makeRequest("GET", "/list/Product2G/bySearch", qp, null);
-//		System.out.println(sku + " - " + rw.getRawResponse());
-		if (response == null) {
-		} else {
-			rows = response.getJSONArray("rows");
-			if (rows.length() > 0) {
-				return rows.getJSONObject(0).getJSONArray("values").getString(0);
-			} else {
-				log("SKU not found: " + sku);
-			}
-		}
-		return null;
+//		java.util.Map<String, String> qp = new java.util.TreeMap<>();
+//		qp.put("fields", "Product2G.ProductNo");
+//		qp.put("query", "characteristic('SKU',-1) wildcard \"" + sku + "\"");
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		response = rw.makeRequest("GET", "/list/Product2G/bySearch", qp, null);
+//		if (response == null) {
+//		} else {
+//			rows = response.getJSONArray("rows");
+//			if (rows.length() > 0) {
+//				return rows.getJSONObject(0).getJSONArray("values").getString(0);
+//			} else {
+//				log("SKU not found: " + sku);
+//			}
+//		}
+//		return null;
+		return dastub.getSkuProductNo(sku);
 	}
 
 	public void processBatch(String[] proposalIds) {
@@ -675,22 +677,12 @@ public class RealExportProducts {
 				}
 				String itemId = rp.getJSONObject("_entityItem").getString("_externalId").split("@")[0]
 						.replaceAll("^'|'$", "");
-				String[] webCategory = getWebCategory(rp.getJSONObject("_data").getJSONArray("structureGroupMap")); // new
-																													// String[]
-																													// {"cat1240607"};
+				String[] webCategory = getWebCategory(rp.getJSONObject("_data").getJSONArray("structureGroupMap"));
 				String productType = null;
-				String descLong = rp.getJSONObject("_data").has("lang")
-						? grabDescLong(rp.getJSONObject("_data").getJSONArray("lang"))
-						: null;
-				String descLong2 = rp.getJSONObject("_data").has("lang")
-						? grabDescLong2(rp.getJSONObject("_data").getJSONArray("lang"))
-						: null;
-				String productName = rp.getJSONObject("_data").has("lang")
-						? grabProductName(rp.getJSONObject("_data").getJSONArray("lang"))
-						: null;
-				String nameLang = rp.getJSONObject("_data").has("lang")
-						? grabProductDescriptionShort(rp.getJSONObject("_data").getJSONArray("lang"))
-						: null;
+				String descLong = rp.getJSONObject("_data").has("lang") ? grabDescLong(rp.getJSONObject("_data").getJSONArray("lang")) : null;
+				String descLong2 = rp.getJSONObject("_data").has("lang") ? grabDescLong2(rp.getJSONObject("_data").getJSONArray("lang")) : null;
+				String productName = rp.getJSONObject("_data").has("lang") ? grabProductName(rp.getJSONObject("_data").getJSONArray("lang")) : null;
+				String nameLang = rp.getJSONObject("_data").has("lang") ? grabProductDescriptionShort(rp.getJSONObject("_data").getJSONArray("lang")) : null;
 				String charactName = null;
 
 				String brandName = null;
@@ -965,22 +957,10 @@ public class RealExportProducts {
 					logE(e);
 				}
 				System.out.println("Sí habían imágenes");
-				String rawResponse = null;
-				org.json.JSONObject response = null;
 				characteristicRecords = null;
-				int currentIndex = 0;
-				int totalSize = 0;
-				org.json.JSONArray values = null;
-				currentIndex = 0;
-				String prevC = null;
 				java.util.Set<String> atributosGeneralesQueSi = null;
-				currentIndex = 0;
 				java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas = null;
-				String currC = null;
-				prevC = null;
 				String brandCode = null;
-				org.json.JSONObject prop = new org.json.JSONObject();
-				org.json.JSONArray prevV = null;
 				propiedadesCaracteristicas = templateMetadataSet.get(template);
 				atributosGeneralesQueSi = templateSets.get(template);
 				if (propiedadesCaracteristicas == null) {
@@ -989,81 +969,19 @@ public class RealExportProducts {
 					templateSets.put(template, atributosGeneralesQueSi);
 					atributosGeneralesQueSi.addAll(globalSet);
 					templateMetadataSet.put(template, propiedadesCaracteristicas);
-					for (java.util.Map.Entry<String, org.json.JSONObject> globalPropertiesEntry : globalProperties
-							.entrySet()) {
-						propiedadesCaracteristicas.put(globalPropertiesEntry.getKey(),
-								globalPropertiesEntry.getValue());
+					for (java.util.Map.Entry<String, org.json.JSONObject> globalPropertiesEntry : globalProperties.entrySet()) {
+						propiedadesCaracteristicas.put(globalPropertiesEntry.getKey(), globalPropertiesEntry.getValue());
 					}
 					log("Going to request Propiedades Característicias: ");
-					try {
-						do {
-							rawResponse = rc.getRequest("GET", baseUrlDEV
-									+ "/list/StandardizationValue/bySearch?dictionaryProxy="
-									+ java.net.URLEncoder.encode(
-											"'ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla'", "UTF-8")
-									+ "&query="
-									+ java.net.URLEncoder.encode(
-											"StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla\""
-													+ " and StandardizationValue.CreationType->LookupValue.Code equals \"CreateProposal\""
-													+ " and StandardizationValue.StructureGroup->LookupValue.Code equals \""
-													+ template + "\"",
-											"UTF-8")
-									+ "&fields="
-									+ java.net.URLEncoder.encode("StandardizationValue.StructureGroup->LookupValue.Code"
-											+ ",StandardizationValue.Characteristic->Characteristic.Identifier"
-											+ ",StandardizationValue.Property->LookupValue.Code"
-											+ ",StandardizationValue.PropertyValue"
-											+ ",StandardizationValue.Characteristic->CharacteristicLang.Name(es)"
-											+ ",StandardizationValue.Characteristic->CharacteristicLang.Description(es)"
-											+ ",StandardizationValue.Characteristic->Characteristic.DataType"
-											+ ",StandardizationValue.Characteristic->Characteristic.Lookup->Lookup.Identifier"
-											+ ",StandardizationValue.Characteristic->Characteristic.IsMultiValue"
-											+ ",StandardizationValue.Characteristic->Characteristic.Purposes->LookupValue.Code"
-											+ ",StandardizationValue.Characteristic->Characteristic.Order", "UTF-8")
-									+ "&orderBy=1-ASC" + "&pageSize=1000" + "&startIndex=" + currentIndex, null);
-							response = new org.json.JSONObject(rawResponse);
-							totalSize = response.getInt("totalSize");
-							characteristicRecords = response.getJSONArray("rows");
-							for (int i = 0; i < characteristicRecords.length(); i++) {
-								currentIndex++;
-								values = characteristicRecords.getJSONObject(i).getJSONArray("values");
-								currC = values.getString(1);
-								if (prevC != null && !prevC.equals(currC)) {
-									prop.put("name", prevV.getString(4));
-									prop.put("description", prevV.getString(5));
-									prop.put("dataType", prevV.getString(6));
-									prop.put("lookup", prevV.getString(7));
-									prop.put("isMultiValue", prevV.getString(8));
-									prop.put("purposes", prevV.getJSONArray(9));
-									prop.put("order", prevV.getString(10));
-									propiedadesCaracteristicas.put(prevC, prop);
-									if (prop.getJSONArray("purposes").length() == 1
-											&& prop.getJSONArray("purposes").getString(0).equals(""))
-										prop.getJSONArray("purposes").remove(0);
-									if (prop.has("RelevantForATG") && "Y".equals(prop.getString("RelevantForATG")))
-										atributosGeneralesQueSi.add(prevC);
-									prop = new org.json.JSONObject();
-								}
-								prop.put(values.getString(2), values.getString(3));
-								prevC = currC;
-								prevV = values;
-							}
-						} while (currentIndex < totalSize);
-						currentIndex = 0;
-					} catch (org.json.JSONException | IOException e) {
-						logE(e);
+					java.util.Map<String, org.json.JSONObject> propiedadesDePlantilla = dastub.getTemplateCharacteristicProperties(template);
+					propiedadesCaracteristicas.putAll(propiedadesDePlantilla);
+					for (java.util.Map.Entry<String, org.json.JSONObject> entry0 : propiedadesDePlantilla.entrySet()) {
+						org.json.JSONObject propiedades = entry0.getValue();
+						if (propiedades != null && "Y".equals( propiedades.optString("RelevantForATG") )) {
+							atributosGeneralesQueSi.add(entry0.getKey());
+						}
 					}
-					if (prop.length() > 0) {
-						prop.put("name", prevV.getString(4));
-						prop.put("description", prevV.getString(5));
-						prop.put("dataType", prevV.getString(6));
-						prop.put("lookup", prevV.getString(7));
-						prop.put("isMultiValue", prevV.getString(8));
-						propiedadesCaracteristicas.put(prevC, prop);
-						if (prop.has("RelevantForATG") && "Y".equals(prop.getString("RelevantForATG")))
-							atributosGeneralesQueSi.add(prevC);
-						prop = new org.json.JSONObject();
-					}
+					templateStructureGroupAttributeValues.put(template, dastub.getTemplateStructureGroupAttributeValues(template,10));
 				}
 				Element product = null;
 
@@ -1101,9 +1019,7 @@ public class RealExportProducts {
 				Element prevHelperElement = null;
 				java.util.Map<String, Element> tableroDeControl = new java.util.TreeMap<>();
 				if (webCategory != null) {
-
-					if (lastApprovedCategories != null && !"".equals(lastApprovedCategories)
-							&& webCategory.length > 0) {
+					if (lastApprovedCategories != null && !"".equals(lastApprovedCategories) && webCategory.length > 0) {
 						java.util.List<String> refCats = java.util.Arrays.asList(lastApprovedCategories.split(","));
 						java.util.List<String> webCatList = java.util.Arrays.asList(webCategory);
 						for (String refCat : refCats) {
@@ -1222,57 +1138,88 @@ public class RealExportProducts {
 							propiedadesCaracteristicas, atgGroups);
 				}
 
-				String rr = null;
-				try {
-					rr = rc.getRequest("GET", baseUrlDEV + "/object/StructureGroup/'" + template
-							+ "'@'PrimaryProductTaxonomy'?entityFilter=StructureGroupAttribute", null);
-					org.json.JSONObject tratando = new org.json.JSONObject(rr);
-					org.json.JSONArray attributeRow = tratando.getJSONObject("_data").has("attribute")
-							? tratando.getJSONObject("_data").getJSONArray("attribute")
-							: new org.json.JSONArray();
-					for (int a = 0; a < attributeRow.length(); a++) {
-						if ("DisplayGroupOrder".equals(attributeRow.getJSONObject(a).getJSONObject("_qualification")
-								.getString("nameInKeyLang"))) {
-							try {
-								String val = attributeRow.getJSONObject(a).getJSONArray("value").getJSONObject(0)
-										.getString("value");
-								appendPlainElementValue(val, null,
-										attributeRow.getJSONObject(a).getJSONObject("_qualification")
-												.getString("nameInKeyLang"),
-										attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-							} catch (org.json.JSONException ex) {
-								log("No DisplayOrder could be retrieved: " + attributeRow.getJSONObject(a));
-							}
-						} else if ("DisplayOrder".equals(attributeRow.getJSONObject(a).getJSONObject("_qualification")
-								.getString("nameInKeyLang"))) {
-							try {
-								String val = attributeRow.getJSONObject(a).getJSONArray("value").getJSONObject(0)
-										.getString("value");
-								appendPlainElementValue(val, null,
-										attributeRow.getJSONObject(a).getJSONObject("_qualification")
-												.getString("nameInKeyLang"),
-										attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-							} catch (org.json.JSONException ex) {
-								log("No DisplayOrder could be retrieved: " + attributeRow.getJSONObject(a));
-							}
-						} else if ("ConfigurableOrder".equals(attributeRow.getJSONObject(a)
-								.getJSONObject("_qualification").getString("nameInKeyLang"))) {
-							try {
-								String val = attributeRow.getJSONObject(a).getJSONArray("value").getJSONObject(0)
-										.getString("value");
-								appendPlainElementValue(val, null,
-										attributeRow.getJSONObject(a).getJSONObject("_qualification")
-												.getString("nameInKeyLang"),
-										attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-							} catch (org.json.JSONException ex) {
-								log("No DisplayOrder could be retrieved: " + attributeRow.getJSONObject(a));
-							}
-						}
-					}
-				} catch (IOException e) {
-					logE(e);
-				}
+//				String rr = null;
+//				try {
+//					rr = rc.getRequest("GET", baseUrlDEV + "/object/StructureGroup/'" + template
+//							+ "'@'PrimaryProductTaxonomy'?entityFilter=StructureGroupAttribute", null);
+//					org.json.JSONObject tratando = new org.json.JSONObject(rr);
+//					org.json.JSONArray attributeRow = tratando.getJSONObject("_data").has("attribute")
+//							? tratando.getJSONObject("_data").getJSONArray("attribute")
+//							: new org.json.JSONArray();
+//					for (int a = 0; a < attributeRow.length(); a++) {
+//						if ("DisplayGroupOrder".equals(attributeRow.getJSONObject(a).getJSONObject("_qualification")
+//								.getString("nameInKeyLang"))) {
+//							try {
+//								String val = attributeRow.getJSONObject(a).getJSONArray("value").getJSONObject(0)
+//										.getString("value");
+//								appendPlainElementValue(val, null,
+//										attributeRow.getJSONObject(a).getJSONObject("_qualification")
+//												.getString("nameInKeyLang"),
+//										attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+//							} catch (org.json.JSONException ex) {
+//								log("No DisplayOrder could be retrieved: " + attributeRow.getJSONObject(a));
+//							}
+//						} else if ("DisplayOrder".equals(attributeRow.getJSONObject(a).getJSONObject("_qualification")
+//								.getString("nameInKeyLang"))) {
+//							try {
+//								String val = attributeRow.getJSONObject(a).getJSONArray("value").getJSONObject(0)
+//										.getString("value");
+//								appendPlainElementValue(val, null,
+//										attributeRow.getJSONObject(a).getJSONObject("_qualification")
+//												.getString("nameInKeyLang"),
+//										attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+//							} catch (org.json.JSONException ex) {
+//								log("No DisplayOrder could be retrieved: " + attributeRow.getJSONObject(a));
+//							}
+//						} else if ("ConfigurableOrder".equals(attributeRow.getJSONObject(a)
+//								.getJSONObject("_qualification").getString("nameInKeyLang"))) {
+//							try {
+//								String val = attributeRow.getJSONObject(a).getJSONArray("value").getJSONObject(0)
+//										.getString("value");
+//								appendPlainElementValue(val, null,
+//										attributeRow.getJSONObject(a).getJSONObject("_qualification")
+//												.getString("nameInKeyLang"),
+//										attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+//							} catch (org.json.JSONException ex) {
+//								log("No DisplayOrder could be retrieved: " + attributeRow.getJSONObject(a));
+//							}
+//						}
+//					}
+//				} catch (IOException e) {
+//					logE(e);
+//				}
 
+				java.util.Map<String, String>
+				structureGroupAttributeValues =
+						templateStructureGroupAttributeValues.get(
+								template);
+
+				if (structureGroupAttributeValues == null) {
+					structureGroupAttributeValues = dastub.getTemplateStructureGroupAttributeValues(template, 10);
+					templateStructureGroupAttributeValues.put(template, structureGroupAttributeValues);
+				}
+		
+				String[] structureGroupAttributeNames = new String[] {
+							"DisplayGroupOrder",
+							"DisplayOrder",
+							"ConfigurableOrder"
+						};
+		
+				for (String attributeName : structureGroupAttributeNames) {
+					if (!structureGroupAttributeValues.containsKey(attributeName)) {
+						continue;
+					}
+					appendPlainElementValue(
+							structureGroupAttributeValues.get(attributeName),
+							null,
+							attributeName,
+							attributeValues,
+							attributes,
+							doc,
+							propiedadesCaracteristicas,
+							atgGroups);
+				}
+				
 				if (descLong != null) {
 					appendPlainElementValue(descLong, null, "DescriptionLong", attributeValues, attributes, doc,
 							propiedadesCaracteristicas, atgGroups);
@@ -1595,39 +1542,36 @@ public class RealExportProducts {
 
 				if (!behvo) {
 					String elese = "SBB".equals(business) ? itemGroupS4H : itemGroup; // characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-					try {
-						rawResponse = rw.makeRequest("GET",
-								"/list/StandardizationValue/bySearch" + "?dictionaryProxy=" + encode(
-										"'" + (!"SBB".equals(business) ? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H") + "'")
-										+ "&query=" + encode("StandardizationValue.Value equals \"" + elese + "\"")
-										+ "&fields=" + encode("StandardizationValue.AlternativeValue") + "",
-								null);
-						response = new org.json.JSONObject(rawResponse);
-						characteristicRecords = response.getJSONArray("rows");
-						log("Querying dictionary: "
-								+ (!"SBB".equals(business) ? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H"));
-						String laetiqueta = queryDictionary(elese,
-								(!"SBB".equals(business) ? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H"));
-						if (characteristicRecords.length() > 0) {
-							rawResponse = rw.makeRequest("GET",
-									"/list/LookupValue/bySearch" + "?lookup=" + encode("SAP_BEHVOLOV") + "&query="
-											+ encode("LookupValueLang.Name(es) equals \"" + laetiqueta + "\"")
-											+ "&fields=" + encode("LookupValue.Code") + "",
-									null);
-							response = new org.json.JSONObject(rawResponse);
-							characteristicRecords = response.getJSONArray("rows");
-							if (characteristicRecords.length() > 0) {
-								String elcode = characteristicRecords.getJSONObject(0).getJSONArray("values")
-										.getString(0);
-								appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO", attributeValues, attributes,
-										doc, propiedadesCaracteristicas, atgGroups);
-								behvo = true;
-							}
-						}
-					} catch (java.io.IOException | KeyManagementException | NoSuchAlgorithmException
-							| URISyntaxException e) {
-
-					}
+//					try {
+//						rawResponse = rw.makeRequest("GET",
+//								"/list/StandardizationValue/bySearch" + "?dictionaryProxy=" + encode(
+//										"'" + (!"SBB".equals(business) ? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H") + "'")
+//										+ "&query=" + encode("StandardizationValue.Value equals \"" + elese + "\"")
+//										+ "&fields=" + encode("StandardizationValue.AlternativeValue") + "",
+//								null);
+//						response = new org.json.JSONObject(rawResponse);
+//						characteristicRecords = response.getJSONArray("rows");
+//						log("Querying dictionary: "
+//								+ (!"SBB".equals(business) ? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H"));
+					String laetiqueta = queryDictionary(elese, (!"SBB".equals(business) ? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H"));
+//						if (characteristicRecords.length() > 0) {
+//							rawResponse = rw.makeRequest("GET",
+//									"/list/LookupValue/bySearch" + "?lookup=" + encode("SAP_BEHVOLOV") + "&query="
+//											+ encode("LookupValueLang.Name(es) equals \"" + laetiqueta + "\"")
+//											+ "&fields=" + encode("LookupValue.Code") + "",
+//									null);
+//							response = new org.json.JSONObject(rawResponse);
+//							characteristicRecords = response.getJSONArray("rows");
+//							if (characteristicRecords.length() > 0) {
+//								String elcode = characteristicRecords.getJSONObject(0).getJSONArray("values").getString(0);
+					String elcode = dastub.getLookupValueCodeByName("SAP_BEHVOLOV", 10, laetiqueta, true);
+					appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+					behvo = true;
+//							}
+//						}
+//					} catch (java.io.IOException | KeyManagementException | NoSuchAlgorithmException | URISyntaxException e) {
+//						logE(e);
+//					}
 				}
 				appendPlainElementValue(itemGroup != null && !"".equals(itemGroup) ? itemGroupLabel : itemGroupS4HLabel,
 						itemGroup != null && !"".equals(itemGroup) ? itemGroup : itemGroupS4H, "ItemGroup2",
@@ -2583,7 +2527,8 @@ public class RealExportProducts {
 						String sendResponse = null;
 						log("[" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())
 								+ "] (OMS) Request sent for " + java.util.Arrays.asList(proposalIds) + ": "
-								+ (sendResponse = rc.getRequest("POST", urlDeOMS, xmlOutput2)));
+								+ (sendResponse = rc.getRequest("POST", urlDeOMS, xmlOutput2))
+							);
 						return aggregatedMessage.append("<;;>").append(fnO + "<::>" + sendResponse).toString();
 					} catch (IOException e) {
 						logE(e);
@@ -2665,73 +2610,138 @@ public class RealExportProducts {
 
 	}
 
-	private void addCharacteristicData(java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas,
-			String baseUrl) throws ServiceUnavailableException {
-		RESTWorkshop rw = new RESTWorkshop();
-		rw.setBaseUrl(RealExportProducts.rw.getBaseUrl());
-		rw.addHeader("Authorization", RealExportProducts.rw.getRc().getHeader().get("Authorization"));
-		rw.putParameter("fields",
-				"Characteristic.Identifier" + ",CharacteristicLang.Name(es)" + ",CharacteristicLang.Description(es)"
-						+ ",Characteristic.DataType" + ",Characteristic.Lookup->Lookup.Identifier"
-						+ ",Characteristic.IsMultiValue" + ",Characteristic.Purposes->LookupValue.Code"
-						+ ",Characteristic.Order");
-		rw.putParameter("query", "Characteristic.ParentCharacteristic is empty");
-		rw.putParameter("orderBy", "0-ASC");
-		rw.putParameter("pageSize", "2000");
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		int totalSize = 0;
-		int currentIndex = 0;
-		org.json.JSONObject detail = new org.json.JSONObject();
-		org.json.JSONArray prevValues = null;
-		do {
-			rw.putParameter("startIndex", String.valueOf(currentIndex));
-			response = rw.makeRequest("GET", "/list/Characteristic/bySearch");
-			if (response != null) {
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for (int i = 0; i < rows.length(); i++) {
-					currentIndex++;
-					values = rows.getJSONObject(i).getJSONArray("values");
-					if (prevValues != null && !prevValues.getString(0).equals(values.getString(0))
-							&& !propiedadesCaracteristicas.containsKey(prevValues.getString(0))) {
-						detail.put("name", prevValues.getString(1));
-						detail.put("description", prevValues.getString(2));
-						detail.put("dataType", prevValues.getString(3));
-						detail.put("lookup", prevValues.getString(4));
-						detail.put("isMultiValue", prevValues.getString(5));
-						detail.put("purposes", prevValues.getJSONArray(6));
-						detail.put("order", prevValues.getString(7));
-						propiedadesCaracteristicas.put(prevValues.getString(0), detail);
-						if (detail.getJSONArray("purposes").length() == 1
-								&& detail.getJSONArray("purposes").getString(0).equals(""))
-							detail.getJSONArray("purposes").remove(0);
-						detail = new org.json.JSONObject();
-					}
-					prevValues = values;
-				}
-			} else {
-				log("ERR: " + rw.getRawResponse());
+	private void addCharacteristicData(java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas) {
+//		RESTWorkshop rw = new RESTWorkshop();
+//		rw.setBaseUrl(RealExportProducts.rw.getBaseUrl());
+//		rw.addHeader("Authorization", RealExportProducts.rw.getRc().getHeader().get("Authorization"));
+//		rw.putParameter("fields",
+//				"Characteristic.Identifier" + ",CharacteristicLang.Name(es)" + ",CharacteristicLang.Description(es)"
+//						+ ",Characteristic.DataType" + ",Characteristic.Lookup->Lookup.Identifier"
+//						+ ",Characteristic.IsMultiValue" + ",Characteristic.Purposes->LookupValue.Code"
+//						+ ",Characteristic.Order");
+//		rw.putParameter("query", "Characteristic.ParentCharacteristic is empty");
+//		rw.putParameter("orderBy", "0-ASC");
+//		rw.putParameter("pageSize", "2000");
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		org.json.JSONArray values = null;
+//		int totalSize = 0;
+//		int currentIndex = 0;
+//		org.json.JSONObject detail = new org.json.JSONObject();
+//		org.json.JSONArray prevValues = null;
+//		do {
+//			rw.putParameter("startIndex", String.valueOf(currentIndex));
+//			response = rw.makeRequest("GET", "/list/Characteristic/bySearch");
+//			if (response != null) {
+//				totalSize = response.getInt("totalSize");
+//				rows = response.getJSONArray("rows");
+//				for (int i = 0; i < rows.length(); i++) {
+//					currentIndex++;
+//					values = rows.getJSONObject(i).getJSONArray("values");
+//					if (prevValues != null && !prevValues.getString(0).equals(values.getString(0))
+//							&& !propiedadesCaracteristicas.containsKey(prevValues.getString(0))) {
+//						detail.put("name", prevValues.getString(1));
+//						detail.put("description", prevValues.getString(2));
+//						detail.put("dataType", prevValues.getString(3));
+//						detail.put("lookup", prevValues.getString(4));
+//						detail.put("isMultiValue", prevValues.getString(5));
+//						detail.put("purposes", prevValues.getJSONArray(6));
+//						detail.put("order", prevValues.getString(7));
+//						propiedadesCaracteristicas.put(prevValues.getString(0), detail);
+//						if (detail.getJSONArray("purposes").length() == 1
+//								&& detail.getJSONArray("purposes").getString(0).equals(""))
+//							detail.getJSONArray("purposes").remove(0);
+//						detail = new org.json.JSONObject();
+//					}
+//					prevValues = values;
+//				}
+//			} else {
+//				log("ERR: " + rw.getRawResponse());
+//			}
+//		} while (currentIndex < totalSize);
+//		currentIndex = 0;
+//		if (detail.length() > 0) {
+//			detail.put("name", prevValues.getString(3));
+//			detail.put("description", prevValues.getString(4));
+//			detail.put("dataType", prevValues.getString(5));
+//			detail.put("lookup", prevValues.getString(6));
+//			detail.put("isMultiValue", prevValues.getString(7));
+//			detail.put("purposes", prevValues.getJSONArray(8));
+//			detail.put("order", prevValues.getString(9));
+//			if (!propiedadesCaracteristicas.containsKey(prevValues.getString(0))) {
+//				propiedadesCaracteristicas.put(prevValues.getString(0), detail);
+//				if (detail.getJSONArray("purposes").length() == 1
+//						&& detail.getJSONArray("purposes").getString(0).equals(""))
+//					detail.getJSONArray("purposes").remove(0);
+//			}
+//			detail = null;
+//		}
+		for (java.util.Map.Entry<Integer, org.json.JSONObject> entry : characteristicMetadataByID.entrySet()) {
+			Integer characteristicID = entry.getKey();
+			String identifier = characteristicIdentifierByID.get( characteristicID );
+			if (identifier == null || identifier.isBlank() || propiedadesCaracteristicas.containsKey( identifier )) {
+				continue;
 			}
-		} while (currentIndex < totalSize);
-		currentIndex = 0;
-		if (detail.length() > 0) {
-			detail.put("name", prevValues.getString(3));
-			detail.put("description", prevValues.getString(4));
-			detail.put("dataType", prevValues.getString(5));
-			detail.put("lookup", prevValues.getString(6));
-			detail.put("isMultiValue", prevValues.getString(7));
-			detail.put("purposes", prevValues.getJSONArray(8));
-			detail.put("order", prevValues.getString(9));
-			if (!propiedadesCaracteristicas.containsKey(prevValues.getString(0))) {
-				propiedadesCaracteristicas.put(prevValues.getString(0), detail);
-				if (detail.getJSONArray("purposes").length() == 1
-						&& detail.getJSONArray("purposes").getString(0).equals(""))
-					detail.getJSONArray("purposes").remove(0);
-			}
-			detail = null;
+			propiedadesCaracteristicas.put( identifier, copyCharacteristicMetadata( entry.getValue() ));
 		}
+	}
+	
+	private org.json.JSONObject getOrCreateCharacteristicProperties( int characteristicID, java.util.Map<String, org.json.JSONObject> target ) {
+		org.json.JSONObject metadata = characteristicMetadataByID.get(characteristicID);
+		String identifier = characteristicIdentifierByID.get(characteristicID);
+		if (metadata == null || identifier == null || identifier.isBlank()) {
+			return null;
+		}
+		org.json.JSONObject properties = target.get(identifier);
+		if (properties == null) {
+			properties = copyCharacteristicMetadata(metadata);
+			target.put(identifier, properties);
+		}
+		return properties;
+	}
+	
+	private void loadCharacteristicMetadata() {
+		java.util.Map<Integer, String> purposeCodes = dastub.getLookupValueCodeMap(2);
+		java.util.List<org.json.JSONObject> rows = dastub.getCharacteristicMetadataRows(10);
+		for (org.json.JSONObject row : rows) {
+			int characteristicID = row.getInt("characteristicID");
+			String identifier = row.optString("identifier", "");
+			if (identifier.isBlank()) {
+				continue;
+			}
+			org.json.JSONObject metadata =
+					new org.json.JSONObject()
+						.put( "name", row.optString("name", ""))
+						.put( "description", row.optString("description", ""))
+						.put( "dataType", row.optString("dataType", ""))
+						.put( "lookup", row.optString("lookup", ""))
+						.put( "isMultiValue", row.optString("isMultiValue", ""))
+						.put( "purposes", rutils.resolvePurposeCodes( row.optString( "purposesRaw", ""), purposeCodes))
+						.put( "order", row.optString("order", ""));
+			characteristicMetadataByID.put( characteristicID, metadata );
+			characteristicIdentifierByID.put( characteristicID, identifier );
+			if (row.isNull("parentCharacteristicID")) {
+				rootCharacteristicIDs.add( characteristicID );
+			}
+		}
+	}
+	
+	private org.json.JSONObject copyCharacteristicMetadata( org.json.JSONObject source ) {
+		org.json.JSONArray purposes = new org.json.JSONArray();
+		org.json.JSONArray sourcePurposes = source.optJSONArray("purposes");
+		if (sourcePurposes != null) {
+			for (int i = 0; i < sourcePurposes.length(); i++) {
+				purposes.put(sourcePurposes.get(i));
+			}
+		}
+		return new org.json.JSONObject()
+				.put( "name", source.optString("name", "") )
+				.put( "description", source.optString("description", "") )
+				.put( "dataType", source.optString("dataType", "") )
+				.put( "lookup", source.optString("lookup", "") )
+				.put( "isMultiValue", source.optString("isMultiValue", "") )
+				.put( "purposes", purposes )
+				.put( "order", source.optString("order", "") );
 	}
 
 	private java.util.Map<String, java.util.LinkedList<org.json.JSONObject>> buildDataMap(org.json.JSONArray cr) {
@@ -2792,83 +2802,100 @@ public class RealExportProducts {
 		return value;
 	}
 
-	private void addGlobalData(java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas,
-			java.util.Set<String> losQueSi, String baseUrl) throws ServiceUnavailableException {
-		RESTWorkshop rw = new RESTWorkshop();
-		if (baseUrl != null) {
-			rw.setBaseUrl(baseUrl);
-			rw.addHeader("Authorization", RealExportProducts.rw.getRc().getHeader().get("Authorization"));
-		}
-		rw.putParameter("dictionaryProxy", "'GlobalTemplateAttributeConfiguration'");
-		rw.putParameter("fields",
-				"StandardizationValue.Characteristic->Characteristic.Identifier"
-						+ ",StandardizationValue.Property->LookupValue.Code" + ",StandardizationValue.PropertyValue"
-						+ ",StandardizationValue.Characteristic->CharacteristicLang.Name(es)"
-						+ ",StandardizationValue.Characteristic->CharacteristicLang.Description(es)"
-						+ ",StandardizationValue.Characteristic->Characteristic.DataType"
-						+ ",StandardizationValue.Characteristic->Characteristic.Lookup->Lookup.Identifier"
-						+ ",StandardizationValue.Characteristic->Characteristic.IsMultiValue"
-						+ ",StandardizationValue.Characteristic->Characteristic.Purposes->LookupValue.Code"
-						+ ",StandardizationValue.Characteristic->Characteristic.Order");
-		rw.putParameter("query",
-				"StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"GlobalTemplateAttributeConfiguration\"");
-		rw.putParameter("orderBy", "0-ASC");
-		rw.putParameter("pageSize", "1200");
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		int totalSize = 0;
-		int currentIndex = 0;
-		org.json.JSONObject detail = new org.json.JSONObject();
-		org.json.JSONArray prevValues = null;
-		do {
-			rw.putParameter("startIndex", String.valueOf(currentIndex));
-			response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch");
-			if (response != null) {
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for (int i = 0; i < rows.length(); i++) {
-					currentIndex++;
-					values = rows.getJSONObject(i).getJSONArray("values");
-					if (prevValues != null && !prevValues.getString(0).equals(values.getString(0))) {
-						detail.put("name", prevValues.getString(3));
-						detail.put("description", prevValues.getString(4));
-						detail.put("dataType", prevValues.getString(5));
-						detail.put("lookup", prevValues.getString(6));
-						detail.put("isMultiValue", prevValues.getString(7));
-						detail.put("purposes", prevValues.getJSONArray(8));
-						detail.put("order", prevValues.getString(9));
-						propiedadesCaracteristicas.put(prevValues.getString(0), detail);
-						if (detail.getJSONArray("purposes").length() == 1
-								&& detail.getJSONArray("purposes").getString(0).equals(""))
-							detail.getJSONArray("purposes").remove(0);
-						if (detail.has("RelevantForATG") && "Y".equals(detail.getString("RelevantForATG")))
-							losQueSi.add(prevValues.getString(0));
-						detail = new org.json.JSONObject();
-					}
-					detail.put(values.getString(1), values.getString(2));
-					prevValues = values;
-				}
-			} else {
-				log("ERR: " + rw.getRawResponse());
+	private void addGlobalData(java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas, java.util.Set<String> losQueSi) {
+//		RESTWorkshop rw = new RESTWorkshop();
+//		if (baseUrl != null) {
+//			rw.setBaseUrl(baseUrl);
+//			rw.addHeader("Authorization", RealExportProducts.rw.getRc().getHeader().get("Authorization"));
+//		}
+//		rw.putParameter("dictionaryProxy", "'GlobalTemplateAttributeConfiguration'");
+//		rw.putParameter("fields",
+//				"StandardizationValue.Characteristic->Characteristic.Identifier"
+//						+ ",StandardizationValue.Property->LookupValue.Code" + ",StandardizationValue.PropertyValue"
+//						+ ",StandardizationValue.Characteristic->CharacteristicLang.Name(es)"
+//						+ ",StandardizationValue.Characteristic->CharacteristicLang.Description(es)"
+//						+ ",StandardizationValue.Characteristic->Characteristic.DataType"
+//						+ ",StandardizationValue.Characteristic->Characteristic.Lookup->Lookup.Identifier"
+//						+ ",StandardizationValue.Characteristic->Characteristic.IsMultiValue"
+//						+ ",StandardizationValue.Characteristic->Characteristic.Purposes->LookupValue.Code"
+//						+ ",StandardizationValue.Characteristic->Characteristic.Order");
+//		rw.putParameter("query",
+//				"StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"GlobalTemplateAttributeConfiguration\"");
+//		rw.putParameter("orderBy", "0-ASC");
+//		rw.putParameter("pageSize", "1200");
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		org.json.JSONArray values = null;
+//		int totalSize = 0;
+//		int currentIndex = 0;
+//		org.json.JSONObject detail = new org.json.JSONObject();
+//		org.json.JSONArray prevValues = null;
+//		do {
+//			rw.putParameter("startIndex", String.valueOf(currentIndex));
+//			response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch");
+//			if (response != null) {
+//				totalSize = response.getInt("totalSize");
+//				rows = response.getJSONArray("rows");
+//				for (int i = 0; i < rows.length(); i++) {
+//					currentIndex++;
+//					values = rows.getJSONObject(i).getJSONArray("values");
+//					if (prevValues != null && !prevValues.getString(0).equals(values.getString(0))) {
+//						detail.put("name", prevValues.getString(3));
+//						detail.put("description", prevValues.getString(4));
+//						detail.put("dataType", prevValues.getString(5));
+//						detail.put("lookup", prevValues.getString(6));
+//						detail.put("isMultiValue", prevValues.getString(7));
+//						detail.put("purposes", prevValues.getJSONArray(8));
+//						detail.put("order", prevValues.getString(9));
+//						propiedadesCaracteristicas.put(prevValues.getString(0), detail);
+//						if (detail.getJSONArray("purposes").length() == 1
+//								&& detail.getJSONArray("purposes").getString(0).equals(""))
+//							detail.getJSONArray("purposes").remove(0);
+//						if (detail.has("RelevantForATG") && "Y".equals(detail.getString("RelevantForATG")))
+//							losQueSi.add(prevValues.getString(0));
+//						detail = new org.json.JSONObject();
+//					}
+//					detail.put(values.getString(1), values.getString(2));
+//					prevValues = values;
+//				}
+//			} else {
+//				log("ERR: " + rw.getRawResponse());
+//			}
+//		} while (currentIndex < totalSize);
+//		currentIndex = 0;
+//		if (detail.length() > 0) {
+//			detail.put("name", prevValues.getString(3));
+//			detail.put("description", prevValues.getString(4));
+//			detail.put("dataType", prevValues.getString(5));
+//			detail.put("lookup", prevValues.getString(6));
+//			detail.put("isMultiValue", prevValues.getString(7));
+//			detail.put("purposes", prevValues.getJSONArray(8));
+//			detail.put("order", prevValues.getString(9));
+//			propiedadesCaracteristicas.put(prevValues.getString(0), detail);
+//			if (detail.getJSONArray("purposes").length() == 1
+//					&& detail.getJSONArray("purposes").getString(0).equals(""))
+//				detail.getJSONArray("purposes").remove(0);
+//			if (detail.has("RelevantForATG") && "Y".equals(detail.getString("RelevantForATG")))
+//				losQueSi.add(prevValues.getString(0));
+//			detail = null;
+//		}
+		java.util.List<org.json.JSONObject> rows = dastub.getStandardizationValueCharacteristicRows( "GlobalTemplateAttributeConfiguration" );
+		for (org.json.JSONObject row : rows) {
+			int characteristicID = row.getInt("characteristicID");
+			org.json.JSONObject detail = getOrCreateCharacteristicProperties( characteristicID, propiedadesCaracteristicas );
+			if (detail == null) {
+				continue;
 			}
-		} while (currentIndex < totalSize);
-		currentIndex = 0;
-		if (detail.length() > 0) {
-			detail.put("name", prevValues.getString(3));
-			detail.put("description", prevValues.getString(4));
-			detail.put("dataType", prevValues.getString(5));
-			detail.put("lookup", prevValues.getString(6));
-			detail.put("isMultiValue", prevValues.getString(7));
-			detail.put("purposes", prevValues.getJSONArray(8));
-			detail.put("order", prevValues.getString(9));
-			propiedadesCaracteristicas.put(prevValues.getString(0), detail);
-			if (detail.getJSONArray("purposes").length() == 1
-					&& detail.getJSONArray("purposes").getString(0).equals(""))
-				detail.getJSONArray("purposes").remove(0);
-			if (detail.has("RelevantForATG") && "Y".equals(detail.getString("RelevantForATG")))
-				losQueSi.add(prevValues.getString(0));
-			detail = null;
+			String property = row.optString("property", "");
+			if (!property.isBlank()) {
+				detail.put( property, row.optString("propertyValue", ""));
+			}
+		}
+
+		for (java.util.Map.Entry<String, org.json.JSONObject> entry : propiedadesCaracteristicas.entrySet()) {
+			if ("Y".equals( entry.getValue().optString( "RelevantForATG", "" ))) {
+				losQueSi.add(entry.getKey());
+			}
 		}
 	}
 
@@ -2914,55 +2941,60 @@ public class RealExportProducts {
 					propiedadesCaracteristicas, atgGroups);
 	}
 
-	private String getAtributoSapLatalla(String itemGroup, String business) throws ServiceUnavailableException {
-		String value = null;
-		RESTWorkshop rw = new RESTWorkshop();
-		rw.setBaseUrl(RealExportProducts.rw.getBaseUrl());
-		rw.addHeader("Authorization", RealExportProducts.rw.getRc().getHeader().get("Authorization"));
-		String dp = ("SBB".equals(business) ? "TallaUnicavsTallaS4H" : "TallaUnicavsTallaERP");
-		rw.putParameter("dictionaryProxy", "'" + dp + "'");
-		rw.putParameter("fields", "StandardizationValue.AlternativeValue");
-		rw.putParameter("query", "StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"" + dp
-				+ "\" and StandardizationValue.Value equals \"" + itemGroup + "\"");
-
-		org.json.JSONObject response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch");
-		if (response != null) {
-			org.json.JSONArray rows = response.getJSONArray("rows");
-			if (rows.length() > 0) {
-				value = rows.getJSONObject(0).getJSONArray("values").getString(0);
-			}
-		} else {
-			log("###$$ ERROR: " + rw.getRawResponse());
-		}
-		if (value == null || "".equals(value) && !"SBB".equals(business)) {
-			dp = ("ItemGroupSAPSizeAttribute");
-			rw.putParameter("dictionaryProxy", "'" + dp + "'");
-			rw.putParameter("fields", "StandardizationValue.AlternativeValue");
-			rw.putParameter("query", "StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \""
-					+ dp + "\" and StandardizationValue.Value equals \"" + itemGroup + "\"");
-
-			response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch");
-			if (response != null) {
-				org.json.JSONArray rows = response.getJSONArray("rows");
-				if (rows.length() > 0) {
-					value = rows.getJSONObject(0).getJSONArray("values").getString(0);
-				}
-			} else {
-				log("###$$ ERROR: " + rw.getRawResponse());
-			}
+	private String getAtributoSapLatalla(String itemGroup, String business) {
+		String dp = "SBB".equals(business) ? "TallaUnicavsTallaS4H" : "TallaUnicavsTallaERP";
+		String value = queryDictionary( itemGroup, dp );
+		if (value == null || ("".equals(value) && !"SBB".equals(business))) {
+			value = queryDictionary( itemGroup, "ItemGroupSAPSizeAttribute" );
 		}
 		return value;
+//		String value = null;
+//		RESTWorkshop rw = new RESTWorkshop();
+//		rw.setBaseUrl(RealExportProducts.rw.getBaseUrl());
+//		rw.addHeader("Authorization", RealExportProducts.rw.getRc().getHeader().get("Authorization"));
+//		String dp = ("SBB".equals(business) ? "TallaUnicavsTallaS4H" : "TallaUnicavsTallaERP");
+//		rw.putParameter("dictionaryProxy", "'" + dp + "'");
+//		rw.putParameter("fields", "StandardizationValue.AlternativeValue");
+//		rw.putParameter("query", "StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"" + dp + "\" and StandardizationValue.Value equals \"" + itemGroup + "\"");
+//		org.json.JSONObject response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch");
+//		if (response != null) {
+//			org.json.JSONArray rows = response.getJSONArray("rows");
+//			if (rows.length() > 0) {
+//				value = rows.getJSONObject(0).getJSONArray("values").getString(0);
+//			}
+//		} else {
+//			log("###$$ ERROR: " + rw.getRawResponse());
+//		}
+//		if (value == null || "".equals(value) && !"SBB".equals(business)) {
+//			dp = ("ItemGroupSAPSizeAttribute");
+//			rw.putParameter("dictionaryProxy", "'" + dp + "'");
+//			rw.putParameter("fields", "StandardizationValue.AlternativeValue");
+//			rw.putParameter("query", "StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \""
+//					+ dp + "\" and StandardizationValue.Value equals \"" + itemGroup + "\"");
+//
+//			response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch");
+//			if (response != null) {
+//				org.json.JSONArray rows = response.getJSONArray("rows");
+//				if (rows.length() > 0) {
+//					value = rows.getJSONObject(0).getJSONArray("values").getString(0);
+//				}
+//			} else {
+//				log("###$$ ERROR: " + rw.getRawResponse());
+//			}
+//		}
+//		return value;
 	}
 
-	@SuppressWarnings("deprecation")
-	private String queryDictionary(String key, String dictionary) throws ServiceUnavailableException {
+	private String queryDictionary(String key, String dictionary) {
+		return dastub.queryDictionary(key, dictionary);
+		/*
 		String rawResponse = null;
 		org.json.JSONObject response = null;
 //		org.json.JSONArray rows = null;
 		try {
 //			String url = null;
 			rawResponse = rw.makeRequest("GET",
-					/* url = */ "/object/StandardizationValue/" + encode("'" + key + "'@'" + dictionary + "'") + "",
+					"/object/StandardizationValue/" + encode("'" + key + "'@'" + dictionary + "'") + "",
 					null);
 			response = new org.json.JSONObject(rawResponse);
 //			rows = response.getJSONArray("rows");
@@ -2982,6 +3014,7 @@ public class RealExportProducts {
 			log("ERR: " + rawResponse);
 		}
 		return null;
+		*/
 	}
 
 	private String encode(String val) {
@@ -3156,32 +3189,33 @@ public class RealExportProducts {
 	}
 
 	private java.util.Map<String, String> loadLookupGroups() {
-		java.util.Map<String, String> map = new java.util.TreeMap<>();
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("fields", "LookupValue.Code,LookupValueLang.Name(es)");
-		qp.put("lookup", "ATGAttributeGroups");
-		qp.put("query", "LookupValue.IsActive = true");
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		int totalSize = 0;
-		int currentIndex = 0;
-		do {
-			qp.put("startIndex", String.valueOf(currentIndex));
-			response = rw.makeRequest("GET", "/list/LookupValue/bySearch", qp, null);
-			if (response != null && response.has("rows")) {
-				rows = response.getJSONArray("rows");
-				for (int i = 0; i < rows.length(); i++) {
-					currentIndex++;
-					values = rows.getJSONObject(i).getJSONArray("values");
-					map.put(values.getString(0), values.getString(1));
-				}
-			} else {
-				log("ERR: " + rw.getRawResponse());
-			}
-		} while (currentIndex < totalSize);
-		currentIndex = 0;
-		return map;
+//		java.util.Map<String, String> map = new java.util.TreeMap<>();
+//		java.util.Map<String, String> qp = new java.util.TreeMap<>();
+//		qp.put("fields", "LookupValue.Code,LookupValueLang.Name(es)");
+//		qp.put("lookup", "ATGAttributeGroups");
+//		qp.put("query", "LookupValue.IsActive = true");
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		org.json.JSONArray values = null;
+//		int totalSize = 0;
+//		int currentIndex = 0;
+//		do {
+//			qp.put("startIndex", String.valueOf(currentIndex));
+//			response = rw.makeRequest("GET", "/list/LookupValue/bySearch", qp, null);
+//			if (response != null && response.has("rows")) {
+//				rows = response.getJSONArray("rows");
+//				for (int i = 0; i < rows.length(); i++) {
+//					currentIndex++;
+//					values = rows.getJSONObject(i).getJSONArray("values");
+//					map.put(values.getString(0), values.getString(1));
+//				}
+//			} else {
+//				log("ERR: " + rw.getRawResponse());
+//			}
+//		} while (currentIndex < totalSize);
+//		currentIndex = 0;
+//		return map;
+		return dastub.getLookupValueCodeNameMap("ATGAttributeGroups", 10, true);
 	}
 
 	private void appendPlainElementValue(String textValue, String code, String attributeId, Element attributeValues,
@@ -3398,27 +3432,28 @@ public class RealExportProducts {
 	}
 
 	private String queryVariantOrder(String key) {
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("dictionaryProxy", "'VariantOrder'");
-		qp.put("query", "StandardizationValue.Value wildcard \"%-" + key.replaceAll("^.+-", "")
-				+ "\" and StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"VariantOrder\"");
-		qp.put("fields", "StandardizationValue.PropertyValue");
-		try {
-			response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch", qp, null);
-			if (response != null) {
-				rows = response.getJSONArray("rows");
-				if (rows.length() > 0) {
-					return rows.getJSONObject(0).getJSONArray("values").getString(0);
-				}
-			} else {
-				log("<::>" + rw.getRawResponse());
-			}
-		} catch (org.json.JSONException e) {
-			log("ERR: " + rw.getRawResponse());
-		}
-		return null;
+		return dastub.queryVariantOrder(key);
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		java.util.Map<String, String> qp = new java.util.TreeMap<>();
+//		qp.put("dictionaryProxy", "'VariantOrder'");
+//		qp.put("query", "StandardizationValue.Value wildcard \"%-" + key.replaceAll("^.+-", "")
+//				+ "\" and StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"VariantOrder\"");
+//		qp.put("fields", "StandardizationValue.PropertyValue");
+//		try {
+//			response = rw.makeRequest("GET", "/list/StandardizationValue/bySearch", qp, null);
+//			if (response != null) {
+//				rows = response.getJSONArray("rows");
+//				if (rows.length() > 0) {
+//					return rows.getJSONObject(0).getJSONArray("values").getString(0);
+//				}
+//			} else {
+//				log("<::>" + rw.getRawResponse());
+//			}
+//		} catch (org.json.JSONException e) {
+//			log("ERR: " + rw.getRawResponse());
+//		}
+//		return null;
 	}
 
 	private static final Logger LOGGER = Logger.getLogger(RealExportProducts.class.getName());
@@ -3486,7 +3521,7 @@ public class RealExportProducts {
 	// Changed="true"/>
 //	}
 
-	private static java.util.Set<String> YEA; /*
+	private java.util.Set<String> YEA; /*
 												 * = new java.util.TreeSet<>(java.util.Arrays.asList(( "SKU\r\n" +
 												 * "BrandName\r\n" + "BRAND_ID_S4H\r\n" + "EXTWG_S4H\r\n" +
 												 * "Section\r\n" + "ZBREPQ\r\n" + "ProductName\r\n" + "PesoBruto\r\n" +
@@ -3636,25 +3671,27 @@ public class RealExportProducts {
 //			+ "SBTHardline	SizeVaD\r\n"
 //			+ "SBTTecnoEntren	SizeVaD").split("\\r\\n");
 
-	public static java.util.Map<String, String> mapaDeDirecciones; // = new java.util.TreeMap<>();
-	public static java.util.Map<String, String> mapaDeDireccionesAtributoTallaWeb; // = new java.util.TreeMap<>();
-	public static java.util.Map<String, String> mapaDeAtributosFechas; // = new java.util.TreeMap<>();
+	public java.util.Map<String, String> mapaDeDirecciones; // = new java.util.TreeMap<>();
+	public java.util.Map<String, String> mapaDeDireccionesAtributoTallaWeb; // = new java.util.TreeMap<>();
+	public java.util.Map<String, String> mapaDeAtributosFechas; // = new java.util.TreeMap<>();
 
-	private static java.util.Map<String, String> loadFieldDictionaries() throws ServiceUnavailableException {
-		java.util.Map<String, String> mapa = new java.util.TreeMap<>();
-		try (java.io.BufferedReader br = new java.io.BufferedReader(
-				new java.io.InputStreamReader(new java.io.FileInputStream(
-						java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.templates_cache_directory"),
-								"dictionaries", "RelAttribSTDATG").toFile())))) {
-			String line = null;
-			String[] pieces = null;
-			while ((line = br.readLine()) != null) {
-				pieces = rw.parseLine(line, "\"", ";", "\\");
-				mapa.put(pieces[0], pieces[1]);
-			}
-		} catch (java.io.IOException e) {
-			e.printStackTrace();
-		}
+	private java.util.Map<String, String> loadFieldDictionaries() throws ServiceUnavailableException {
+		return dastub.getDictionaryValueAlternativeValueMap("RelAttribSTDATG");
+//		java.util.Map<String, String> mapa = new java.util.TreeMap<>();
+//		try (java.io.BufferedReader br = new java.io.BufferedReader(
+//				new java.io.InputStreamReader(new java.io.FileInputStream(
+//						java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.templates_cache_directory"),
+//								"dictionaries", "RelAttribSTDATG").toFile())))) {
+//			String line = null;
+//			String[] pieces = null;
+//			while ((line = br.readLine()) != null) {
+//				pieces = rw.parseLine(line, "\"", ";", "\\");
+//				mapa.put(pieces[0], pieces[1]);
+//			}
+//		} catch (java.io.IOException e) {
+//			e.printStackTrace();
+//		}
+		
 //		RESTWorkshop rw = new RESTWorkshop();
 //		rw.setBaseUrl(baseUrlDEV);
 //		rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
@@ -3683,112 +3720,113 @@ public class RealExportProducts {
 //			}
 //		}while(currentIndex < totalSize);
 //		currentIndex = 0;
-		return mapa;
+//		return mapa;
 	}
 
-	private static java.util.Map<String, String> loadFieldTallaATG() throws ServiceUnavailableException {
-		java.util.Map<String, String> mapaDeDirecciones = new java.util.TreeMap<>();
-		RESTWorkshop rw = new RESTWorkshop();
-		rw.setBaseUrl(baseUrlDEV);
-		rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
-		rw.putParameter("dictionary", "RelAttribTallaATG");
-		rw.putParameter("fields", "StandardizationValue.Value,StandardizationValue.AlternativeValue");
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		int currentIndex = 0;
-		int totalSize = 0;
+	private java.util.Map<String, String> loadFieldTallaATG() {
 		System.out.println("Loading...");
-		do {
-			rw.putParameter("startIndex", String.valueOf(currentIndex));
-			response = rw.makeRequest("GET", "/list/StandardizationValue/byDictionary");
-			if (response != null && response.has("totalSize")) {
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for (int i = 0; i < rows.length(); i++) {
-					values = rows.getJSONObject(i).getJSONArray("values");
-					mapaDeDirecciones.put(values.getString(0), values.getString(1));
-				}
-				currentIndex += response.getInt("pageSize");
-			}
-		} while (currentIndex < totalSize);
-		currentIndex = 0;
-		System.out.println("Loaded... " + mapaDeDirecciones.size());
+		java.util.Map<String, String> mapaDeDirecciones = dastub.getDictionaryValueAlternativeValueMap( "RelAttribTallaATG");
+		System.out.println( "Loaded... " + mapaDeDirecciones.size());
 		return mapaDeDirecciones;
+//		java.util.Map<String, String> mapaDeDirecciones = new java.util.TreeMap<>();
+//		RESTWorkshop rw = new RESTWorkshop();
+//		rw.setBaseUrl(baseUrlDEV);
+//		rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
+//		rw.putParameter("dictionary", "RelAttribTallaATG");
+//		rw.putParameter("fields", "StandardizationValue.Value,StandardizationValue.AlternativeValue");
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		org.json.JSONArray values = null;
+//		int currentIndex = 0;
+//		int totalSize = 0;
+//		System.out.println("Loading...");
+//		do {
+//			rw.putParameter("startIndex", String.valueOf(currentIndex));
+//			response = rw.makeRequest("GET", "/list/StandardizationValue/byDictionary");
+//			if (response != null && response.has("totalSize")) {
+//				totalSize = response.getInt("totalSize");
+//				rows = response.getJSONArray("rows");
+//				for (int i = 0; i < rows.length(); i++) {
+//					values = rows.getJSONObject(i).getJSONArray("values");
+//					mapaDeDirecciones.put(values.getString(0), values.getString(1));
+//				}
+//				currentIndex += response.getInt("pageSize");
+//			}
+//		} while (currentIndex < totalSize);
+//		currentIndex = 0;
+//		System.out.println("Loaded... " + mapaDeDirecciones.size());
+//		return mapaDeDirecciones;
 	}
 
-	private static java.util.Map<String, String> loadAtributosFecha() throws ServiceUnavailableException {
-		java.util.Map<String, String> mapa = new java.util.TreeMap<>();
-		RESTWorkshop rw = new RESTWorkshop();
-		rw.setBaseUrl(baseUrlDEV);
-		rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
-		rw.putParameter("dictionary", "ConversionFechaATG");
-		rw.putParameter("fields",
-				"StandardizationValue.Characteristic->Characteristic.Identifier,StandardizationValue.AlternativeValue");
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		int currentIndex = 0;
-		int totalSize = 0;
-		do {
-			rw.putParameter("startIndex", String.valueOf(currentIndex));
-			response = rw.makeRequest("GET", "/list/StandardizationValue/byDictionary");
-			if (response != null && response.has("totalSize")) {
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for (int i = 0; i < rows.length(); i++) {
-					values = rows.getJSONObject(i).getJSONArray("values");
-					mapa.put(values.getString(0), values.getString(1));
-				}
-				currentIndex += response.getInt("pageSize");
-			}
-		} while (currentIndex < totalSize);
-		currentIndex = 0;
-		return mapa;
+	private java.util.Map<String, String> loadAtributosFecha() {
+		return dastub.getDictionaryCharacteristicAlternativeValueMap("ConversionFechaATG");
+//		java.util.Map<String, String> mapa = new java.util.TreeMap<>();
+//		RESTWorkshop rw = new RESTWorkshop();
+//		rw.setBaseUrl(baseUrlDEV);
+//		rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
+//		rw.putParameter("dictionary", "ConversionFechaATG");
+//		rw.putParameter("fields",
+//				"StandardizationValue.Characteristic->Characteristic.Identifier,StandardizationValue.AlternativeValue");
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		org.json.JSONArray values = null;
+//		int currentIndex = 0;
+//		int totalSize = 0;
+//		do {
+//			rw.putParameter("startIndex", String.valueOf(currentIndex));
+//			response = rw.makeRequest("GET", "/list/StandardizationValue/byDictionary");
+//			if (response != null && response.has("totalSize")) {
+//				totalSize = response.getInt("totalSize");
+//				rows = response.getJSONArray("rows");
+//				for (int i = 0; i < rows.length(); i++) {
+//					values = rows.getJSONObject(i).getJSONArray("values");
+//					mapa.put(values.getString(0), values.getString(1));
+//				}
+//				currentIndex += response.getInt("pageSize");
+//			}
+//		} while (currentIndex < totalSize);
+//		currentIndex = 0;
+//		return mapa;
 	}
 
-	private static java.util.Set<String> loadInheritedFields() throws ServiceUnavailableException {
-		java.util.Set<String> mapa = new java.util.TreeSet<>();
-		RESTWorkshop rw = new RESTWorkshop();
-		rw.setBaseUrl(baseUrlDEV);
-		rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
-		rw.putParameter("dictionary", "CaracteristicasHeredables");
-		rw.putParameter("fields", "StandardizationValue.Characteristic->Characteristic.Identifier");
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		int currentIndex = 0;
-		int totalSize = 0;
-		do {
-			rw.putParameter("startIndex", String.valueOf(currentIndex));
-			response = rw.makeRequest("GET", "/list/StandardizationValue/byDictionary");
-			if (response != null && response.has("totalSize")) {
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for (int i = 0; i < rows.length(); i++) {
-					values = rows.getJSONObject(i).getJSONArray("values");
-					mapa.add(values.getString(0));
-				}
-				currentIndex += response.getInt("pageSize");
-			}
-		} while (currentIndex < totalSize);
-		currentIndex = 0;
-		return mapa;
+	private java.util.Set<String> loadInheritedFields() {
+		java.util.Map<String, String> rows = dastub.getDictionaryCharacteristicAlternativeValueMap("CaracteristicasHeredables");
+		return new java.util.TreeSet<>(rows.keySet());
+//		java.util.Set<String> mapa = new java.util.TreeSet<>();
+//		RESTWorkshop rw = new RESTWorkshop();
+//		rw.setBaseUrl(baseUrlDEV);
+//		rw.getRc().getHeader().put("Authorization", "Basic: " + encoded);
+//		rw.putParameter("dictionary", "CaracteristicasHeredables");
+//		rw.putParameter("fields", "StandardizationValue.Characteristic->Characteristic.Identifier");
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		org.json.JSONArray values = null;
+//		int currentIndex = 0;
+//		int totalSize = 0;
+//		do {
+//			rw.putParameter("startIndex", String.valueOf(currentIndex));
+//			response = rw.makeRequest("GET", "/list/StandardizationValue/byDictionary");
+//			if (response != null && response.has("totalSize")) {
+//				totalSize = response.getInt("totalSize");
+//				rows = response.getJSONArray("rows");
+//				for (int i = 0; i < rows.length(); i++) {
+//					values = rows.getJSONObject(i).getJSONArray("values");
+//					mapa.add(values.getString(0));
+//				}
+//				currentIndex += response.getInt("pageSize");
+//			}
+//		} while (currentIndex < totalSize);
+//		currentIndex = 0;
+//		return mapa;
 	}
 
-	static {
-		try {
-			mapaDeDirecciones = loadFieldDictionaries();
-			mapaDeDireccionesAtributoTallaWeb = loadFieldTallaATG();
-			mapaDeAtributosFechas = loadAtributosFecha();
-			System.out.println("Oki");
-			YEA = loadInheritedFields();
-			System.out.println("Oki2");
-		} catch (ServiceUnavailableException e) {
-			e.printStackTrace();
-		}
+	private void loadDatabaseDictionaries() {
+		mapaDeDirecciones = loadFieldDictionaries();
+		mapaDeDireccionesAtributoTallaWeb = loadFieldTallaATG();
+		mapaDeAtributosFechas = loadAtributosFecha();
+		YEA = loadInheritedFields();
 	}
-
+	
 	private final class JdbcConfig {
 		private String jdbcDriver;
 		private String jdbcUrl;
