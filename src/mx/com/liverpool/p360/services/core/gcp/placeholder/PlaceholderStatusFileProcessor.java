@@ -20,15 +20,18 @@ public class PlaceholderStatusFileProcessor {
     public static final String ERRORS_COLUMN = "errors";
 
     private final PlaceholderStatusUpdater updater;
+    private final PlaceholderIdResolver placeholderIdResolver;
     private final Logger logger;
 
-    public PlaceholderStatusFileProcessor(PlaceholderStatusUpdater updater, Logger logger) {
+    public PlaceholderStatusFileProcessor(PlaceholderStatusUpdater updater, PlaceholderIdResolver placeholderIdResolver,
+            Logger logger) {
         this.updater = updater;
+        this.placeholderIdResolver = placeholderIdResolver;
         this.logger = logger;
     }
 
     public ProcessedFile process(InputStream inputStream) throws IOException {
-        List<String> outputLines = new ArrayList<>();
+        List<String> errorLines = new ArrayList<>();
         int idIndex = -1;
         int statusIndex = -1;
         int rowsRead = 0;
@@ -50,46 +53,79 @@ public class PlaceholderStatusFileProcessor {
                     if (idIndex < 0 || statusIndex < 0) {
                         throw new IllegalArgumentException("Required columns not found: " + ID_COLUMN + ", " + STATUS_COLUMN);
                     }
-                    outputLines.add(toCsvLineWithError(values, ERRORS_COLUMN));
+                    errorLines.add(toCsvLineWithError(values, ERRORS_COLUMN));
                     continue;
                 }
 
                 rowsRead++;
                 String error = "";
-                String rawPlaceholderId = getValue(values, idIndex);
-                String placeholderId = extractPlaceholderId(rawPlaceholderId);
+                String rawPlaceholderCode = getValue(values, idIndex);
                 String status = getValue(values, statusIndex);
 
-                if (placeholderId.length() == 0 || status.length() == 0) {
+                if (!isUsableValue(rawPlaceholderCode) || !isUsableValue(status)) {
                     ignored++;
-                    logger.info("Ignoring placeholder row. id_placeholder=" + rawPlaceholderId + ", status=" + status);
+                    logger.info("Ignoring placeholder row because required values are empty or invalid. id_placeholder="
+                            + rawPlaceholderCode + ", status=" + status);
+                    continue;
+                }
+
+                String sku = extractSku(rawPlaceholderCode);
+                if (sku.length() == 0) {
+                    ignored++;
+                    logger.info("Ignoring placeholder row because id_placeholder format is invalid. id_placeholder="
+                            + rawPlaceholderCode + ", status=" + status);
                 } else {
                     processed++;
                     try {
-                        logger.info("Processing placeholder: " + placeholderId + " source=" + rawPlaceholderId + " status=" + status);
+                        String placeholderId = placeholderIdResolver.resolve(sku);
+                        if (placeholderId == null || placeholderId.trim().length() == 0) {
+                            throw new IllegalStateException("Placeholder identifier not found for SKU: " + sku);
+                        }
+                        placeholderId = placeholderId.trim();
+                        logger.info("Processing placeholder: " + placeholderId + " sku=" + sku + " source="
+                                + rawPlaceholderCode + " status=" + status);
                         updater.update(placeholderId, status);
                         success++;
                     } catch (Exception e) {
                         error = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
-                        logger.warning("Error processing placeholder: " + placeholderId + " source=" + rawPlaceholderId + " error=" + error);
+                        logger.warning("Error processing placeholder source=" + rawPlaceholderCode + " sku=" + sku
+                                + " error=" + error);
                     }
                 }
 
                 if (error.length() > 0) {
                     errors++;
                 }
-                outputLines.add(toCsvLineWithError(values, error));
+                if (error.length() > 0) {
+                    errorLines.add(toCsvLineWithError(values, error));
+                }
             }
         }
 
-        return new ProcessedFile(toFileContent(outputLines), rowsRead, processed, success, errors, ignored);
+        return new ProcessedFile(toFileContent(errorLines), rowsRead, processed, success, errors, ignored);
     }
 
-    private static String extractPlaceholderId(String rawPlaceholderId) {
-        if (rawPlaceholderId == null) {
+    private static boolean isUsableValue(String value) {
+        if (value == null) {
+            return false;
+        }
+        String normalized = value.trim();
+        if (normalized.length() == 0) {
+            return false;
+        }
+        normalized = normalized.toUpperCase(java.util.Locale.ROOT);
+        return !"NULL".equals(normalized)
+                && !"UNDEFINED".equals(normalized)
+                && !"NULO".equals(normalized)
+                && !"NA".equals(normalized)
+                && !"N/A".equals(normalized);
+    }
+
+    private static String extractSku(String rawPlaceholderCode) {
+        if (rawPlaceholderCode == null) {
             return "";
         }
-        String value = rawPlaceholderId.trim();
+        String value = rawPlaceholderCode.trim();
         String[] parts = value.split("-", -1);
         if (parts.length == 3 && parts[1].trim().length() > 0) {
             return parts[1].trim();

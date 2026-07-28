@@ -11,14 +11,25 @@ public class PlaceholderStatusProcessResult {
     private final int errors;
     private final int ignored;
     private final String backupObjectName;
+    private final String sourceFilePath;
+    private final String processedFilePath;
+    private final String errorsFilePath;
 
     public PlaceholderStatusProcessResult(int rowsRead, int processed, int success, int errors, int ignored, String backupObjectName) {
+        this(rowsRead, processed, success, errors, ignored, backupObjectName, "", "", "");
+    }
+
+    public PlaceholderStatusProcessResult(int rowsRead, int processed, int success, int errors, int ignored,
+            String backupObjectName, String sourceFilePath, String processedFilePath, String errorsFilePath) {
         this.rowsRead = rowsRead;
         this.processed = processed;
         this.success = success;
         this.errors = errors;
         this.ignored = ignored;
         this.backupObjectName = backupObjectName;
+        this.sourceFilePath = sourceFilePath;
+        this.processedFilePath = processedFilePath;
+        this.errorsFilePath = errorsFilePath;
     }
 
     public int getRowsRead() {
@@ -45,6 +56,18 @@ public class PlaceholderStatusProcessResult {
         return backupObjectName;
     }
 
+    public String getSourceFilePath() {
+        return sourceFilePath;
+    }
+
+    public String getProcessedFilePath() {
+        return processedFilePath;
+    }
+
+    public String getErrorsFilePath() {
+        return errorsFilePath;
+    }
+
     public org.json.JSONObject toJson() {
         return new org.json.JSONObject()
                 .put("status", "finished")
@@ -53,6 +76,9 @@ public class PlaceholderStatusProcessResult {
                 .put("success", success)
                 .put("errors", errors)
                 .put("ignored", ignored)
-                .put("backupObjectName", backupObjectName == null ? "" : backupObjectName);
+                .put("backupObjectName", backupObjectName == null ? "" : backupObjectName)
+                .put("sourceFilePath", sourceFilePath == null ? "" : sourceFilePath)
+                .put("processedFilePath", processedFilePath == null ? "" : processedFilePath)
+                .put("errorsFilePath", errorsFilePath == null ? "" : errorsFilePath);
     }
 }
