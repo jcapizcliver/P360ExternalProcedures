@@ -3072,11 +3072,21 @@ public class ParseJana122Response implements SimpleLog {
 						if(rs.next()) {
 							id = rs.getInt(1);
 						}else {
-							id = processMissingPair(itemGroup, product);
+							try(java.sql.PreparedStatement pstmnt2 = con.prepareStatement("select \"StructureGroupID\" from PIM_MAIN.\"StructureGroupDetail\" bb inner join PIM_MAIN.\"StructureGroupRevision\" aa on aa.ID = bb.\"StructureGroupRevisionID\" and aa.\"RevisionID\" = 1 and aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0'  and aa.\"StructureID\" = 10002 and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' where \"NodeType\" = 'leaf' and \"ParentIdentifier\" = ? and \"Identifier\" = ?")){
+								pstmnt2.setString(1, itemGroup + "-L4SH");
+								pstmnt2.setString(2, itemGroup + product + "-L5SH");
+								try(java.sql.ResultSet rs2 = pstmnt2.executeQuery()){
+									if(rs2.next()) {
+										id = rs2.getInt(1);
+									}else {
+										id = processMissingPair(itemGroup, itemGroup + product);
+									}
+								}
+							}
 						}
 					}
 				}
-			}else {
+			} else {
 				try(java.sql.PreparedStatement pstmnt = con.prepareStatement("select \"StructureGroupID\" from PIM_MAIN.\"StructureGroupDetail\" bb inner join PIM_MAIN.\"StructureGroupRevision\" aa on aa.ID = bb.\"StructureGroupRevisionID\" and aa.\"RevisionID\" = 1 and aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0'  and aa.\"StructureID\" = 10002 and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' where \"NodeType\" = 'leaf' and \"Identifier\" = ?")){
 					pstmnt.setString(1, itemGroup + "-L4SH");
 					try(java.sql.ResultSet rs = pstmnt.executeQuery()){

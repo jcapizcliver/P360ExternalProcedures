@@ -988,7 +988,9 @@ public class CreateProposal {
 							newCharacteristicRecords.put( createCharacteristicValueObject("TImportacion", new org.json.JSONObject().put("_code", "N")) );
 						}else if("PNA".equals(tipoDeProveedor) && !"México".equals(wherl)) {
 							newCharacteristicRecords.put( createCharacteristicValueObject("TImportacion", new org.json.JSONObject().put("_code", "I")) );
-						}else {
+						}else if("PEX".equals(tipoDeProveedor) && !"México".equals(wherl)){
+							newCharacteristicRecords.put( createCharacteristicValueObject("TImportacion", new org.json.JSONObject().put("_code", "D")) );
+						} else {
 							
 							log("No good data for supplier: " + template + "|" + status + "|" + negocio + "|" + itemGroup + "WHERL: " + wherl + ", SupplierID: " + supplier + ", proposalId: " + proposalId + ", EAN: " + ean);
 							genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "No es un proveedor válido para catalogación. (Verificar el tipo de proveedor SAP así como el país de origen y el negocio)").put("fields", new org.json.JSONArray().put("TImportacion")));
@@ -1367,6 +1369,7 @@ public class CreateProposal {
 					if(productWeight == null || "".equals(productWeight)) {
 						aux.put("ProductWeight");
 					}
+					log("Hay medidas sin empaque faltantes. " + aux);
 					genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence")
 							.put("message", "Hay medidas sin empaque faltantes.").put("fields", aux));
 					llenas = false;
@@ -1432,6 +1435,7 @@ public class CreateProposal {
 	//				if(pesoNetoConEmpaque == null || "".equals(pesoNetoConEmpaque)) {
 	//					aux.put("ZNTGCJ");
 	//				}
+					log("Hay medidas con empaque faltantes. " + aux);
 					genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence")
 							.put("message", "Hay medidas con empaque faltantes.").put("fields", aux));
 					llenasConEmpaque = false;
@@ -1497,6 +1501,7 @@ public class CreateProposal {
 					if(pesoNetoMP == null || "".equals(pesoNetoMP)) {
 						aux.put("ZNTGPQ");
 					}
+					log("Hay medidas master pack faltantes. " + aux);
 					genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence")
 							.put("message", "Hay medidas master pack faltantes.").put("fields", aux));
 					llenasMasterPack = false;
@@ -1525,6 +1530,7 @@ public class CreateProposal {
 				if(productWeight == null || "".equals(productWeight)) {
 					aux.put("ProductWeight");
 				}
+				log("Hay medidas sin empaque faltantes, ya que las medidas master pack han sido proporcionadas. " + aux);
 				genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence")
 						.put("message", "Hay medidas sin empaque faltantes, ya que las medidas master pack han sido proporcionadas.").put("fields", aux));
 			}
@@ -1548,6 +1554,7 @@ public class CreateProposal {
 				if(productWeight == null || "".equals(productWeight)) {
 					aux.put("ProductWeight");
 				}
+				log("Hay medidas sin empaque faltantes, ya que las medidas con empaque han sido proporcionadas. " + aux);
 				genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence")
 						.put("message", "Hay medidas sin empaque faltantes, ya que las medidas con empaque han sido proporcionadas.").put("fields", aux));
 			}
@@ -1586,6 +1593,7 @@ public class CreateProposal {
 					log("PNCE: " + pesoNetoConEmpaque + " || " + productWeight);
 				}
 				if(aux.length() > 0) {
+					log("Hay medidas sin empaque mayores que las de con empaque. " + aux);
 					genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence")
 							.put("message", "Hay medidas sin empaque mayores que las de con empaque.").put("fields", aux));
 				}
@@ -1621,6 +1629,7 @@ public class CreateProposal {
 					aux.put("ZNTGPQ");
 				}
 				if(aux.length() > 0) {
+					log("Hay medidas con empaque mayores que las de master pack. " + aux);
 					genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence").put("message", "Hay medidas con empaque mayores que las de master pack.").put("fields", aux));
 				}
 			}
@@ -1651,6 +1660,7 @@ public class CreateProposal {
 					aux.put("ZNTGPQ");
 				}
 				if(aux.length() > 0) {
+					log("Hay medidas con empaque mayores que las de master pack. " + aux);
 					genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence").put("message", "Hay medidas con empaque mayores que las de master pack.").put("fields", aux));
 				}
 			}
@@ -1660,8 +1670,9 @@ public class CreateProposal {
 					if(new java.math.BigDecimal(productWeight).compareTo(new java.math.BigDecimal(pesoBruto)) > 0) {
 						log("productWeight: " + productWeight);
 						log("pesoBruto: " + pesoBruto);
+						log("Peso bruto sin empaque es menor al peso neto sin empaque .");
 						genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence")
-								.put("message", "Peso bruto sin empaque es menor o igual al peso neto sin empaque .")
+								.put("message", "Peso bruto sin empaque es menor al peso neto sin empaque .")
 								.put("fields", new org.json.JSONArray().put( "ProductWeight" ).put( "PesoBruto" ) )
 								.put("values", new org.json.JSONArray().put( productWeight ).put( pesoBruto ) )
 								);
@@ -1675,8 +1686,9 @@ public class CreateProposal {
 					if(new java.math.BigDecimal(pesoBrutoConEmpaque).compareTo(new java.math.BigDecimal(pesoNetoConEmpaque)) < 0) {
 						log("pesoBrutoConEmpaque: " + pesoBrutoConEmpaque);
 						log("pesoNetoConEmpaque: " + pesoNetoConEmpaque);
+						log("Peso bruto con empaque es menor que peso neto con empaque.");
 						genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence")
-								.put("message", "Peso bruto con empaque es menor o igual que peso neto con empaque.")
+								.put("message", "Peso bruto con empaque es menor que peso neto con empaque.")
 								.put("fields", new org.json.JSONArray().put( "ZBRGCJ" ).put( "ZNTGCJ" ) )
 								.put("values", new org.json.JSONArray().put( pesoBrutoConEmpaque ).put( pesoNetoConEmpaque ) )
 								);
@@ -1691,8 +1703,9 @@ public class CreateProposal {
 					if(new java.math.BigDecimal(pesoBrutoMP).compareTo(new java.math.BigDecimal(pesoNetoMP)) < 0) {
 						log("pesoBrutoMP: " + pesoBrutoMP);
 						log("pesoNetoMP: " + pesoNetoMP);
+						log("Peso bruto master pack es menor al peso neto master pack.");
 						genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence")
-								.put("message", "Peso bruto master pack es menor o igual al peso neto master pack.")
+								.put("message", "Peso bruto master pack es menor al peso neto master pack.")
 								.put("fields", new org.json.JSONArray().put( "ZBRGPQ" ).put( "ZNTGPQ" ) )
 								.put("values", new org.json.JSONArray().put( pesoBrutoMP ).put( pesoNetoMP ) )
 								);
