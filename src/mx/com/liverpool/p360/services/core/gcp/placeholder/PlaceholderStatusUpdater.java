@@ -1,8 +1,8 @@
 package mx.com.liverpool.p360.services.core.gcp.placeholder;
 
 /**
- * Updates one placeholder status in P360.
+ * Updates placeholder statuses in P360.
  */
 public interface PlaceholderStatusUpdater {
-    void update(String placeholderId, String status) throws Exception;
+    void update(java.util.List<PlaceholderStatusUpdate> updates) throws Exception;
 }

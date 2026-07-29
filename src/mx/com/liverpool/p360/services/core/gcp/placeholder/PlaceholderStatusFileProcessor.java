@@ -21,12 +21,14 @@ public class PlaceholderStatusFileProcessor {
 
     private final PlaceholderStatusUpdater updater;
     private final PlaceholderIdResolver placeholderIdResolver;
+    private final PlaceholderStatusDictionary statusDictionary;
     private final Logger logger;
 
     public PlaceholderStatusFileProcessor(PlaceholderStatusUpdater updater, PlaceholderIdResolver placeholderIdResolver,
             Logger logger) {
         this.updater = updater;
         this.placeholderIdResolver = placeholderIdResolver;
+        this.statusDictionary = new PlaceholderStatusDictionary();
         this.logger = logger;
     }
 
@@ -39,6 +41,7 @@ public class PlaceholderStatusFileProcessor {
         int success = 0;
         int errors = 0;
         int ignored = 0;
+        List<PreparedUpdate> preparedUpdates = new ArrayList<>();
 
         try (BufferedReader br = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
             String line;
@@ -77,15 +80,19 @@ public class PlaceholderStatusFileProcessor {
                 } else {
                     processed++;
                     try {
+                        String p360Status = statusDictionary.resolve(status);
+                        if (p360Status == null || p360Status.trim().length() == 0) {
+                            throw new IllegalStateException("Status value not found in dictionary: " + status);
+                        }
                         String placeholderId = placeholderIdResolver.resolve(sku);
                         if (placeholderId == null || placeholderId.trim().length() == 0) {
                             throw new IllegalStateException("Placeholder identifier not found for SKU: " + sku);
                         }
                         placeholderId = placeholderId.trim();
-                        logger.info("Processing placeholder: " + placeholderId + " sku=" + sku + " source="
-                                + rawPlaceholderCode + " status=" + status);
-                        updater.update(placeholderId, status);
-                        success++;
+                        logger.info("Prepared placeholder update: " + placeholderId + " sku=" + sku + " source="
+                                + rawPlaceholderCode + " fileStatus=" + status + " p360Status=" + p360Status);
+                        preparedUpdates.add(new PreparedUpdate(values,
+                                new PlaceholderStatusUpdate(placeholderId, p360Status)));
                     } catch (Exception e) {
                         error = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
                         logger.warning("Error processing placeholder source=" + rawPlaceholderCode + " sku=" + sku
@@ -98,6 +105,26 @@ public class PlaceholderStatusFileProcessor {
                 }
                 if (error.length() > 0) {
                     errorLines.add(toCsvLineWithError(values, error));
+                }
+            }
+        }
+
+        if (!preparedUpdates.isEmpty()) {
+            try {
+                List<PlaceholderStatusUpdate> updates = new ArrayList<>();
+                for (PreparedUpdate preparedUpdate : preparedUpdates) {
+                    updates.add(preparedUpdate.getUpdate());
+                }
+                logger.info("Sending Product2G status update batch. rows=" + updates.size());
+                updater.update(updates);
+                success += updates.size();
+            } catch (Exception e) {
+                String error = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
+                errors += preparedUpdates.size();
+                logger.warning("Error sending Product2G status update batch. rows=" + preparedUpdates.size()
+                        + " error=" + error);
+                for (PreparedUpdate preparedUpdate : preparedUpdates) {
+                    errorLines.add(toCsvLineWithError(preparedUpdate.getSourceValues(), error));
                 }
             }
         }
@@ -254,6 +281,24 @@ public class PlaceholderStatusFileProcessor {
 
         public int getIgnored() {
             return ignored;
+        }
+    }
+
+    private static class PreparedUpdate {
+        private final List<String> sourceValues;
+        private final PlaceholderStatusUpdate update;
+
+        private PreparedUpdate(List<String> sourceValues, PlaceholderStatusUpdate update) {
+            this.sourceValues = new ArrayList<>(sourceValues);
+            this.update = update;
+        }
+
+        private List<String> getSourceValues() {
+            return sourceValues;
+        }
+
+        private PlaceholderStatusUpdate getUpdate() {
+            return update;
         }
     }
 }
