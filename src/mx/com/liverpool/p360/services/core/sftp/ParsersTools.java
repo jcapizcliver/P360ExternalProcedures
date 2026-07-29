@@ -136,7 +136,7 @@ public class ParsersTools {
 				org.json.JSONArray items = rj.getJSONArray("items");
 				String pid = items.getString(0);
 				if(!"".equals(pid)) {
-//					sl.log("pid -->" + pid);
+					
 					resp = dr.getProductData(new org.json.JSONArray().put(pid));
 					rj = new org.json.JSONObject(resp);
 					items = rj.getJSONArray("items");

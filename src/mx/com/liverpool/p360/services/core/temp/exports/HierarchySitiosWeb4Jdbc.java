@@ -1,10 +1,6 @@
 package mx.com.liverpool.p360.services.core.temp.exports;
 
 import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.net.URISyntaxException;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
 
 import javax.naming.ServiceUnavailableException;
 import javax.xml.parsers.DocumentBuilder;
@@ -20,22 +16,33 @@ import org.json.JSONObject;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
-import mx.com.liverpool.p360.services.core.RestClient;
 
-public class HierarchySitiosWeb4 {
+public class HierarchySitiosWeb4Jdbc {
 
     private static final RESTWrapper rw = new RESTWrapper();
-    private static final RestClient rc = rw.getRw().getRc();
+    private final DBAccessDataStub dastub = new DBAccessDataStub(new ELog() {
+        @Override
+        public void logE(Exception e) {
+            HierarchySitiosWeb4Jdbc.this.log("ERR: " + e.getMessage());
+        }
+
+        @Override
+        public void log(String message) {
+            HierarchySitiosWeb4Jdbc.this.log(message);
+        }
+    });
 
     private final java.nio.file.Path baseDirPath = java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_dir_to_mirror_out_files"), "ToEcommerce");
     private final String baseDir = baseDirPath.toString();
     private final String outputXmlFile = java.nio.file.Paths.get(baseDir, System.currentTimeMillis() + "_pépeleJairarqui.xml").toString();
 
     public static void main(String[] args) throws ServiceUnavailableException {
-        HierarchySitiosWeb4 h = new HierarchySitiosWeb4();
+        HierarchySitiosWeb4Jdbc h = new HierarchySitiosWeb4Jdbc();
         h.createHierarchyFile( new String[] {"cat5800034"} );
     }
 
@@ -193,7 +200,6 @@ public class HierarchySitiosWeb4 {
     }
 
     private Element pacheleWeb(JSONObject node, Document doc, java.util.Map<String, org.json.JSONObject> multisitios) {
-        String displayName = null;
         String groupType = null;
         String department = null;
         Element metaData = null;
@@ -411,90 +417,163 @@ public class HierarchySitiosWeb4 {
         return null;
     }
 
-    private java.util.Map<String, org.json.JSONObject> precargaJerarquia(String structureId, java.util.LinkedList<org.json.JSONObject> ondeVaLaRaiz) throws ServiceUnavailableException{
-        String url = null;
-        String rawResponse = null;
-        org.json.JSONObject response = null;
-        org.json.JSONArray rows = null;
-        int currentIndex = 0;
-        int totalSize = 0;
-        org.json.JSONArray values = null;
-        java.util.LinkedList<org.json.JSONObject> entradasJerarquia = new java.util.LinkedList<>();
-        java.util.Map<String, org.json.JSONObject> losepas = new java.util.TreeMap<>();
-        org.json.JSONArray gpf = null;
-        java.util.Map<String, org.json.JSONArray> losesos = null;
-        log("Collecting group features...");
-        losesos = prestameLosGoupFeatures();
-        log("Done collecting gpf");
-        try {
-            do {
-                url = rw.getRw().getBaseUrl() + "/list/StructureGroup/byStructure?structure="
-                        + java.net.URLEncoder.encode( structureId ,"UTF-8")
-                        + "&fields=" + java.net.URLEncoder.encode(""
-                        + "StructureGroup.Identifier"
-                        + ",StructureGroupLang.Name(es)"
-                        + ",StructureGroup.Level"
-                        + ",StructureGroup.ParentIdentifier"
-                        + ",StructureGroupLang.Description(es)"
-                        + ",StructureGroupAttributeValue.Value(groupType,es,DEFAULT)"
-                        + ",StructureGroupLang.Synonym(es)"
-                        + ",StructureGroup.CharacteristicCategories->LookupValue.Code", "UTF-8")
-                        + "&metaData=true&pageSize=5000&startIndex=" + currentIndex;
-                rawResponse = rc.getRequest("GET", url, null);
-                response = new org.json.JSONObject(rawResponse);
-                totalSize = response.getInt("totalSize");
-                rows = response.getJSONArray("rows");
-                for(int i=0; i< rows.length(); i++) {
-                    values = rows.getJSONObject(i).getJSONArray("values");
-                    gpf = losesos.get(rows.getJSONObject(i).getJSONObject("object").getString("id"));
-                    gpf = gpf == null ? new org.json.JSONArray() : gpf;
-                    entradasJerarquia.addLast(new org.json.JSONObject()
-                            .put("identifier", values.getString(0))
-                            .put("name_es", values.getString(1))
-                            .put("level", Integer.parseInt(values.getString(2)))
-                            .put("parentIdentifier", values.getString(3))
-                            .put("description", values.getString(4))
-                            .put("keywords", values.get(6))
-                            .put("metadata", gpf)
-                            .put("categories", values.get(7))
-                    );
-                }
-                currentIndex += response.getInt("pageSize");
-                log(currentIndex + "/" + totalSize);
-            } while(currentIndex < totalSize);
-            log("Sorting data... " + structureId);
-            java.util.Collections.sort(entradasJerarquia, (o1,o2)->{
-                int cmp = Integer.valueOf(o1.getInt("level")).compareTo(Integer.valueOf(o2.getInt("level")));
-                if(cmp == 0) {
-                    cmp = o1.getString("parentIdentifier").compareTo(o2.getString("parentIdentifier"));
-                    return cmp;
-                }
-                return cmp;
-            });
-            org.json.JSONObject miEpa = null;
-            for(org.json.JSONObject entrada : entradasJerarquia) {
-                if(!losepas.containsKey(entrada.getString("identifier"))) {
-                    losepas.put(entrada.getString("identifier"), entrada);
-                }
-                miEpa = losepas.get(entrada.get("parentIdentifier"));
-                if(miEpa != null) {
-                    if(!miEpa.has("children")) {
-                        miEpa.put("children", new org.json.JSONArray());
-                    }
-                    miEpa.getJSONArray("children").put(entrada);
-                    entrada.put("parentIdentifier", miEpa.getString("identifier"));
-                }
+    private java.util.Map<String, org.json.JSONObject> precargaJerarquia(
+            String structureId,
+            java.util.LinkedList<org.json.JSONObject> ondeVaLaRaiz) {
+
+        java.util.Map<String, org.json.JSONObject> losepas =
+                new java.util.TreeMap<>();
+
+        java.util.Map<String, org.json.JSONArray> atributos =
+                prestameLosGoupFeatures();
+
+        java.util.Map<String, org.json.JSONArray> sinonimos =
+                dastub.getWebHierarchySynonyms(10);
+
+        java.util.List<org.json.JSONObject> rows =
+                dastub.getWebHierarchyRows(10);
+
+        for (org.json.JSONObject row : rows) {
+            String identifier = row.optString("identifier", "");
+
+            if (identifier.isBlank()) {
+                continue;
             }
-            ondeVaLaRaiz.addLast(entradasJerarquia.getFirst());
-        } catch (UnsupportedEncodingException e) {
-            e.printStackTrace();
-        } catch (IOException e) {
-            e.printStackTrace();
-        } catch(org.json.JSONException e) {
-            log(rawResponse);
-            e.printStackTrace();
+
+            String objectID =
+                    row.optLong("structureGroupID") + "@12000";
+
+            org.json.JSONArray metadata = atributos.get(objectID);
+
+            if (metadata == null) {
+                metadata = atributos.get(
+                        String.valueOf(
+                                row.optLong("structureGroupID")));
+            }
+
+            org.json.JSONArray keywords = sinonimos.get(identifier);
+
+            losepas.put(
+                    identifier,
+                    new org.json.JSONObject()
+                            .put("identifier", identifier)
+                            .put(
+                                    "name_es",
+                                    row.optString("name", ""))
+                            .put(
+                                    "parentIdentifier",
+                                    row.optString(
+                                            "parentIdentifier",
+                                            ""))
+                            .put(
+                                    "metadata",
+                                    metadata == null
+                                            ? new org.json.JSONArray()
+                                            : metadata)
+                            .put(
+                                    "keywords",
+                                    keywords == null
+                                            ? new org.json.JSONArray()
+                                            : keywords));
         }
+
+        for (org.json.JSONObject node : losepas.values()) {
+            node.put(
+                    "level",
+                    calculateLevel(
+                            node,
+                            losepas,
+                            new java.util.HashSet<>()));
+        }
+
+        java.util.List<org.json.JSONObject> entradasJerarquia =
+                new java.util.ArrayList<>(losepas.values());
+
+        java.util.Collections.sort(
+                entradasJerarquia,
+                (o1, o2) -> {
+                    int cmp = Integer.compare(
+                            o1.getInt("level"),
+                            o2.getInt("level"));
+
+                    if (cmp == 0) {
+                        cmp = o1.optString(
+                                "parentIdentifier",
+                                "").compareTo(
+                                        o2.optString(
+                                                "parentIdentifier",
+                                                ""));
+                    }
+
+                    if (cmp == 0) {
+                        cmp = o1.getString(
+                                "identifier").compareTo(
+                                        o2.getString(
+                                                "identifier"));
+                    }
+
+                    return cmp;
+                });
+
+        for (org.json.JSONObject entrada : entradasJerarquia) {
+            String parentIdentifier =
+                    entrada.optString("parentIdentifier", "");
+
+            org.json.JSONObject parent =
+                    losepas.get(parentIdentifier);
+
+            if (parent == null) {
+                ondeVaLaRaiz.addLast(entrada);
+                continue;
+            }
+
+            if (!parent.has("children")) {
+                parent.put(
+                        "children",
+                        new org.json.JSONArray());
+            }
+
+            parent.getJSONArray("children").put(entrada);
+        }
+
+        if (ondeVaLaRaiz.isEmpty()
+                && !entradasJerarquia.isEmpty()) {
+
+            ondeVaLaRaiz.addLast(
+                    entradasJerarquia.get(0));
+        }
+
         return losepas;
+    }
+
+    private int calculateLevel(
+            org.json.JSONObject node,
+            java.util.Map<String, org.json.JSONObject> nodes,
+            java.util.Set<String> visited) {
+
+        String identifier =
+                node.optString("identifier", "");
+
+        if (!visited.add(identifier)) {
+            log("WARN: hierarchy cycle detected at " + identifier);
+            return 1;
+        }
+
+        String parentIdentifier =
+                node.optString("parentIdentifier", "");
+
+        org.json.JSONObject parent =
+                nodes.get(parentIdentifier);
+
+        if (parent == null) {
+            return 1;
+        }
+
+        return 1
+                + calculateLevel(
+                        parent,
+                        nodes,
+                        visited);
     }
 
     private java.util.Map<String, org.json.JSONArray> prestameLosGoupFeatures(){
