@@ -1927,7 +1927,7 @@ public class AnotherXMLHandlerSecondOpinionOnSpecificProducts {
 	private String determineBusiness(String negocio, String extwgS4h) {
 		return     "".equals(negocio) 
 				&& "".equals(extwgS4h) ? null : 
-					("".equals(negocio) && !"".equals(extwgS4h) ? "SBB": "ART. MARKETPLACE".equals(negocio) ? "MKP" : "LVP" );
+					(!"".equals(extwgS4h) ? "SBB": "ART. MARKETPLACE".equals(negocio) ? "MKP" : "LVP" );
 	}
 
 	private void log(String message) {

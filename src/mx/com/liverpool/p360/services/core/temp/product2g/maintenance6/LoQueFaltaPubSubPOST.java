@@ -23,7 +23,7 @@ public class LoQueFaltaPubSubPOST {
 			if(row.length == 0) {
 				return;
 			}
-			if(!"".equals(row[5]) && !row[5].equals(row[1])) {
+			if( (!"".equals(row[5]) && !row[5].equals(row[1])) || (!"".equals(row[6]) && !row[6].equals(row[2])) || (!"".equals(row[7]) && !row[7].equals(row[3])) ) {
 				if(count < 100) {
 					System.out.println(new org.json.JSONObject().put("currentStatus", row[5]).put("previousStatus", row[6]).put("externalStatus", row[7]).put("proposalId", row[4]));
 					count++;

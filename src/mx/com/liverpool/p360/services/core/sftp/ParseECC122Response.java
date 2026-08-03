@@ -678,7 +678,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 					}
 				}
 				if("MATNR".equals(vn.getAttributeId()) /* || "EXTWG".equals(vn.getAttributeId()) || "LIFNR".equals(vn.getAttributeId()) */) {
-					log("MATNR ----------------->" + vn.getText());
+					log("MATNR ----------------->" + (vn.getText() == null ? "No text for MATNR." : vn.getText() ) );
 				}
 			}
 			log("Opening");
@@ -2713,7 +2713,17 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 						if(rs.next()) {
 							id = rs.getInt(1);
 						}else {
-							id = processMissingPair(itemGroup, product);
+							try(java.sql.PreparedStatement pstmnt2 = con.prepareStatement("select \"StructureGroupID\" from PIM_MAIN.\"StructureGroupDetail\" bb inner join PIM_MAIN.\"StructureGroupRevision\" aa on aa.ID = bb.\"StructureGroupRevisionID\" and aa.\"RevisionID\" = 1 and aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0'  and aa.\"StructureID\" = 10001 and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' where \"NodeType\" = 'leaf' and \"ParentIdentifier\" = ? and \"Identifier\" = ?")){
+								pstmnt2.setString(1, itemGroup + "-L4ECC");
+								pstmnt2.setString(2, itemGroup + product + "-L5ECC");
+								try(java.sql.ResultSet rs2 = pstmnt2.executeQuery()){
+									if(rs2.next()) {
+										id = rs2.getInt(1);
+									}else {
+										id = processMissingPair(itemGroup, itemGroup + product);
+									}
+								}
+							}
 						}
 					}
 				}
@@ -3147,6 +3157,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	
 	private String lookupValue(String value, String standardizationDictionary, RESTWorkshop rw) throws KeyManagementException, NoSuchAlgorithmException, UnsupportedEncodingException, URISyntaxException, IOException {
 		String container = standardizationDictionary.replaceAll("/", "<::>");
+		String pieces0 = null;
 		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.templates_cache_directory"), "dictionaries", container).toString())))){
 			String line = null;
 			String delim = "\"";
@@ -3155,11 +3166,13 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 			String[] pieces = null;
 			while((line = br.readLine()) != null) {
 				pieces = workshop.parseLine(line, delim, sep, escp);
-				if(value.equals(pieces[0]))
+				if(value.equals(pieces0 = pieces[0]))
 					return pieces[1];
 			}
 		}catch(java.io.IOException e) {
 			logE(e);
+		}catch(NullPointerException e) {
+			log("Error trying to compare (" + standardizationDictionary + "): value:" + value + " | pieces[0]:" + pieces0);
 		}
 		return null;
 	}
@@ -3355,7 +3368,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	@Override
 	public final void logE(Exception ex) {
 		try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
-				new java.io.FileOutputStream(java.nio.file.Paths.get("..","logs","parseECC122Response.log").toString(), true)))) {
+				new java.io.FileOutputStream(java.nio.file.Paths.get("..","logs","parseECC122Response.err").toString(), true)))) {
 			ex.printStackTrace(pw);
 		} catch (java.io.IOException e) {
 		}
