@@ -15,6 +15,8 @@ import org.xml.sax.helpers.DefaultHandler;
 import com.example.ei.forfun.logic.WildDateStandardizer;
 
 import mx.com.liverpool.dataprofiling.preparison.envioproductos.PruebaEnvioPubSubMediaAssets;
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 import mx.com.liverpool.p360.services.core.RequestHandler;
@@ -28,6 +30,19 @@ public class AnotherXMLHandlerSecondOpinionOnSpecificProducts {
 	public static boolean sendProduct = true;
 	public static boolean sendLkpValues = false;
 	private java.nio.file.Path normalLogFilePath = java.nio.file.Paths.get("..", "logs", "list_api_precise.log");
+	
+	private ELog elog = new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			AnotherXMLHandlerSecondOpinionOnSpecificProducts.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			AnotherXMLHandlerSecondOpinionOnSpecificProducts.this.log(message);
+		}
+	};
 
 	private class Asset{
 		
@@ -802,21 +817,16 @@ public class AnotherXMLHandlerSecondOpinionOnSpecificProducts {
     		System.out.println("SKU: " + (sku == null ? "NoSKU" : sku.getText()));
     		String wdspr = WildDateStandardizer.normalize(firstdateapproveStr, java.time.ZoneId.of("America/Mexico_City"), WildDateStandardizer.AmbiguityPolicy.PREFER_DMY).orElse("");
     		
-    		DataRequestor dr = new DataRequestor();
-    		if(sku != null && sku.getText() != null && !"".equals(sku.getText())) {
-	    		String rsp = dr.getProductBySKU(new org.json.JSONArray().put(sku.getText()));
-	    		org.json.JSONObject jr = new org.json.JSONObject(rsp);
-	    		org.json.JSONArray items = jr.getJSONArray("items");
-	    		String item = items.getString(0);
-	    		if(!"".equals(item)) {
-	    			if(!item.equals(externalId)) {
-	    				rsp = dr.getProductData(new org.json.JSONArray().put(externalId));
-	    				boolean skip = false;
-	    				if(rsp != null) {
+    		try(DBAccessDataStub dastub = new DBAccessDataStub(elog)) {
+	    		if(sku != null && sku.getText() != null && !"".equals(sku.getText())) {
+	    			String item = dastub.getSkuProductNo(sku.getText());
+		    		if(item != null && !"".equals(item)) {
+		    			if(!item.equals(externalId)) {
+		    				org.json.JSONObject rsp = dastub.getProductData(externalId);
 	    					org.json.JSONObject r0 = new org.json.JSONObject(rsp);
 	    					org.json.JSONArray a0 = r0.getJSONArray("items");
 	    					org.json.JSONObject i0 = a0.getJSONObject(0);
-	    					skip = ! (
+	    					boolean skip = ! (
 	    							   "".equals(i0.getString("Section")) 
 	    							&& "".equals(i0.getString("ItemGroup")) 
 	    							&& "".equals(i0.getString("ItemGroupS4H")) 
@@ -834,55 +844,48 @@ public class AnotherXMLHandlerSecondOpinionOnSpecificProducts {
 	    							&& "".equals(i0.getString("MainBarCodeS4H")) 
 	    							&& "".equals(i0.getString("SupplierPartNumber")) 
 	    						);
-	    				}
-	    				if(!skip) {
-	    					if(item.length() < 15) {
-			    				java.util.Map<String, String> qp = new java.util.HashMap<>();
-			    				qp.put("items", "'" + item + "'@1");
-			    				String[] data = new String[1];
-			    				data[0] = null;
-			    				rw.collectData("list", "Product2G", null, "byItems", qp, row -> {
-			    					data[0] = row.getJSONObject("object").getString("id");
-			    				});
-			    				internalId = data[0];
-			    				reqAltID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", internalId)).put("values", new org.json.JSONArray().put(item)));
-			    				reqPID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", internalId)).put("values", new org.json.JSONArray().put(externalId)));
-			    				dr.skuProductNo(new org.json.JSONArray().put(new org.json.JSONObject().put("productNo", externalId).put("sku", sku.getText())));
-	    					}else {
-	    						reqAltID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + item + "'@1")).put("values", new org.json.JSONArray().put(externalId)));
-	    						reqAltID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(item)));
-	    					}
-	    				}else {
-	    					if(item.length() < 15) {
-	    						reqSuppressSKUAndEAN.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + item + "'@1" )).put("values", new org.json.JSONArray().put("").put("").put("").put("").put("")));
-	    					} else {
-	    						// Merge on P360 product data coming from there
-	    						resuelveCombinación(item, externalId);
-	    						externalId = item;
-	    					}
-	    				}
-	    			}
+		    				if(!skip) {
+		    					if(item.length() < 15) {
+				    				java.util.Map<String, String> qp = new java.util.HashMap<>();
+				    				qp.put("items", "'" + item + "'@1");
+				    				String[] data = new String[1];
+				    				data[0] = null;
+				    				rw.collectData("list", "Product2G", null, "byItems", qp, row -> {
+				    					data[0] = row.getJSONObject("object").getString("id");
+				    				});
+				    				internalId = data[0];
+				    				reqAltID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", internalId)).put("values", new org.json.JSONArray().put(item)));
+				    				reqPID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", internalId)).put("values", new org.json.JSONArray().put(externalId)));
+		    					}else {
+		    						reqAltID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + item + "'@1")).put("values", new org.json.JSONArray().put(externalId)));
+		    						reqAltID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(item)));
+		    					}
+		    				}else {
+		    					if(item.length() < 15) {
+		    						reqSuppressSKUAndEAN.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + item + "'@1" )).put("values", new org.json.JSONArray().put("").put("").put("").put("").put("")));
+		    					} else {
+		    						// Merge on P360 product data coming from there
+		    						System.out.println("Resolviendo combinación. Awas");
+		    						resuelveCombinación(item, externalId);
+		    						externalId = item;
+		    					}
+		    				}
+		    			}
+		    		}
 	    		}
+				org.json.JSONObject item = dastub.getProductData(internalId);
+				if(item.has("CurrentStatus") && "".equals(String.valueOf( item.get("CurrentStatus") ))) {
+		    		Value calculatedWFAtt = valMap.get("CalculatedWF_Att");
+		    		Value fotoTomadaLiverpool = valMap.get("FotoTomadaLiverpool");
+		    		Value stateSKU = valMap.get("StateSKU");
+		    		String[] bundle = elese.computeStatus(calculatedWFAtt == null ? "" : calculatedWFAtt.getText(), !"".equals(firstdateapproveStr) ? "Aprobado" : (stateSKU == null ? "" : stateSKU.getText()), fotoTomadaLiverpool == null ? "" : fotoTomadaLiverpool.getText(), product.getId());
+		    		currentStatus = bundle[0];
+		    		prevStatus = bundle[1];
+		    		String enriquecidoEnForo = bundle[2];
+		    		externalStatus = currentStatus == null || "".equals(currentStatus) ? "" : internalToExternalStatusMap.get(currentStatus);
+					reqProductStatus.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id",  internalId == null ? "'" + externalId + "'@1" : internalId )).put("values", new org.json.JSONArray().put(currentStatus).put(prevStatus).put(externalStatus).put(enriquecidoEnForo)));
+				}
     		}
-    		String rsp = dr.getProductData(new org.json.JSONArray().put(externalId));
-    		if(rsp != null) {
-    			org.json.JSONObject jr = new org.json.JSONObject(rsp);
-    			org.json.JSONArray items = jr.getJSONArray("items");
-    			org.json.JSONObject item = items.getJSONObject(0);
-    			if(item.has("CurrentStatus") && "".equals(String.valueOf( item.get("CurrentStatus") ))) {
-    	    		Value calculatedWFAtt = valMap.get("CalculatedWF_Att");
-    	    		Value fotoTomadaLiverpool = valMap.get("FotoTomadaLiverpool");
-    	    		Value stateSKU = valMap.get("StateSKU");
-    	    		String[] bundle = elese.computeStatus(calculatedWFAtt == null ? "" : calculatedWFAtt.getText(), !"".equals(firstdateapproveStr) ? "Aprobado" : (stateSKU == null ? "" : stateSKU.getText()), fotoTomadaLiverpool == null ? "" : fotoTomadaLiverpool.getText(), product.getId());
-    	    		currentStatus = bundle[0];
-    	    		prevStatus = bundle[1];
-    	    		String enriquecidoEnForo = bundle[2];
-    	    		externalStatus = currentStatus == null || "".equals(currentStatus) ? "" : internalToExternalStatusMap.get(currentStatus);
-    				reqProductStatus.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id",  internalId == null ? "'" + externalId + "'@1" : internalId )).put("values", new org.json.JSONArray().put(currentStatus).put(prevStatus).put(externalStatus).put(enriquecidoEnForo)));
-    			}
-    			
-    		}
-    		
     		vals.put( new org.json.JSONArray().put( product.getParentId() ));
     		vals.put( business );
     		vals.put( business );

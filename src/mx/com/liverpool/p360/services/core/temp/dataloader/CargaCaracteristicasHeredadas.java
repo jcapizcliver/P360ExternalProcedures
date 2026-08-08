@@ -13,7 +13,8 @@ public class CargaCaracteristicasHeredadas {
 //		System.exit(0);
 		org.json.JSONArray rows = new org.json.JSONArray();
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		for(String cid : RealExportProducts2Mirakl.YEA) {
+		RealExportProducts2Mirakl rep = new RealExportProducts2Mirakl();
+		for(String cid : rep.YEA) {
 			rows.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + cid + "'@'CaracteristicasHeredables'")).put("values", new org.json.JSONArray().put(new org.json.JSONObject().put("id", "'" + cid + "'"))));
 		}
 		workshop.makeRequest("POST", "/list/StandardizationValue/", qp, new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "StandardizationValue.Characteristic"))).put("rows", rows).toString());

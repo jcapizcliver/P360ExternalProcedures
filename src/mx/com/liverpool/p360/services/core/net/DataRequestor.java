@@ -169,23 +169,24 @@ public class DataRequestor {
 		org.json.JSONObject jsonObject = null;
 		java.util.Map<String, java.util.Set<String>> parentChild = new java.util.TreeMap<>();
 		java.util.Set<String> lst = null;
-		try {
-			org.json.JSONObject response = new org.json.JSONObject(resp);
-			org.json.JSONArray items = response.getJSONArray("items");
-			for(int i = 0; i<items.length(); i++) {
-				jsonObject = items.getJSONObject(i);
-				if(!"".equals(jsonObject.getString("product")) && !"".equals(jsonObject.getString("article"))) {
-					lst = parentChild.get(jsonObject.getString("product"));
-					if(lst == null) {
-						lst = new java.util.TreeSet<>();
-						parentChild.put(jsonObject.getString("product"), lst);
+		if(resp != null)
+			try {
+				org.json.JSONObject response = new org.json.JSONObject(resp);
+				org.json.JSONArray items = response.getJSONArray("items");
+				for(int i = 0; i<items.length(); i++) {
+					jsonObject = items.getJSONObject(i);
+					if(!"".equals(jsonObject.getString("product")) && !"".equals(jsonObject.getString("article"))) {
+						lst = parentChild.get(jsonObject.getString("product"));
+						if(lst == null) {
+							lst = new java.util.TreeSet<>();
+							parentChild.put(jsonObject.getString("product"), lst);
+						}
+						lst.add(jsonObject.getString("article"));
 					}
-					lst.add(jsonObject.getString("article"));
 				}
+			}catch(org.json.JSONException e) {
+				e.printStackTrace();
 			}
-		}catch(org.json.JSONException e) {
-			e.printStackTrace();
-		}
 		return parentChild;
 	}
 	

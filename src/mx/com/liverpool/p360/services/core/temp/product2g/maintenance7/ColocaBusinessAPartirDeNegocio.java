@@ -30,12 +30,12 @@ public class ColocaBusinessAPartirDeNegocio {
 			if(nBusiness == null) {
 				System.out.println("FAULT: " + java.util.Arrays.asList(row));
 			}else {
-				rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + row[0] + "'@1")).put("values", new org.json.JSONArray().put(nBusiness)));
+//				rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + row[0] + "'@1")).put("values", new org.json.JSONArray().put(nBusiness)));
 			}
 			
 		} );
 		parser.parse(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "BusinessNull_NegocioNotNull_20260721_230035.csv"));
-		rh.sendData();
+//		rh.sendData();
 	}
 
 	private static final String determineBusiness(String negocio, String extwgS4h) {

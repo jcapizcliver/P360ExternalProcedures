@@ -33,7 +33,7 @@ public class ReferenceFileCheck implements AutoCloseable {
     	}
     }
 
-    public boolean exists(String value) throws IOException {
+    public boolean exists(String value, DBAccessDataStub dastub) throws IOException {
         if (value == null) return false;
         value = value.trim();
         if (value.isEmpty()) return false;
@@ -51,23 +51,29 @@ public class ReferenceFileCheck implements AutoCloseable {
             }
         });
 
-        return checkOnExcept( value, binarySearchInFile(raf, value) );
+        return checkOnExcept( value, binarySearchInFile(raf, value), dastub );
     }
     
-    private boolean checkOnExcept(String val, boolean prevResult) {
-    	if(!prevResult)
-    		return false;
-    	try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get( PropertiesManager.get("p360.contingency.reference_ean_dir"),  "excepts").toFile())))){
-    		String line = null;
-    		while((line = br.readLine()) != null) {
-    			if(line.equals(val)) {
-    				return false;
-    			}
-    		}
-    	}catch(java.io.IOException e) {
-    		throw new IllegalStateException(e);
-    	}
-    	return prevResult;
+    private boolean lookupValueCodeExists(String lookupIdentifier, String code, DBAccessDataStub dastub) {
+
+    	return dastub.getLookupValueId(lookupIdentifier, code, true) != null;
+    }
+    
+    private boolean checkOnExcept(String val, boolean prevResult, DBAccessDataStub dastub) {
+    	return prevResult && !lookupValueCodeExists("EANsLiberados", val, dastub);
+//    	if(!prevResult)
+//    		return false;
+//    	try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get( PropertiesManager.get("p360.contingency.reference_ean_dir"),  "excepts").toFile())))){
+//    		String line = null;
+//    		while((line = br.readLine()) != null) {
+//    			if(line.equals(val)) {
+//    				return false;
+//    			}
+//    		}
+//    	}catch(java.io.IOException e) {
+//    		throw new IllegalStateException(e);
+//    	}
+//    	return prevResult;
     }
 
     private boolean binarySearchInFile(RandomAccessFile raf, String target) throws IOException {

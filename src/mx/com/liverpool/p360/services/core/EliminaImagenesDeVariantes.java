@@ -1,6 +1,4 @@
-package mx.com.liverpool.p360.services.core.temp.product2g.maintenance;
-
-import mx.com.liverpool.p360.services.core.RESTWrapper;
+package mx.com.liverpool.p360.services.core;
 
 public class EliminaImagenesDeVariantes extends RESTWrapper {
 

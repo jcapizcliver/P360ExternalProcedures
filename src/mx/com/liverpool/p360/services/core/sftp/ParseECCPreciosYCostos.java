@@ -45,18 +45,18 @@ public class ParseECCPreciosYCostos extends Thread implements SimpleLog {
 	private static final String REMOTE_DIR = PropertiesManager.get( "p360.contingency.ecc.remote_directory_pyc" );//Remote directory to monitor: /interfase/mer/in/step/P360/zrtuab122
 	private static final Path LOCAL_PROCESSED_DIR = Paths.get(PropertiesManager.get( "p360.contingency.ecc.local_processed_dir_pyc" ));//Path: /u01/stage/ecc.122/processed
 	
-	private final DBAccessDataStub dastub = new DBAccessDataStub( new ELog() { 
-			@Override 
-			public void log(String message) { 
-				ParseECCPreciosYCostos.this.log(message); 
-			}
-			
-			@Override 
-			public void logE(Exception e) { 
-				ParseECCPreciosYCostos.this.logE(e); 
-			} 
-		}  
-	);
+	private final ELog el = new ELog() {
+		@Override 
+		public void log(String message) { 
+			ParseECCPreciosYCostos.this.log(message); 
+		}
+		
+		@Override 
+		public void logE(Exception e) { 
+			ParseECCPreciosYCostos.this.logE(e); 
+		} 
+	};
+	
 	private final java.util.Map<String, String> qp = new java.util.HashMap<>();
 
 	private final PubSubGCP postProductsPubSub = new PubSubGCP(
@@ -287,7 +287,7 @@ public class ParseECCPreciosYCostos extends Thread implements SimpleLog {
 					                    		} catch (ParserConfigurationException | SAXException | IOException e) {
 					                    			logE(e);
 					                    		}
-//					                            sftp.remove(filePath);
+					                            sftp.remove(filePath);
 		
 					                            if(!running)
 					                            	break;
@@ -320,7 +320,7 @@ public class ParseECCPreciosYCostos extends Thread implements SimpleLog {
  					                    		} catch (java.io.IOException e) {
  					                    			e.printStackTrace();
  					                    		}
-// 					                            sftp.remove(filePath);
+ 					                            sftp.remove(filePath);
  		
  					                            if(!running)
  					                            	break;
@@ -371,53 +371,55 @@ public class ParseECCPreciosYCostos extends Thread implements SimpleLog {
 	public void processFile(java.nio.file.Path path, java.io.ByteArrayOutputStream baos, SftpClient sftp, byte isPrecios) throws ParserConfigurationException, SAXException, IOException, ServiceUnavailableException {
 		long init = System.currentTimeMillis();
         if(baos != null) {
-        	org.json.JSONArray productos = new org.json.JSONArray();
-        	java.io.ByteArrayInputStream bais = new java.io.ByteArrayInputStream( baos.toByteArray() );
-        	try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(bais))){
-        		String line = null;
-        		String[] pieces = null;
-        		String[] data = null;
-        		org.json.JSONObject chosenOne = null;
-        		while((line = br.readLine()) != null) {
-        			pieces = line.split("\\|");
-        			if(pieces.length == 2) {
-        				data = dastub.getSkuData(pieces[0]);
-        				if(data != null && data.length == 2 && !"".equals(data[0]) && !"".equals(data[1])) {
-        					(chosenOne = (isPrecios == 1 ? ("1000".equals(data[1]) ? requestPrecioA : requestPrecio) : ("1000".equals(data[1]) ? requestCostoA : requestCosto))).getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + data[0] + "'@1")).put("values", new org.json.JSONArray().put(pieces[1])));
-        					org.json.JSONObject msgBody = new org.json.JSONObject();
-        					if("1000".equals(data[1])) {
-        						String productId = dastub.getProductByVariant(data[0]);
-        						if(productId != null && !"".equals(productId)) {
-            						msgBody.put("proposalId", productId).put("variants", new org.json.JSONArray().put(new org.json.JSONObject().put("variantId", data[0]).put("datosVenta", new org.json.JSONObject().put(isPrecios == 1 ? "PrecioSugeridocIVA" : "CostobrutoSinIVA", pieces[1]))) );
-            						productos.put(msgBody);
-            						log("Message body: " + msgBody);
-            						System.out.println("Message body: " + new org.json.JSONObject().put("products", productos));
-                					postProductsPubSub.publishMessage(
-                					        new org.json.JSONObject().put("products", productos).toString()
-                					);
-        						}
-        					}else {
-        						msgBody.put("proposalId", data[0]).put("datosVenta", new org.json.JSONObject().put( isPrecios == 1 ? "PrecioSugeridocIVA" : "CostobrutoSinIVA", pieces[1]));
-	        					productos.put(msgBody);
-	        					log("Message body: " + new org.json.JSONObject().put("products", productos).toString());
-	        					System.out.println("Message body: " + msgBody);
-            					postProductsPubSub.publishMessage( new org.json.JSONObject().put("products", productos).toString());
-        					}
-        					if(chosenOne.getJSONArray("rows").length() == 1000) {
-        						rw.writeData("list", "1000".equals(data[1]) ? "Article" : "Product2G", null, qp, chosenOne, this::log);
-        					}
-        				}else {
-        					log("No known data for SKU: " + pieces[0] + ": " + (data != null ? java.util.Arrays.asList(data) : "Empty data"));
-        				}
-        			}else {
-        				log("No valid line in file: " + line);
-        			}
-        		}
-        	}catch(java.io.IOException e) {
-        		logE(e);
+        	try(DBAccessDataStub dastub = new DBAccessDataStub(el)){
+	        	org.json.JSONArray productos = new org.json.JSONArray();
+	        	java.io.ByteArrayInputStream bais = new java.io.ByteArrayInputStream( baos.toByteArray() );
+	        	try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(bais))){
+	        		String line = null;
+	        		String[] pieces = null;
+	        		String[] data = null;
+	        		org.json.JSONObject chosenOne = null;
+	        		while((line = br.readLine()) != null) {
+	        			pieces = line.split("\\|");
+	        			if(pieces.length == 2) {
+	        				data = dastub.getSkuData(pieces[0]);
+	        				if(data != null && data.length == 2 && !"".equals(data[0]) && !"".equals(data[1])) {
+	        					(chosenOne = (isPrecios == 1 ? ("1000".equals(data[1]) ? requestPrecioA : requestPrecio) : ("1000".equals(data[1]) ? requestCostoA : requestCosto))).getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + data[0] + "'@1")).put("values", new org.json.JSONArray().put(pieces[1])));
+	        					org.json.JSONObject msgBody = new org.json.JSONObject();
+	        					if("1000".equals(data[1])) {
+	        						String productId = dastub.getProductByVariant(data[0]);
+	        						if(productId != null && !"".equals(productId)) {
+	            						msgBody.put("proposalId", productId).put("variants", new org.json.JSONArray().put(new org.json.JSONObject().put("variantId", data[0]).put("datosVenta", new org.json.JSONObject().put(isPrecios == 1 ? "PrecioSugeridocIVA" : "CostobrutoSinIVA", pieces[1]))) );
+	            						productos.put(msgBody);
+	            						log("Message body: " + msgBody);
+	            						System.out.println("Message body: " + new org.json.JSONObject().put("products", productos));
+	                					postProductsPubSub.publishMessage(
+	                					        new org.json.JSONObject().put("products", productos).toString()
+	                					);
+	        						}
+	        					}else {
+	        						msgBody.put("proposalId", data[0]).put("datosVenta", new org.json.JSONObject().put( isPrecios == 1 ? "PrecioSugeridocIVA" : "CostobrutoSinIVA", pieces[1]));
+		        					productos.put(msgBody);
+		        					log("Message body: " + new org.json.JSONObject().put("products", productos).toString());
+		        					System.out.println("Message body: " + msgBody);
+	            					postProductsPubSub.publishMessage( new org.json.JSONObject().put("products", productos).toString());
+	        					}
+	        					if(chosenOne.getJSONArray("rows").length() == 1000) {
+	        						rw.writeData("list", "1000".equals(data[1]) ? "Article" : "Product2G", null, qp, chosenOne, this::log);
+	        					}
+	        				}else {
+	        					log("No known data for SKU: " + pieces[0] + ": " + (data != null ? java.util.Arrays.asList(data) : "Empty data"));
+	        				}
+	        			}else {
+	        				log("No valid line in file: " + line);
+	        			}
+	        		}
+	        	}catch(java.io.IOException e) {
+	        		logE(e);
+	        	}
+	        	bais.close();
+	        	baos.close();
         	}
-        	bais.close();
-        	baos.close();
         }
 		log("Done processing file. [" + path.toString().replaceAll(".+" + java.util.regex.Pattern.quote( java.io.File.separator ), "") + "] " + rw.getRw().formatTime(System.currentTimeMillis() - init));
 	}

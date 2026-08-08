@@ -22,9 +22,8 @@ public class SendThemToPubSub {
 //			lst.add(values.getString(0));
 //		});
 		java.util.List<String> lst = java.util.Arrays.asList((
-				        "1754611682137881\r\n"
-				        + "1754611682137882\r\n"
-				        + "1754611682137911\r\n"
+				        "1754611685312365\r\n"
+				        + "1754611685312375"
 				).split("\\r\\n"));
 //				getS();
 		for(String value : lst) {

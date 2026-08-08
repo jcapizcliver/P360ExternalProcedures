@@ -1,7 +1,6 @@
 package mx.com.liverpool.p360.services.core.temp.exports;
 
 import java.io.IOException;
-
 import javax.naming.ServiceUnavailableException;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -16,13 +15,17 @@ import org.json.JSONObject;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 
+import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.DBAccessDataStub;
 import mx.com.liverpool.p360.services.core.ELog;
-import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
+import mx.com.liverpool.p360.services.core.RestClient;
 
 public class HierarchySitiosWeb4Jdbc {
+
+    private static final String urlDeATG =
+            PropertiesManager.get("p360.contingency.out.url_atg");
 
     private static final RESTWrapper rw = new RESTWrapper();
     private final DBAccessDataStub dastub = new DBAccessDataStub(new ELog() {
@@ -44,6 +47,87 @@ public class HierarchySitiosWeb4Jdbc {
     public static void main(String[] args) throws ServiceUnavailableException {
         HierarchySitiosWeb4Jdbc h = new HierarchySitiosWeb4Jdbc();
         h.createHierarchyFile( new String[] {"cat5800034"} );
+    }
+
+    public java.util.List<org.json.JSONObject> getSelectableHierarchyRows() {
+        return dastub.getWebHierarchyRows(10);
+    }
+
+    public PublicationResult publishHierarchy(
+            String[] hierarchyIdentifiers)
+            throws ServiceUnavailableException, IOException {
+
+        if (hierarchyIdentifiers == null
+                || hierarchyIdentifiers.length == 0) {
+
+            throw new IllegalArgumentException(
+                    "Debe seleccionar al menos una estructura de jerarquía.");
+        }
+
+        createHierarchyFile(hierarchyIdentifiers);
+
+        java.nio.file.Path xmlPath =
+                java.nio.file.Paths.get(outputXmlFile);
+
+        if (!java.nio.file.Files.isRegularFile(xmlPath)) {
+            throw new IOException(
+                    "No se generó el archivo XML: " + xmlPath);
+        }
+
+        String xmlOutput =
+                java.nio.file.Files.readString(
+                        xmlPath,
+                        java.nio.charset.StandardCharsets.UTF_8);
+
+        RestClient batchClient =
+                new RestClient(
+                        "Content-Type: application/xml",
+                        "Accept: application/xml");
+
+        String atgResponse =
+                batchClient.getRequest(
+                        "POST",
+                        urlDeATG,
+                        xmlOutput);
+
+        log(
+                "(ATG) Hierarchy request sent for "
+                + java.util.Arrays.toString(hierarchyIdentifiers)
+                + ": "
+                + atgResponse);
+
+        return new PublicationResult(
+                xmlPath,
+                xmlOutput,
+                atgResponse);
+    }
+
+    public static final class PublicationResult {
+        private final java.nio.file.Path xmlPath;
+        private final String xml;
+        private final String atgResponse;
+
+        private PublicationResult(
+                java.nio.file.Path xmlPath,
+                String xml,
+                String atgResponse) {
+
+            this.xmlPath = xmlPath;
+            this.xml = xml;
+            this.atgResponse = atgResponse;
+        }
+
+        public java.nio.file.Path getXmlPath() {
+            return xmlPath;
+        }
+
+        public String getXml() {
+            return xml;
+        }
+
+        public String getAtgResponse() {
+            return atgResponse;
+        }
     }
 
     private void createHierarchyFile(String[] ofInterest) throws ServiceUnavailableException {

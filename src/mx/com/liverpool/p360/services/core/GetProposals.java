@@ -73,6 +73,33 @@ public class GetProposals{
 	String output = null;
     try {
     	log("An input: " + input);
+
+        java.util.Set<String> multivalueCharacteristics = new java.util.TreeSet<>();
+        String rr = null;
+//        a = System.currentTimeMillis();
+        try {
+	          int ci = 0;
+	          int tz = 0;
+	          do {
+		          rr = rw.getRw().getRc().getRequest("GET", baseURL + "/list/Characteristic/bySearch?query="
+		        		  + java.net.URLEncoder.encode("Characteristic.UpperBound > 1", "UTF-8")
+		        		  + "&pageSize=5000"
+		        		  + "&fields=Characteristic.Identifier"
+		        		  + "&startIndex=" + ci
+		        		  , null);
+		          org.json.JSONObject r = new org.json.JSONObject(rr);
+		          tz = r.getInt("totalSize");
+		          org.json.JSONArray rw = r.getJSONArray("rows");
+		          for(int m=0; m<rw.length(); m++) {
+		        	  ci++;
+		        	  multivalueCharacteristics.add(rw.getJSONObject(m).getJSONArray("values").getString(0));
+		          }
+	          }while(ci < tz);
+	          ci = 0;
+        }catch(org.json.JSONException e) {
+//      	  log("Exception, got: " + rr);
+      	  logE(e);
+        }
       response = new JSONObject(input);
       rows = response.getJSONArray( "products" );
 //      log("Request of: " + rows.length() + " elements");
@@ -145,32 +172,6 @@ public class GetProposals{
           try{
           	modificationDate = response.getJSONObject("_data").getJSONArray("ownLog").getJSONObject(0).getString("modificationDate");
           }catch(org.json.JSONException ignore){}
-          java.util.Set<String> multivalueCharacteristics = new java.util.TreeSet<>();
-          String rr = null;
-//          a = System.currentTimeMillis();
-          try {
-	          int ci = 0;
-	          int tz = 0;
-	          do {
-		          rr = rw.getRw().getRc().getRequest("GET", baseURL + "/list/Characteristic/bySearch?query="
-		        		  + java.net.URLEncoder.encode("Characteristic.UpperBound > 1", "UTF-8")
-		        		  + "&pageSize=5000"
-		        		  + "&fields=Characteristic.Identifier"
-		        		  + "&startIndex=" + ci
-		        		  , null);
-		          org.json.JSONObject r = new org.json.JSONObject(rr);
-		          tz = r.getInt("totalSize");
-		          org.json.JSONArray rw = r.getJSONArray("rows");
-		          for(int m=0; m<rw.length(); m++) {
-		        	  ci++;
-		        	  multivalueCharacteristics.add(rw.getJSONObject(m).getJSONArray("values").getString(0));
-		          }
-	          }while(ci < tz);
-	          ci = 0;
-          }catch(org.json.JSONException e) {
-//        	  log("Exception, got: " + rr);
-        	  logE(e);
-          }
 //          log("Adding multivalued characteristics took: " + formatMillis(System.currentTimeMillis() - a));
           org.json.JSONArray characteristicRecords = response.getJSONObject( "_data" ).has("_characteristicRecords") ? response.getJSONObject( "_data" ).getJSONArray( "_characteristicRecords" ) : new org.json.JSONArray();
           JSONObject header = new org.json.JSONObject();
@@ -915,7 +916,7 @@ public class GetProposals{
 //      int totalSize = 0;
     	DataRequestor dr = new DataRequestor();
 		String resp = dr.getTemplateCharacteristicMetaDataByTemplate( new org.json.JSONArray().put(template) );
-		log("From collecting metadata to send... " + resp + "<::>");
+//		log("From collecting metadata to send... " + resp + "<::>");
 		try {
 			org.json.JSONObject jr = new org.json.JSONObject(resp);
 			org.json.JSONArray items = jr.getJSONArray("items");
@@ -1141,6 +1142,110 @@ public class GetProposals{
 	}
 
 	
+	
+	private static final java.util.logging.Logger LOGGER =
+	        java.util.logging.Logger.getLogger(GetProposals.class.getName());
+
+	private static final java.time.format.DateTimeFormatter LOG_TIMESTAMP =
+	        java.time.format.DateTimeFormatter
+	                .ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+	                .withZone(java.time.ZoneId.systemDefault());
+
+	private static final class FlushingFileHandler extends java.util.logging.FileHandler {
+
+	    private FlushingFileHandler(String pattern, boolean append) throws java.io.IOException {
+	        super(pattern, append);
+	    }
+
+	    @Override
+	    public synchronized void publish(java.util.logging.LogRecord record) {
+	        if (!isLoggable(record)) {
+	            return;
+	        }
+
+	        super.publish(record);
+
+	        /*
+	         * FileHandler normalmente mantiene abierto el archivo.
+	         * Este flush asegura que el registro se entregue al sistema
+	         * operativo antes de regresar al hilo solicitante.
+	         */
+	        flush();
+	    }
+	}
+
+	static {
+	    try {
+	        LOGGER.setUseParentHandlers(false);
+	        LOGGER.setLevel(java.util.logging.Level.ALL);
+
+	        /*
+	         * Evita duplicados si por alguna razón ya hubiera handlers
+	         * asociados al mismo nombre de logger.
+	         */
+	        for (java.util.logging.Handler handler : LOGGER.getHandlers()) {
+	            LOGGER.removeHandler(handler);
+	            handler.close();
+	        }
+
+	        FlushingFileHandler fileHandler = new FlushingFileHandler(
+	                "../logs/java_process_proposal_request.log",
+	                true
+	        );
+
+	        fileHandler.setEncoding(java.nio.charset.StandardCharsets.UTF_8.name());
+	        fileHandler.setLevel(java.util.logging.Level.ALL);
+
+	        fileHandler.setFormatter(new java.util.logging.Formatter() {
+	            @Override
+	            public String format(java.util.logging.LogRecord record) {
+	                if (record.getThrown() != null) {
+	                    java.io.StringWriter sw = new java.io.StringWriter();
+	                    try (java.io.PrintWriter pw = new java.io.PrintWriter(sw)) {
+	                        record.getThrown().printStackTrace(pw);
+	                    }
+	                    return sw.toString();
+	                }
+
+	                String timestamp = LOG_TIMESTAMP.format(
+	                        java.time.Instant.ofEpochMilli(record.getMillis())
+	                );
+
+	                return "["
+	                        + timestamp
+	                        + "] "
+	                        + record.getMessage()
+	                        + System.lineSeparator();
+	            }
+	        });
+
+	        LOGGER.addHandler(fileHandler);
+	    } catch (java.io.IOException | SecurityException e) {
+	        throw new ExceptionInInitializerError(e);
+	    }
+	}
+
+	private void log(String message) {
+	    LOGGER.log(
+	            java.util.logging.Level.INFO,
+	            "(" + myId + ") " + String.valueOf(message)
+	    );
+	}
+
+	private void logE(Exception ex) {
+	    java.util.logging.LogRecord record =
+	            new java.util.logging.LogRecord(java.util.logging.Level.SEVERE, "");
+
+	    record.setLoggerName(LOGGER.getName());
+	    record.setThrown(ex);
+
+	    LOGGER.log(record);
+	}
+	
+	
+	
+	/*
+	
 	private static final Logger LOGGER = Logger.getLogger(GetProposals.class.getName());
 
     static {
@@ -1189,4 +1294,6 @@ public class GetProposals{
 			pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())) + "] (" + myId + ") ERR. ");
 		}catch(java.io.IOException e){}
 	}
+	
+	*/
 }

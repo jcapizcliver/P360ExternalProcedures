@@ -497,50 +497,50 @@ public class ProductVariantInfoAdmin002 extends Thread {
 						}else if("putProductData".equals(request.getString("action"))) {
 							items = request.getJSONArray("items");
 							String[] currentOne = null;
-							for(int i=0; i<items.length(); i++) {
-								item = items.getJSONObject(i);
-								parent = item.getString("product");
-								currentOne = articleData.get(parent);
-								if(currentOne != null) {
-									if(currentOne.length > 14) {
-										if(!"".equals(currentOne[13]) && "".equals(item.getString("MainBarCode"))) {
-											eanProductNo.remove(currentOne[13]);
-										}
-										if(!"".equals(currentOne[14]) && "".equals(item.getString("MainBarCodeS4H"))) {
-											eanProductNo.remove(currentOne[14]);
-										}
-									}else {
-//										log("No proper line found. -->" + java.util.Arrays.asList(currentOne) + "<-- (" + currentOne.length + ")");
-									}
-								}
-								productData.put(parent, new String[] { 
-										 item.getString("Section")
-										,item.getString("ItemGroup")
-										,item.getString("ItemGroupS4H")
-										,item.getString("BrandName")
-										,item.getString("BRAND_ID_S4H")
-										,item.getString("Business")
-										,item.getString("SKU")
-										,item.getString("SupplierID")
-										,item.getString("Template")
-										,item.getString("CurrentStatus")
-										,item.getString("AssignTakeNoTake")
-										,item.getString("SAPObjectType")
-										,item.getString("FotoTomadaLiverpool")
-										,item.getString("MainBarCode")
-										,item.getString("MainBarCodeS4H")
-										,item.has("SupplierPartNumber") ? item.getString("SupplierPartNumber") : ""
-									});
-								if(item.has("MainBarCode") && !"".equals(item.getString("MainBarCode"))) {
-									eanProductNo.put(item.getString("MainBarCode"), parent);
-								}else if(item.has("MainBarCodeS4H") && !"".equals(item.getString("MainBarCodeS4H"))) {
-									eanProductNo.put(item.getString("MainBarCodeS4H"), parent);
-								}
-								sku = item.getString("SKU");
-								if(!"".equals(sku)) {
-									skuProductNo.put(sku, parent);
-								}
-							}
+//							for(int i=0; i<items.length(); i++) {
+//								item = items.getJSONObject(i);
+//								parent = item.getString("product");
+//								currentOne = articleData.get(parent);
+//								if(currentOne != null) {
+//									if(currentOne.length > 14) {
+//										if(!"".equals(currentOne[13]) && "".equals(item.getString("MainBarCode"))) {
+//											eanProductNo.remove(currentOne[13]);
+//										}
+//										if(!"".equals(currentOne[14]) && "".equals(item.getString("MainBarCodeS4H"))) {
+//											eanProductNo.remove(currentOne[14]);
+//										}
+//									}else {
+////										log("No proper line found. -->" + java.util.Arrays.asList(currentOne) + "<-- (" + currentOne.length + ")");
+//									}
+//								}
+//								productData.put(parent, new String[] { 
+//										 item.getString("Section")
+//										,item.getString("ItemGroup")
+//										,item.getString("ItemGroupS4H")
+//										,item.getString("BrandName")
+//										,item.getString("BRAND_ID_S4H")
+//										,item.getString("Business")
+//										,item.getString("SKU")
+//										,item.getString("SupplierID")
+//										,item.getString("Template")
+//										,item.getString("CurrentStatus")
+//										,item.getString("AssignTakeNoTake")
+//										,item.getString("SAPObjectType")
+//										,item.getString("FotoTomadaLiverpool")
+//										,item.getString("MainBarCode")
+//										,item.getString("MainBarCodeS4H")
+//										,item.has("SupplierPartNumber") ? item.getString("SupplierPartNumber") : ""
+//									});
+//								if(item.has("MainBarCode") && !"".equals(item.getString("MainBarCode"))) {
+//									eanProductNo.put(item.getString("MainBarCode"), parent);
+//								}else if(item.has("MainBarCodeS4H") && !"".equals(item.getString("MainBarCodeS4H"))) {
+//									eanProductNo.put(item.getString("MainBarCodeS4H"), parent);
+//								}
+//								sku = item.getString("SKU");
+//								if(!"".equals(sku)) {
+//									skuProductNo.put(sku, parent);
+//								}
+//							}
 							pw.println(done);
 						}else if("getProductData".equals(request.getString("action"))) {
 							items = request.getJSONArray("items");
@@ -596,54 +596,54 @@ public class ProductVariantInfoAdmin002 extends Thread {
 						}else if("putArticleData".equals(request.getString("action"))) {
 							items = request.getJSONArray("items");
 							String[] currentOne = null;
-							for(int i=0; i<items.length(); i++) {
-								item = items.getJSONObject(i);
-								id = item.getString("variant");
-								parent = item.getString("ProductNo");
-								currentOne = articleData.get(id);
-								if(currentOne != null) {
-									if(currentOne.length > 6) {
-										if(!"".equals(currentOne[5]) && "".equals(item.getString("MainBarCode"))) {
-											eanSupplierAID.remove(currentOne[5]);
-										}
-										if(!"".equals(currentOne[6]) && "".equals(item.getString("MainBarCodeS4H"))) {
-											eanSupplierAID.remove(currentOne[6]);
-										}
-									}else {
-//										log("No proper article data object found: -->" + java.util.Arrays.asList(currentOne) + "<-- (" + currentOne.length + ")");
-									}
-								}
-								sku = item.getString("SKU");
-								articleData.put(id, new String[] { 
-										 item.getString("ColoursLiverpoolAtt")
-										,item.getString("TamanoUnico")
-										,item.getString("ProductImage")
-										,item.getString("AssignTakeNoTake")
-										,item.getString("SKU")
-										,item.getString("MainBarCode")
-										,item.getString("MainBarCodeS4H")
-										,item.has("SupplierPartNumber") ? item.getString("SupplierPartNumber") : ""
-									});
-								if(item.has("MainBarCode") && !"".equals(item.getString("MainBarCode"))) {
-									eanSupplierAID.put(item.getString("MainBarCode"), id);
-								}else if(item.has("MainBarCodeS4H") && !"".equals(item.getString("MainBarCodeS4H"))) {
-									eanSupplierAID.put(item.getString("MainBarCodeS4H"), id);
-								}
-								if(!sku.isEmpty()) {
-									skuSupplierAID.put(sku, id);
-								}
-								if(!"".equals(parent) && parent != null)
-									supplierAIDProductNo.put(id, parent);
-								else {
-									supplierAIDProductNo.remove(id);
-								}
-								lst = productNoAndVariants.get(parent);
-								if(lst == null) {
-									lst = new java.util.TreeSet<>();
-									productNoAndVariants.put(parent, lst);
-								}
-								lst.add(id);
-							}
+//							for(int i=0; i<items.length(); i++) {
+//								item = items.getJSONObject(i);
+//								id = item.getString("variant");
+//								parent = item.getString("ProductNo");
+//								currentOne = articleData.get(id);
+//								if(currentOne != null) {
+//									if(currentOne.length > 6) {
+//										if(!"".equals(currentOne[5]) && "".equals(item.getString("MainBarCode"))) {
+//											eanSupplierAID.remove(currentOne[5]);
+//										}
+//										if(!"".equals(currentOne[6]) && "".equals(item.getString("MainBarCodeS4H"))) {
+//											eanSupplierAID.remove(currentOne[6]);
+//										}
+//									}else {
+////										log("No proper article data object found: -->" + java.util.Arrays.asList(currentOne) + "<-- (" + currentOne.length + ")");
+//									}
+//								}
+//								sku = item.getString("SKU");
+//								articleData.put(id, new String[] { 
+//										 item.getString("ColoursLiverpoolAtt")
+//										,item.getString("TamanoUnico")
+//										,item.getString("ProductImage")
+//										,item.getString("AssignTakeNoTake")
+//										,item.getString("SKU")
+//										,item.getString("MainBarCode")
+//										,item.getString("MainBarCodeS4H")
+//										,item.has("SupplierPartNumber") ? item.getString("SupplierPartNumber") : ""
+//									});
+//								if(item.has("MainBarCode") && !"".equals(item.getString("MainBarCode"))) {
+//									eanSupplierAID.put(item.getString("MainBarCode"), id);
+//								}else if(item.has("MainBarCodeS4H") && !"".equals(item.getString("MainBarCodeS4H"))) {
+//									eanSupplierAID.put(item.getString("MainBarCodeS4H"), id);
+//								}
+//								if(!sku.isEmpty()) {
+//									skuSupplierAID.put(sku, id);
+//								}
+//								if(!"".equals(parent) && parent != null)
+//									supplierAIDProductNo.put(id, parent);
+//								else {
+//									supplierAIDProductNo.remove(id);
+//								}
+//								lst = productNoAndVariants.get(parent);
+//								if(lst == null) {
+//									lst = new java.util.TreeSet<>();
+//									productNoAndVariants.put(parent, lst);
+//								}
+//								lst.add(id);
+//							}
 							pw.println(done);
 						}else if("getArticleData".equals(request.getString("action"))) {
 							items = request.getJSONArray("items");
@@ -684,35 +684,35 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							pw.println(new org.json.JSONObject().put("items", responseArray));
 						}else if("putProductExtraData".equals(request.getString("action"))) {
 							items = request.getJSONArray("items");
-							for(int i=0; i<items.length(); i++) {
-								item = items.getJSONObject(i);
-								parent = item.getString("product");
-								productExtraData.put(parent, new String[] { 
-										 item.getString("supplierShopId")
-										,item.getString("ProductName")
-										,item.getString("BuyerRejectionMessage")
-										,item.getString("SupplierRejectionMessage")
-										,item.getString("SkuType")
-										,item.getString("BWSCL")
-										,item.getString("TImportacion")
-										,item.getString("Negocio")
-										,item.getString("EXTWG_S4H")
-										,item.getString("MesdeEntregadeMercancIa")
-										,item.getString("Temporada")
-										,item.getString("BWVOR")
-										,item.getString("AnoEstacion")
-										,item.getString("TextoAdicional")
-										,item.getString("Evento")
-										,item.getString("CostobrutoSinIVA")
-										,item.getString("PrecioSugeridocIVA")
-										,item.getString("Descuento1")
-										,item.getString("Descuento2")
-										,item.getString("NORMT")
-										,item.getString("LABOR")
-										,item.getString("DescriptionLong")
-										,item.getString("DescriptionLong2")
-									});
-							}
+//							for(int i=0; i<items.length(); i++) {
+//								item = items.getJSONObject(i);
+//								parent = item.getString("product");
+//								productExtraData.put(parent, new String[] { 
+//										 item.getString("supplierShopId")
+//										,item.getString("ProductName")
+//										,item.getString("BuyerRejectionMessage")
+//										,item.getString("SupplierRejectionMessage")
+//										,item.getString("SkuType")
+//										,item.getString("BWSCL")
+//										,item.getString("TImportacion")
+//										,item.getString("Negocio")
+//										,item.getString("EXTWG_S4H")
+//										,item.getString("MesdeEntregadeMercancIa")
+//										,item.getString("Temporada")
+//										,item.getString("BWVOR")
+//										,item.getString("AnoEstacion")
+//										,item.getString("TextoAdicional")
+//										,item.getString("Evento")
+//										,item.getString("CostobrutoSinIVA")
+//										,item.getString("PrecioSugeridocIVA")
+//										,item.getString("Descuento1")
+//										,item.getString("Descuento2")
+//										,item.getString("NORMT")
+//										,item.getString("LABOR")
+//										,item.getString("DescriptionLong")
+//										,item.getString("DescriptionLong2")
+//									});
+//							}
 							pw.println(done);
 						}else if("getProductExtraData".equals(request.getString("action"))) {
 							items = request.getJSONArray("items");
@@ -808,19 +808,19 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							pw.println(new org.json.JSONObject().put("items", responseArray));
 						}else if("putArticleExtraData".equals(request.getString("action"))) {
 							items = request.getJSONArray("items");
-							for(int i=0; i<items.length(); i++) {
-								item = items.getJSONObject(i);
-								id = item.getString("variant");
-								articleExtraData.put(id, new String[] { 
-										 item.getString("SAPObjectType")
-										,item.getString("SkuType")
-										,item.getString("CostobrutoSinIVA")
-										,item.getString("PrecioSugeridocIVA")
-										,item.getString("Descuento1")
-										,item.getString("Descuento2")
-										,item.getString("ProductName")
-									});
-							}
+//							for(int i=0; i<items.length(); i++) {
+//								item = items.getJSONObject(i);
+//								id = item.getString("variant");
+//								articleExtraData.put(id, new String[] { 
+//										 item.getString("SAPObjectType")
+//										,item.getString("SkuType")
+//										,item.getString("CostobrutoSinIVA")
+//										,item.getString("PrecioSugeridocIVA")
+//										,item.getString("Descuento1")
+//										,item.getString("Descuento2")
+//										,item.getString("ProductName")
+//									});
+//							}
 							pw.println(done);
 						}else if("getArticleExtraData".equals(request.getString("action"))) {
 							items = request.getJSONArray("items");

@@ -23,7 +23,9 @@ import javax.xml.transform.stream.StreamResult;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
+import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
+import org.w3c.dom.NodeList;
 
 import mx.com.liverpool.p360.services.core.DBAccessDataStub;
 import mx.com.liverpool.p360.services.core.ELog;
@@ -75,6 +77,10 @@ public class RealExportProducts2Mirakl {
 	private int dropped = 0;
 
 	private static final long MAX_BATCH_BYTES = 7L * 1024L * 1024L;
+	private final java.util.List<String> generatedMarketplaceFiles = new java.util.ArrayList<>();
+	private final java.util.List<String> marketplaceBrokerResponses = new java.util.ArrayList<>();
+	private boolean marketplaceBrokerFailure = false;
+	private boolean marketplaceUnrecognizedResponse = false;
 	private final java.util.Map<String, java.util.Map<String, org.json.JSONObject>> templateMetadataSet = new java.util.TreeMap<>();
 	private final java.util.Map<String, java.util.Map<String, String>> templateStructureGroupAttributeValues = new java.util.TreeMap<>();
 	private final java.util.Map<String, java.util.Set<String>> templateSets = new java.util.TreeMap<>();
@@ -98,14 +104,7 @@ public class RealExportProducts2Mirakl {
 	private final DBAccessDataStub dastub = new DBAccessDataStub(dbLog);
 
 	public RealExportProducts2Mirakl() {
-		loadDatabaseDictionaries();
-		System.out.println("Loading characteristic metadata");
-		loadCharacteristicMetadata();
-		System.out.println("Characteristic metadata loaded");
-		System.out.println("Adding global metadata");
-		addGlobalData(globalProperties, globalSet);
-		System.out.println("Global metadata added");
-		addCharacteristicData(globalProperties);
+		
 	}
 	
 	public static void main(String[] args) throws ServiceUnavailableException {
@@ -202,16 +201,80 @@ public class RealExportProducts2Mirakl {
 	
 	public static void runForProductIds(String[] proposalIds, boolean send)
 			throws ServiceUnavailableException {
+		runForProductIdsWithResult(proposalIds, send);
+	}
+
+	public static ExportRunResult runForProductIdsWithResult(String[] proposalIds, boolean send)
+			throws ServiceUnavailableException {
 		String[] data = cleanIds(proposalIds);
 		RealExportProducts2Mirakl exporter = new RealExportProducts2Mirakl();
 		exporter.log("Iniciando RealExportProducts2MiraklJdbcBatch desde arreglo de IDs: " + data.length);
+		String rawResult = null;
 		try {
-			exporter.doIt(data, send, baseUrlDEV);
+			rawResult = exporter.doIt(data, send, baseUrlDEV);
 			exporter.log("Total: " + exporter.products + " (dropped: " + exporter.dropped + ")");
 		} finally {
 			if (exporter.logger != null) {
 				exporter.logger.close();
 			}
+		}
+
+		boolean success =
+				send
+				&& !exporter.generatedMarketplaceFiles.isEmpty()
+				&& !exporter.marketplaceBrokerFailure
+				&& !exporter.marketplaceUnrecognizedResponse
+				&& exporter.marketplaceBrokerResponses.size()
+					== exporter.generatedMarketplaceFiles.size();
+
+		return new ExportRunResult(
+				rawResult,
+				exporter.generatedMarketplaceFiles,
+				exporter.marketplaceBrokerResponses,
+				success,
+				exporter.marketplaceUnrecognizedResponse);
+	}
+
+	public static final class ExportRunResult {
+		private final String rawResult;
+		private final java.util.List<String> payloadFiles;
+		private final java.util.List<String> brokerResponses;
+		private final boolean successful;
+		private final boolean unrecognizedResponse;
+
+		private ExportRunResult(
+				String rawResult,
+				java.util.List<String> payloadFiles,
+				java.util.List<String> brokerResponses,
+				boolean successful,
+				boolean unrecognizedResponse) {
+			this.rawResult = rawResult;
+			this.payloadFiles = java.util.Collections.unmodifiableList(
+					new java.util.ArrayList<>(payloadFiles));
+			this.brokerResponses = java.util.Collections.unmodifiableList(
+					new java.util.ArrayList<>(brokerResponses));
+			this.successful = successful;
+			this.unrecognizedResponse = unrecognizedResponse;
+		}
+
+		public String getRawResult() {
+			return rawResult;
+		}
+
+		public java.util.List<String> getPayloadFiles() {
+			return payloadFiles;
+		}
+
+		public java.util.List<String> getBrokerResponses() {
+			return brokerResponses;
+		}
+
+		public boolean isSuccessful() {
+			return successful;
+		}
+
+		public boolean hasUnrecognizedResponse() {
+			return unrecognizedResponse;
 		}
 	}
 		private static String[] cleanIds( String[] ids )
@@ -238,7 +301,36 @@ public class RealExportProducts2Mirakl {
 
 		  return clean.toArray( new String[clean.size()] );
 		}
+		
+	private boolean loaded = false;
 	
+	private void init(){
+		if(loaded)
+			return;
+		
+//		articulosEnviados.clear();
+//		atgGroups.clear();
+		characteristicMetadataByID.clear();
+		characteristicIdentifierByID.clear();
+//		rootCharacteristicIDs.clear();
+		globalProperties.clear();
+		globalSet.clear();
+		templateMetadataSet.clear();
+		templateStructureGroupAttributeValues.clear();
+		templateSets.clear();
+		
+		loadDatabaseDictionaries();
+		System.out.println("Loading characteristic metadata");
+		loadCharacteristicMetadata();
+		System.out.println("Characteristic metadata loaded");
+		System.out.println("Adding global metadata");
+		addGlobalData(globalProperties, globalSet);
+		System.out.println("Global metadata added");
+		addCharacteristicData(globalProperties);
+		
+		loaded = true;
+	}
+		
 	public String doIt(String[] proposalIds, boolean send, String baseUrl) throws ServiceUnavailableException {
 		return doIt(proposalIds, send);
 	}
@@ -318,1105 +410,218 @@ public class RealExportProducts2Mirakl {
 		log("Running using fileSystemPrefixMKT: " + fileSystemPrefix);
 		log("Going over: " + proposalIds.length + " proposalIds");
 		System.out.println("Going over: " + proposalIds.length + " proposalIds");
-		String proposalId = null;
-		StringBuilder result = new StringBuilder();
-		int batchNumber = 1;
-		try {
-			MiraklExportContext batch = createMiraklExportContext();
-			boolean procede;
-			boolean brk = false;
-			for(int index = 0; index<proposalIds.length; index++) {
-				MiraklExportContext current = createMiraklExportContext();
-				Document doc = current.doc;
-				Element spim = current.spim;
-				Element attributes = current.attributes;
-				Element assets = current.assets;
-				Element products = current.products;
-				java.util.Map<String, Element> assetMap = current.assetMap;
-				java.util.Map<String, java.util.LinkedList<String>> assetReferencesMap = current.assetReferencesMap;
-				Document docMKT = current.docMKT;
-				Element spimMKT = current.spimMKT;
-				Element attributesMKT = current.attributesMKT;
-				Element assetsMKT = current.assetsMKT;
-				Element productsMKT = current.productsMKT;
-				java.util.Map<String, Element> assetMapMKT = current.assetMapMKT;
-				java.util.Map<String, java.util.LinkedList<String>> assetReferencesMapMKT = current.assetReferencesMapMKT;
-				java.util.LinkedList<String> productosLiverpool = current.productosLiverpool;
-				java.util.LinkedList<String> productosMarketplace = current.productosMarketplace;
-				org.json.JSONObject reqPublishMessage = current.reqPublishMessage;
-				current.currentProposalId = proposalIds[index];
-				try {
-				procede = false;
-				proposalId = proposalIds[index];
-				java.nio.file.Path p = java.nio.file.Paths.get( PropertiesManager.get("p360.contingency.migration.to_skip_directory"), proposalId );
-				if(java.nio.file.Files.exists(p)) {
-					log("Skipped to be sent since this was reciently migrated --->" + proposalId + "<---");
-					reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1")).put("values", new org.json.JSONArray().put( "Registro recién migrado, si persiste, solicitar mantenimiento manual" )));
-					continue;
-				}
-				// talla normalizada hacia ATG debe de salir como TC-NormalizedSize
-//				final String[] productsToTestWith = new String[] {proposalId};
-				org.json.JSONObject rp = getMeTheCompa(proposalId);
-				if(rp == null)
-					continue;
-				String template = !rp.getJSONObject("_data").has("structureGroupMap") ? null : getPrimaryProductTaxonomyTemplate(rp.getJSONObject("_data").getJSONArray("structureGroupMap")); // rp.getJSONObject("_data").getJSONArray("structureGroupMap").getJSONObject(0).getJSONObject("_qualification").getJSONObject("structureGroup").getString("_externalId").split("@")[0].replaceAll("^'|'$", "");
-				if(template == null) {
-					log("No template found for " + proposalId);
-					reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1")).put("values",new org.json.JSONArray().put(  "Sin plantilla" )));
-					continue;
-				}
-				java.util.LinkedList<org.json.JSONObject> lst = null;
-				java.util.Map<String, java.util.LinkedList<org.json.JSONObject>> dataMap = buildDataMap( rp.getJSONObject("_data").getJSONArray("_characteristicRecords") );
-				String itemId = rp.getJSONObject("_entityItem").getString("_externalId").split("@")[0].replaceAll("^'|'$", "");
-				org.json.JSONArray characteristicArray = rp.getJSONObject("_data").getJSONArray("_characteristicRecords");
-				String business = rp.getJSONObject("_data").has("business") ? rp.getJSONObject("_data").getJSONObject("business").getString("_code") : getMeTheBusiness(characteristicArray);
-				String baseSAPObjectType = getSAPObjectType(characteristicArray);
-				String descLong = rp.getJSONObject("_data").has("lang") ? grabDescLong( rp.getJSONObject("_data").getJSONArray("lang") ) : null;
-				String productName = rp.getJSONObject("_data").has("lang") ? grabProductName( rp.getJSONObject("_data").getJSONArray("lang") ) : null;
-				
-				if("LVP".equals(business)) {
-					productosLiverpool.addLast(proposalId);
-				} else if ("MKP".equals(business)) {
-					productosMarketplace.addLast(proposalId);
-				}else {
-					continue;
-				}
-				
-				String descLong2 = rp.getJSONObject("_data").has("lang")
-						? grabDescLong2(rp.getJSONObject("_data").getJSONArray("lang"))
-						: null;
-				String nameLang = rp.getJSONObject("_data").has("lang")
-						? grabProductDescriptionShort(rp.getJSONObject("_data").getJSONArray("lang"))
-						: null;
-				String charactName = null;
-
-				String brandName = null;
-				String brandIdS4H = null;
-				String brandNameLabel = null;
-				String brandIdS4HLabel = null;
-				String itemGroup = null;
-				String itemGroupS4H = null;
-				String itemGroupLabel = null;
-				String itemGroupS4HLabel = null;
-				String direccion = null;
-				String direccionLabel = null;
-				String seccion = null;
-				String seccionLabel = null;
-				String supplierPartNumber = null;
-				String supplierID = null;
-				String supplierIDLabel = null;
-				String mainBarCode = null;
-				String sku = null;
-				String embeddedCodeWEB = null;
-				String embeddedCodeWAP = null;
-				String refundPolicy = null;
-				
-				String clothingSize = null;
-				String sizeVaD = null;
-				
-				String productType = null;
-				String piName = null;
-				String piUrl = null;
-				String piKey = null;
-				java.util.LinkedList<String[]> details = new java.util.LinkedList<>();
-				java.util.LinkedList<String[]> smoshes = new java.util.LinkedList<>();
-				java.util.LinkedList<String[]> illustrations = new java.util.LinkedList<>();
-				String raw = null;
-				String firstVariant = null;
-				org.json.JSONObject imageObject = null;
-				String tamanoUnico = null;
-				String tallaNormalizada = null;
-				String codigoColor = null;
-				String color = null;
-				String sku00 = null;
-				String ean00 = null;
-				org.json.JSONArray rows = null;
-				org.json.JSONArray upperRows = null;
-				
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("brandName")) {
-					brandName = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("brandName").getString("_code");
-					brandNameLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("brandName").getString("_label");
-				}
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("brandIdS4H")) {
-					brandIdS4H = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("brandIdS4H").getString("_code");
-					brandIdS4HLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("brandIdS4H").getString("_label");
-				}
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("itemGroup")) {
-					itemGroup = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("itemGroup").getString("_code");
-					itemGroupLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("itemGroup").getString("_label");
-				}
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("itemGroupS4H")) {
-					itemGroupS4H = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("itemGroupS4H").getString("_code");
-					itemGroupS4HLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("itemGroupS4H").getString("_label");
-				}
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("direction")) {
-					direccion = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("direction").getString("_code");
-					direccionLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("direction").getString("_label");
-				}
-				if (rp.getJSONObject("_data").has("productExtraData")
-						&& rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).has("section")) {
-					seccion = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("section").getString("_code");
-					seccionLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getJSONObject("section").getString("_label");
-				}
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("supplierID")) {
-					supplierID = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getJSONObject("supplierID").getString("_code");
-					supplierIDLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getJSONObject("supplierID").getString("_label");
-				}
-				if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-						.getJSONArray("productExtraData").getJSONObject(0).has("supplierPartNumber")) {
-					supplierPartNumber = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-							.getString("supplierPartNumber");
-				}
-				if (rp.getJSONObject("_data").has("gtin")) {
-					mainBarCode = rp.getJSONObject("_data").getString("gtin");
-				}
-				if (rp.getJSONObject("_data").has("sku")) {
-					sku = String.valueOf(rp.getJSONObject("_data").getLong("sku"));
-				}
-				if (rp.getJSONObject("_data").has("embeddedCodeWEB")) {
-					embeddedCodeWEB = rp.getJSONObject("_data").getString("embeddedCodeWEB");
-				}
-				if (rp.getJSONObject("_data").has("embeddedCodeWAP")) {
-					embeddedCodeWAP = rp.getJSONObject("_data").getString("embeddedCodeWAP");
-				}
-				if (rp.getJSONObject("_data").has("refundPolicy")) {
-					refundPolicy = rp.getJSONObject("_data").getString("refundPolicy");
-				}
-				
-				try {
-					productType = 
-							"00".equals(baseSAPObjectType) ? "MKP".equals(business) ? "SalesItemFamilyMkt" : "SalesItem" : 
-								"01".equals(baseSAPObjectType) ? "MKP".equals(business) ? "SalesItemFamilyMkt" : "SalesItemFamily" : "MKP".equals(business) ? "SalesItemFamilyMkt" : "SalesItemFamily";
-					String charId = null;
-					raw = rw.makeRequest("GET", "/list/Article/byProducts"
-							+ "?fields="
-								+ java.net.URLEncoder.encode(
-										  "Article.SupplierAID,"
-										+ "ProductReference.ReferencedSupplierAid(\"" + itemId + "\")"
-										,"UTF-8")
-							+ "&products=" + java.net.URLEncoder.encode("'" + itemId + "'@1", "UTF-8"), null);
-					org.json.JSONObject resp = new org.json.JSONObject(raw);
-					upperRows = resp.getJSONArray("rows");
-					for(int a = 0; a<upperRows.length(); a++) {
-						try{
-							firstVariant = upperRows.getJSONObject(a).getJSONArray("values").getString(0);
-						}catch(org.json.JSONException e) {
-						}
-						raw = rw.makeRequest("GET", "/object/Article/'" + firstVariant + "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData", null);
-						resp = new org.json.JSONObject(raw);
-						resp = resp.getJSONObject("_data"); if (!resp.has("_characteristicRecords")) { System.out.println("No characteristics present for " + firstVariant); log("No characteristics present for " + firstVariant); }
-						rows = resp.has("_characteristicRecords") ? resp.getJSONArray("_characteristicRecords") : new org.json.JSONArray();
-						org.json.JSONArray children = null;
-						String[] chunk = null;
-						for(int b = 0; b < rows.length(); b++) {
-							imageObject = rows.getJSONObject(b);
-							charId = imageObject.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-							if("SalesItem".equals(productType) && "ProductImage2".equals(charId)) {
-								children = imageObject.getJSONArray("_children");
-								piKey = imageObject.getJSONObject("_qualification").getString("recordKey");
-								for(int c = 0; c<children.length(); c++) {
-									charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-									if("ProductImage_Name2".equals(charId)) {
-										piName = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-									}else if("ProductImage_URL2".equals(charId)) {
-										piUrl = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-									}
-								}
-							}else if("SalesItem".equals(productType) && "ProductImageDetail2".equals(charId)) {
-								children = imageObject.getJSONArray("_children");
-								chunk = new String[3];
-								chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
-								for(int c = 0; c<children.length(); c++) {
-									charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-									if("ProductImageDetail_Name2".equals(charId)) {
-										chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-									}else if("ProductImageDetail_URL2".equals(charId)) {
-										chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-									}
-								}
-								details.addLast(chunk);
-							} else if("SalesItem".equals(productType) && "TamanoUnicoSTD".equals(charId)){
-								tallaNormalizada = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-							}else if("SalesItem".equals(productType) && "TamanoUnico".equals(charId)) {
-								tamanoUnico = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
-							}else if("SalesItem".equals(productType) && "ColoursLiverpoolAtt".equals(charId)) {
-								color = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
-								codigoColor = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-							}else if("SAPObjectType".equals(charId)) {
-								
-							}else if("SalesItem".equals(productType) && "SKU".equals(charId)) {
-								sku00 = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-							}else if("SalesItem".equals(productType) && ("MainBarCode".equals(charId) || "MainBarCodeS4H".equals(charId))) {
-								ean00 = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-							}else {
-								if("ProductImageDeatail2".equals(charId)) {
-									log("Anyway ProductImageDetail2: " + productType);
-								}else if("ProductImage2".equals(charId)) {
-									log("Anyway ProductImage2: " + productType);
-								}
-							}
-						}
-						if(sku00 == null) {
-							sku00 = resp.has("sku") ? String.valueOf( resp.getInt("sku") ) : null;
-						}
-						if(ean00 == null) {
-							ean00 = resp.has("gtin") ? resp.getString("gtin") : null;
-						}
-					}
-					if("SalesItem".equals(productType) && ( piName == null || piUrl == null )) {
-						log("(" + business + ") " + productType);
-						log("(" + business + ") No tenía imágenes2: " + proposalId);
-						log("(" + business + ") Had: " + upperRows.length());
-						log("(" + business + ") Raw: " + upperRows);
-						reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1")).put("values", new org.json.JSONArray().put( "Sin imágenes \"congeladas\"" )));
+		try(dastub){
+			init();
+			String proposalId = null;
+			StringBuilder result = new StringBuilder();
+			int batchNumber = 1;
+			try {
+				MiraklExportContext batch = createMiraklExportContext();
+				boolean procede;
+				boolean brk = false;
+				for(int index = 0; index<proposalIds.length; index++) {
+					MiraklExportContext current = createMiraklExportContext();
+					Document doc = current.doc;
+					Element spim = current.spim;
+					Element attributes = current.attributes;
+					Element assets = current.assets;
+					Element products = current.products;
+					java.util.Map<String, Element> assetMap = current.assetMap;
+					java.util.Map<String, java.util.LinkedList<String>> assetReferencesMap = current.assetReferencesMap;
+					Document docMKT = current.docMKT;
+					Element spimMKT = current.spimMKT;
+					Element attributesMKT = current.attributesMKT;
+					Element assetsMKT = current.assetsMKT;
+					Element productsMKT = current.productsMKT;
+					java.util.Map<String, Element> assetMapMKT = current.assetMapMKT;
+					java.util.Map<String, java.util.LinkedList<String>> assetReferencesMapMKT = current.assetReferencesMapMKT;
+					java.util.LinkedList<String> productosLiverpool = current.productosLiverpool;
+					java.util.LinkedList<String> productosMarketplace = current.productosMarketplace;
+					org.json.JSONObject reqPublishMessage = current.reqPublishMessage;
+					current.currentProposalId = proposalIds[index];
+					try {
+					procede = true;
+					proposalId = proposalIds[index];
+					java.nio.file.Path p = java.nio.file.Paths.get( PropertiesManager.get("p360.contingency.migration.to_skip_directory"), proposalId );
+					if(java.nio.file.Files.exists(p)) {
+						log("Skipped to be sent since this was reciently migrated --->" + proposalId + "<---");
+						reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1")).put("values", new org.json.JSONArray().put( "Registro recién migrado, si persiste, solicitar mantenimiento manual" )));
 						continue;
 					}
-				} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
-					logE(e);
-				}
-				java.util.Set<String> atributosGeneralesQueSi = templateSets.get(template);
-				java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas = templateMetadataSet.get(template);
-				String brandCode = null;
-				if (propiedadesCaracteristicas == null) {
-					propiedadesCaracteristicas = new java.util.TreeMap<>();
-					atributosGeneralesQueSi = new java.util.TreeSet<>();
-					templateSets.put(template, atributosGeneralesQueSi);
-					atributosGeneralesQueSi.addAll(globalSet);
-					templateMetadataSet.put(template, propiedadesCaracteristicas);
-					for (java.util.Map.Entry<String, org.json.JSONObject> entry : globalProperties.entrySet()) {
-						org.json.JSONObject copied = copyCharacteristicMetadata(entry.getValue());
-						java.util.Iterator<?> propertyKeys = entry.getValue().keys();
-						while (propertyKeys.hasNext()) {
-							String propertyKey = String.valueOf(propertyKeys.next());
-							if (!copied.has(propertyKey)) {
-								copied.put(propertyKey, entry.getValue().get(propertyKey));
-							}
-						}
-						propiedadesCaracteristicas.put(entry.getKey(), copied);
-					}
-					java.util.Map<String, org.json.JSONObject> templateProperties =
-							dastub.getTemplateCharacteristicProperties(template);
-					propiedadesCaracteristicas.putAll(templateProperties);
-					for (java.util.Map.Entry<String, org.json.JSONObject> entry : templateProperties.entrySet()) {
-						if ("Y".equals(entry.getValue().optString("RelevantForATG", ""))) {
-							atributosGeneralesQueSi.add(entry.getKey());
-						}
-					}
-					templateStructureGroupAttributeValues.put(template,
-							dastub.getTemplateStructureGroupAttributeValues(template, 10));
-				}
-	        	Element product = null;
-
-	        	if("MKP".equals(business)) {
-	        		product = docMKT.createElement("Product");
-	        		product.setAttribute("ID", proposalId);
-	        		product.setAttribute("UserTypeID", productType );
-	        		product.setAttribute("ParentID", template);
-	        		product.setAttribute("Changed", "true");
-	        	}else {
-	        		product = doc.createElement("Product");
-	        		product.setAttribute("ID", proposalId);
-	        		product.setAttribute("UserTypeID", productType );
-	        		product.setAttribute("ParentID", template);
-	        		product.setAttribute("Changed", "true");
-	        	}
-
-	        	/*********************
-	        	 * El atributo en las entidades Changed="true", tiene el efecto
-	        	 * de que broker ignorda todo lo que no tenga Changed="true".
-	        	****************************************************************/
-	        	Element name = ("MKP".equals(business) ? docMKT : doc).createElement("Name");
-	        	name.setAttribute("Changed", "true");
-	        	product.appendChild(name);
-
-	        	Element keyValueSKU = null;
-	        	Element keyValueEAN = null;
-
-	        	Element attributeValues = null;
-
-	        	String charId = null;
-	        	org.json.JSONObject characteristic = null;
-
-
-				boolean behvo = false;
-				String almacenamientoAtt = null;
-				String skuType = null;
-				String mtart = null;
-
-				String pt = null;
-				String ptl = null;
-
-	        	java.util.ArrayList<String> unosQueQuiero = new java.util.ArrayList<>(YEA);
-	        	java.util.Map<String, org.json.JSONObject> heredables = new java.util.TreeMap<>();
-
-	        	attributeValues = ("MKP".equals(business) ? docMKT : doc).createElement("Values");
-	        	product.appendChild(attributeValues);
-	        	if( piName != null && piUrl != null && piKey != null ) {
-					appendMediaAsset(
-	    					piName,
-	    					piUrl,
-	    					"PrimaryProductImage", // String assetType,
-	    					piKey,
-	    					"Imagen Producto", // String assetValueTextContent,
-	    					"ImageURL", // String assetValueAttributeId,
-	    					"ProductImage", // String assetUserTypeId,
-	    					"ProductImage", // String assetKeyPrefix,
-	    					itemId,
-	    					characteristic,
-	    					"ProductImage", // String baseAssetTypeName,
-	    					"MKP".equals(business) ? assetMapMKT : assetMap,
-	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
-	    					product,
-	    					"MKP".equals(business) ? assetsMKT : assets,
-	    					"MKP".equals(business) ? docMKT : doc,
-	    					firstVariant
-	    					);
-				}
-				if( details != null && !details.isEmpty() ) {
-					for(String[] dt : details) {
-						appendMediaAsset(
-								dt[0],
-								dt[1],
-		    					"ProductImage", // String assetType,
-		    					dt[2],
-		    					"Imagen Detalle Producto", // String assetValueTextContent,
-		    					"ImageURL", // String assetValueAttributeId,
-		    					"ProductImageDetail", // String assetUserTypeId,
-		    					"ProductImageDetail", // String assetKeyPrefix,
-		    					itemId,
-		    					characteristic,
-		    					"ProductImageDetail", // String baseAssetTypeName,
-		    					"MKP".equals(business) ? assetMapMKT : assetMap,
-    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
-    	    					product,
-    	    					"MKP".equals(business) ? assetsMKT : assets,
-    	    					"MKP".equals(business) ? docMKT : doc,
-		    					firstVariant
-		    					);
-					}
-				}
-
-	        	if("SalesItem".equals(productType) && tallaNormalizada != null && !"".equals(tallaNormalizada)) {
-					appendPlainElementValue(
-							tallaNormalizada,
-							null,
-							"TC-NormalizedSize",
-							attributeValues,
-							"MKP".equals(business) ? attributesMKT : attributes,
-							"MKP".equals(business) ? docMKT : doc,
-							propiedadesCaracteristicas);
-				}
-	        	if("SalesItem".equals(productType) && color != null && !"".equals(color)) {
-	            	appendPlainElementValue(
-	    					color,
-	    					codigoColor,
-	    					"ColoursLiverpoolAtt",
-	    					attributeValues,
-	    					"MKP".equals(business) ? attributesMKT : attributes,
-							"MKP".equals(business) ? docMKT : doc,
-	    					propiedadesCaracteristicas);
-	        	}
-	        	log("********************* PT: " + productType);
-				java.util.Map<String, String> structureAttributeValues =
-						templateStructureGroupAttributeValues.get(template);
-				if (structureAttributeValues == null) {
-					structureAttributeValues = dastub.getTemplateStructureGroupAttributeValues(template, 10);
-					templateStructureGroupAttributeValues.put(template, structureAttributeValues);
-				}
-				for (String attributeName : new String[] {
-						"DisplayGroupOrder", "DisplayOrder", "ConfigurableOrder" }) {
-					if (!structureAttributeValues.containsKey(attributeName)) {
+					// talla normalizada hacia ATG debe de salir como TC-NormalizedSize
+	//				final String[] productsToTestWith = new String[] {proposalId};
+					org.json.JSONObject rp = getMeTheCompa(proposalId);
+					if(rp == null)
+						continue;
+					String template = !rp.getJSONObject("_data").has("structureGroupMap") ? null : getPrimaryProductTaxonomyTemplate(rp.getJSONObject("_data").getJSONArray("structureGroupMap")); // rp.getJSONObject("_data").getJSONArray("structureGroupMap").getJSONObject(0).getJSONObject("_qualification").getJSONObject("structureGroup").getString("_externalId").split("@")[0].replaceAll("^'|'$", "");
+					if(template == null) {
+						log("No template found for " + proposalId);
+						reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1")).put("values",new org.json.JSONArray().put(  "Sin plantilla" )));
 						continue;
 					}
-					appendPlainElementValue(structureAttributeValues.get(attributeName), null, attributeName,
-							attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
-							"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
-				}
-
-				if(descLong != null) {
-					appendPlainElementValue(
-							descLong,
-							null,
-							"DescriptionLong",
-							attributeValues,
-							"MKP".equals(business) ? attributesMKT : attributes,
-							"MKP".equals(business) ? docMKT : doc,
-							propiedadesCaracteristicas);
-				}
-
-				String sku_ = rp.getJSONObject("_data").has("sku") ? String.valueOf( rp.getJSONObject("_data").getLong("sku") ) : null;
-				String ean_ = rp.getJSONObject("_data").has("gtin") ? rp.getJSONObject("_data").getString("gtin") : null;
-//				System.out.println("---------------------------------------------->" + sku_ + " || " + proposalId + rp.getJSONObject("_data"));
-				if (descLong != null) {
-					appendPlainElementValue(descLong, null, "DescriptionLong", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
-							"MKP".equals(business) ? docMKT : doc,
-							propiedadesCaracteristicas);
-				}
-				if (descLong2 != null) {
-					appendPlainElementValue(descLong2, null, "DescriptionLong2", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
-							"MKP".equals(business) ? docMKT : doc,
-							propiedadesCaracteristicas);
-				}
-	        	for(int i = 0; i<characteristicArray.length(); i++) {
-	        		characteristic = characteristicArray.getJSONObject(i);
-	        		charId = characteristic.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-	        		if("clothingSize".equals(charId)) {
-						clothingSize = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-					}else if("sizeVaD".equals(charId)) {
-						sizeVaD = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+					java.util.LinkedList<org.json.JSONObject> lst = null;
+					java.util.Map<String, java.util.LinkedList<org.json.JSONObject>> dataMap = buildDataMap( rp.getJSONObject("_data").getJSONArray("_characteristicRecords") );
+					String itemId = rp.getJSONObject("_entityItem").getString("_externalId").split("@")[0].replaceAll("^'|'$", "");
+					org.json.JSONArray characteristicArray = rp.getJSONObject("_data").getJSONArray("_characteristicRecords");
+					String business = rp.getJSONObject("_data").has("business") ? rp.getJSONObject("_data").getJSONObject("business").getString("_code") : getMeTheBusiness(characteristicArray);
+					String baseSAPObjectType = getSAPObjectType(characteristicArray);
+					String descLong = rp.getJSONObject("_data").has("lang") ? grabDescLong( rp.getJSONObject("_data").getJSONArray("lang") ) : null;
+					String productName = rp.getJSONObject("_data").has("lang") ? grabProductName( rp.getJSONObject("_data").getJSONArray("lang") ) : null;
+					
+					if("LVP".equals(business)) {
+						productosLiverpool.addLast(proposalId);
+					} else if ("MKP".equals(business)) {
+						productosMarketplace.addLast(proposalId);
+					}else {
+						continue;
 					}
-	        		if("Business".equals(charId)) {
-        				if("SBB".equals(business)) {
-        					log("Returning since business is SBB.");
-        					brk = true;
-        					break;
-        				}
-        				if("MKP".equals(business)) {
-        		        	product.setAttribute("UserTypeID", productType = "SalesItem".equals(productType) ? "SalesItem" : "SalesItemFamilyMkt" );
-        					appendPlainElementValue(
-    								"true",
-    								"1",
-    								"isMarketPlace",
-    								attributeValues,
-    								"MKP".equals(business) ? attributesMKT : attributes,
-									"MKP".equals(business) ? docMKT : doc,
-    								propiedadesCaracteristicas);
-        				}else {
-        					product.setAttribute("UserTypeID", productType = "SalesItem".equals(productType) ? "SalesItem" : "SalesItemFamily" );
-        				}
-        			}else if("Direction".equals(charId)) {
-        				direccion = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-        			}else
-	        		if("MainBarCode".equals(charId) || "MainBarCodeS4H".equals(charId)) {
-	        			if(ean_ == null || "".equals(ean_)) {
-	        				ean_ = treatment( characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
-	        			}
-	        		}else
-	        		if("SKU".equals(charId)) {
-	        			if(sku_ == null || "".equals(sku_)) {
-	        				sku_ = treatment( characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
-	        			}
-	        		}else
-	        		if("ProductVideo2".equals(charId)) {
-	        			if(characteristic.has("_children")) {
-		        			org.json.JSONArray children = characteristic.getJSONArray("_children");
-							String[] chunk = new String[3];
-							chunk[2] = characteristic.getJSONObject("_qualification").getString("recordKey");
-							for(int c = 0; c<children.length(); c++) {
-								charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-								if("ProductVideo_Name2".equals(charId)) {
-									chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-								}else if("ProductVideo_URL2".equals(charId)) {
-									chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-								}
+					
+					String descLong2 = rp.getJSONObject("_data").has("lang")
+							? grabDescLong2(rp.getJSONObject("_data").getJSONArray("lang"))
+							: null;
+					String nameLang = rp.getJSONObject("_data").has("lang")
+							? grabProductDescriptionShort(rp.getJSONObject("_data").getJSONArray("lang"))
+							: null;
+					String charactName = null;
+	
+					String brandName = null;
+					String brandIdS4H = null;
+					String brandNameLabel = null;
+					String brandIdS4HLabel = null;
+					String itemGroup = null;
+					String itemGroupS4H = null;
+					String itemGroupLabel = null;
+					String itemGroupS4HLabel = null;
+					String direccion = null;
+					String direccionLabel = null;
+					String seccion = null;
+					String seccionLabel = null;
+					String supplierPartNumber = null;
+					String supplierID = null;
+					String supplierIDLabel = null;
+					String mainBarCode = null;
+					String sku = null;
+					String embeddedCodeWEB = null;
+					String embeddedCodeWAP = null;
+					String refundPolicy = null;
+					
+					String clothingSize = null;
+					String sizeVaD = null;
+					
+					String productType = null;
+					String piName = null;
+					String piUrl = null;
+					String piKey = null;
+					java.util.LinkedList<String[]> details = new java.util.LinkedList<>();
+					java.util.LinkedList<String[]> smoshes = new java.util.LinkedList<>();
+					java.util.LinkedList<String[]> illustrations = new java.util.LinkedList<>();
+					String raw = null;
+					String firstVariant = null;
+					org.json.JSONObject imageObject = null;
+					String tamanoUnico = null;
+					String tallaNormalizada = null;
+					String codigoColor = null;
+					String color = null;
+					org.json.JSONArray rows = null;
+					org.json.JSONArray upperRows = null;
+					
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("brandName")) {
+						brandName = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("brandName").getString("_code");
+						brandNameLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("brandName").getString("_label");
+					}
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("brandIdS4H")) {
+						brandIdS4H = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("brandIdS4H").getString("_code");
+						brandIdS4HLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("brandIdS4H").getString("_label");
+					}
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("itemGroup")) {
+						itemGroup = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("itemGroup").getString("_code");
+						itemGroupLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("itemGroup").getString("_label");
+					}
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("itemGroupS4H")) {
+						itemGroupS4H = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("itemGroupS4H").getString("_code");
+						itemGroupS4HLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("itemGroupS4H").getString("_label");
+					}
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("direction")) {
+						direccion = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("direction").getString("_code");
+						direccionLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("direction").getString("_label");
+					}
+					if (rp.getJSONObject("_data").has("productExtraData")
+							&& rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).has("section")) {
+						seccion = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("section").getString("_code");
+						seccionLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getJSONObject("section").getString("_label");
+					}
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("supplierID")) {
+						supplierID = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getJSONObject("supplierID").getString("_code");
+						supplierIDLabel = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getJSONObject("supplierID").getString("_label");
+					}
+					if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
+							.getJSONArray("productExtraData").getJSONObject(0).has("supplierPartNumber")) {
+						supplierPartNumber = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
+								.getString("supplierPartNumber");
+					}
+					if (rp.getJSONObject("_data").has("gtin")) {
+						mainBarCode = rp.getJSONObject("_data").getString("gtin");
+					}
+					if (rp.getJSONObject("_data").has("sku")) {
+						sku = String.valueOf(rp.getJSONObject("_data").getLong("sku"));
+					}
+					if (rp.getJSONObject("_data").has("embeddedCodeWEB")) {
+						embeddedCodeWEB = rp.getJSONObject("_data").getString("embeddedCodeWEB");
+					}
+					if (rp.getJSONObject("_data").has("embeddedCodeWAP")) {
+						embeddedCodeWAP = rp.getJSONObject("_data").getString("embeddedCodeWAP");
+					}
+					if (rp.getJSONObject("_data").has("refundPolicy")) {
+						refundPolicy = rp.getJSONObject("_data").getString("refundPolicy");
+					}
+						
+					try {
+						productType = 
+								"00".equals(baseSAPObjectType) ? "MKP".equals(business) ? "SalesItemFamilyMkt" : "SalesItem" : 
+									"01".equals(baseSAPObjectType) ? "MKP".equals(business) ? "SalesItemFamilyMkt" : "SalesItemFamily" : "MKP".equals(business) ? "SalesItemFamilyMkt" : "SalesItemFamily";
+						String charId = null;
+						raw = rw.makeRequest("GET", "/list/Article/byProducts"
+								+ "?fields="
+									+ java.net.URLEncoder.encode(
+											  "Article.SupplierAID,"
+											+ "ProductReference.ReferencedSupplierAid(\"" + itemId + "\")"
+											,"UTF-8")
+								+ "&products=" + java.net.URLEncoder.encode("'" + itemId + "'@1", "UTF-8"), null);
+						org.json.JSONObject resp = new org.json.JSONObject(raw);
+						upperRows = resp.getJSONArray("rows");
+						for(int a = 0; a<upperRows.length(); a++) {
+							try{
+								firstVariant = upperRows.getJSONObject(a).getJSONArray("values").getString(0);
+							}catch(org.json.JSONException e) {
 							}
-		        			appendPlainElementValue(
-		        					chunk[1],
-									null,
-									"Video",
-									attributeValues,
-									"MKP".equals(business) ? attributesMKT : attributes,
-									"MKP".equals(business) ? docMKT : doc,
-									propiedadesCaracteristicas);
-	        			}
-	        		}else if("OwnersManual2".equals(charId)) {
-	        			if(characteristic.has("_children")) {
-	        			org.json.JSONArray children = characteristic.getJSONArray("_children");
-							String[] chunk = new String[3];
-							chunk[2] = characteristic.getJSONObject("_qualification").getString("recordKey");
-							for(int c = 0; c<children.length(); c++) {
-								charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-								if("OwnersManual_Name2".equals(charId)) {
-									chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-								}else if("OwnersManual_URL2".equals(charId)) {
-									chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-								}
-							}
-		        			appendMediaAsset(
-		        					chunk[0],
-		        					chunk[1],
-		        					"OwnersManual", // String assetType,
-		        					chunk[2],
-		        					"Manual de Propietario", // String assetValueTextContent,
-		        					"OwnersManualURL", // String assetValueAttributeId,
-		        					"OwnersManual", // String assetUserTypeId,
-		        					"OwnersManual", // String assetKeyPrefix,
-		        					itemId,
-		        					characteristic,
-		        					"OwnersManual", // String baseAssetTypeName,
-			    					"MKP".equals(business) ? assetMapMKT : assetMap,
-	    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
-	    	    					product,
-	    	    					"MKP".equals(business) ? assetsMKT : assets,
-	    	    					"MKP".equals(business) ? docMKT : doc,
-	    							proposalId
-		        					);
-	        			}
-	        		}else if("NOM2".equals(charId)) {
-	        			if(characteristic.has("_children")) {
-		        			org.json.JSONArray children = characteristic.getJSONArray("_children");
-							String[] chunk = new String[3];
-							chunk[2] = characteristic.getJSONObject("_qualification").getString("recordKey");
-							for(int c = 0; c<children.length(); c++) {
-								charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-								if("NOM_Name2".equals(charId)) {
-									chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-								}else if("NOM_URL2".equals(charId)) {
-									chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-								}
-							}
-		        			appendMediaAsset(
-		        					chunk[0],
-		        					chunk[1],
-		        					"NOM", // String assetType,
-		        					chunk[2],
-		        					"NOM", // String assetValueTextContent,
-		        					"ImageURL", // String assetValueAttributeId,
-		        					"NOM", // String assetUserTypeId,
-		        					"NOM", // String assetKeyPrefix,
-		        					itemId,
-		        					characteristic,
-		        					"NOM", // String baseAssetTypeName,
-			    					"MKP".equals(business) ? assetMapMKT : assetMap,
-	    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
-	    	    					product,
-	    	    					"MKP".equals(business) ? assetsMKT : assets,
-	    	    					"MKP".equals(business) ? docMKT : doc,
-	    							proposalId
-		        					);
-	        			}
-	        		}else {
-	        			if ("ProductName".equals(charId)) {
-							productName = productName != null && !"".equals(productName) ? productName
-									: (productName = characteristic.getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getString(0));
-						} else if ("Name".equals(charId)) {
-							charactName = characteristic.getJSONArray("_recordLang").getJSONObject(0)
-									.getJSONArray("values").getString(0);
-						} else if("ItemGroupS4H".equals( charId ) || "ItemGroup".equals( charId )) {
-	        				if(isBannedForMarketplace(characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"), "ItemGroups", "MATKLLOV")) {
-        						log("Returning since the item group was in the no send to mkt list.");
-        						brk = true;
-	        					break;
-	        				}
-	        				if("ItemGroupS4H".equals( charId )) {
-		        				itemGroupS4H = itemGroupS4H == null || "".equals(itemGroupS4H)
-										? characteristic.getJSONArray("_recordLang").getJSONObject(0)
-												.getJSONArray("values").getJSONObject(0).getString("_code")
-										: itemGroupS4H;
-								itemGroupS4HLabel = itemGroupS4HLabel == null || "".equals(itemGroupS4HLabel)
-										? characteristic.getJSONArray("_recordLang").getJSONObject(0)
-												.getJSONArray("values").getJSONObject(0).getString("_label")
-										: itemGroupS4HLabel;
-	        				} else {
-								itemGroup = itemGroup == null || "".equals(itemGroup)
-										? characteristic.getJSONArray("_recordLang").getJSONObject(0)
-												.getJSONArray("values").getJSONObject(0).getString("_code")
-										: itemGroup;
-								itemGroupLabel = itemGroupLabel == null || "".equals(itemGroupLabel)
-										? characteristic.getJSONArray("_recordLang").getJSONObject(0)
-												.getJSONArray("values").getJSONObject(0).getString("_label")
-										: itemGroupLabel;
-	        				}
-	        				if (!behvo) {
-		        				String elese = characteristic.getJSONArray("_recordLang").getJSONObject(0)
-		        						.getJSONArray("values").getJSONObject(0).getString("_code");
-		        				String dictionary = "ItemGroup".equals(charId)
-		        						? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H";
-		        				String laetiqueta = queryDictionary(elese, dictionary);
-		        				if (laetiqueta != null && !laetiqueta.isBlank()) {
-		        					String elcode = dastub.getLookupValueCodeByName(
-		        							"SAP_BEHVOLOV", 10, laetiqueta, true);
-		        					if (elcode != null && !elcode.isBlank()) {
-		        						appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO",
-		        								attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
-		        								"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
-		        						behvo = true;
-		        					}
-		        				}
-		        						        				appendPlainElementValue(
-		        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
-		        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
-		        						"ItemGroup2",
-		        						attributeValues,
-		        						"MKP".equals(business) ? attributesMKT : attributes,
-        								"MKP".equals(business) ? docMKT : doc,
-		        						propiedadesCaracteristicas);
-	        				}
-	        				appendPlainElementValue(
-	        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
-	        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
-	        						charId,
-	        						attributeValues,
-	        						"MKP".equals(business) ? attributesMKT : attributes,
-    								"MKP".equals(business) ? docMKT : doc,
-	        						propiedadesCaracteristicas);
-	        				itemGroup = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-	        				itemGroupLabel = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
-	        			}else if("BrandName".equals(charId) || "BRAND_ID_S4H".equals(charId)) {
-	        					if(isBannedForMarketplace(characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"), "Brands", "ZCOMALOV")) {
-	        						log("Returning since brand was in no send to mkt list.");
-	        						continue;
-	        					}
-	        					brandName = brandName == null || "".equals(brandName)
-										? characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-												.getJSONObject(0).getString("_code")
-										: brandName;
-								brandNameLabel = brandNameLabel == null || "".equals(brandNameLabel)
-										? characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-												.getJSONObject(0).getString("_label")
-										: brandNameLabel;
-								appendPlainElementValue(
-	        							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
-	        							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
-	        							charId,
-	        							attributeValues,
-	        							"MKP".equals(business) ? attributesMKT : attributes,
-    									"MKP".equals(business) ? docMKT : doc,
-	        							propiedadesCaracteristicas);
-								appendPlainElementValue(
-	        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
-	        						null,
-	        						"BrandNameATG",
-	        						attributeValues,
-	        						"MKP".equals(business) ? attributesMKT : attributes,
-    								"MKP".equals(business) ? docMKT : doc,
-	        						propiedadesCaracteristicas);
-								appendPlainElementValue(
-	    							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
-	    							null,
-	    							"BrandIDATG",
-	    							attributeValues,
-	    							"MKP".equals(business) ? attributesMKT : attributes,
-									"MKP".equals(business) ? docMKT : doc,
-	    							propiedadesCaracteristicas);
-								brandCode = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-	        			}else if("supplierShopId".equals(charId)){
-							heredables.put(charId, characteristic);
-	        				if("LVP".equals(business)) {
-	        					appendPlainElementValue(
-		    							"9999",
-		    							null,
-		    							"supplierShopId",
-		    							attributeValues,
-		    							"MKP".equals(business) ? attributesMKT : attributes,
-    									"MKP".equals(business) ? docMKT : doc,
-		    							propiedadesCaracteristicas);
-	        				}else {
-	        					appendPlainElementValue(
-		    							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0),
-		    							null,
-		    							"supplierShopId",
-		    							attributeValues,
-		    							"MKP".equals(business) ? attributesMKT : attributes,
-    									"MKP".equals(business) ? docMKT : doc,
-		    							propiedadesCaracteristicas);
-	        				}
-	        			} else if ("ProductType".equals(charId)) {
-							pt = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-									.getJSONObject(0).getString("_code");
-							ptl = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-									.getJSONObject(0).getString("_label");
-							if ("1".equals(pt)) {
-								lst = dataMap.get("ItemGroupS4H");
-								if (lst != null) {
-									itemGroupS4H = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getJSONObject(0).getString("_code");
-								}
-								lst = dataMap.get("AlmacenamientoAtt");
-								if (lst != null) {
-									almacenamientoAtt = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getJSONObject(0).getString("_code");
-								}
-								lst = dataMap.get("MTART_S4H");
-								if (lst != null) {
-									mtart = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getJSONObject(0).getString("_code");
-								}
-								lst = dataMap.get("SkuType");
-								if (lst != null) {
-									skuType = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
-											.getJSONArray("values").getJSONObject(0).getString("_code");
-								}
-								if ("SERV".equals(skuType) && "0001".equals(almacenamientoAtt)) {
-									pt = "6";
-									ptl = "Digital";
-									appendPlainElementValue("Digital", pt, "ProductType", attributeValues, attributes,
-											doc, propiedadesCaracteristicas);
-								} else if ("DIEN".equals(mtart) && "SB87516".equals(itemGroupS4H)) {
-									pt = "6";
-									ptl = "Digital";
-									appendPlainElementValue("Digital", pt, "ProductType", attributeValues, attributes,
-											doc, propiedadesCaracteristicas);
-
-								} else {
-									appendPlainElementValue(
-											characteristic.getJSONArray("_recordLang").getJSONObject(0)
-													.getJSONArray("values").getJSONObject(0).getString("_label"),
-											characteristic.getJSONArray("_recordLang").getJSONObject(0)
-													.getJSONArray("values").getJSONObject(0).getString("_code"),
-											"ProductType", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas
-											);
-								}
-							} else {
-								appendPlainElementValue(
-										characteristic.getJSONArray("_recordLang").getJSONObject(0)
-												.getJSONArray("values").getJSONObject(0).getString("_label"),
-										characteristic.getJSONArray("_recordLang").getJSONObject(0)
-												.getJSONArray("values").getJSONObject(0).getString("_code"),
-										"ProductType", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
-							}
-						} else {
-	        				if("ItemGroup2".equals(charId)) {
-								continue;
-							}else if(atributosGeneralesQueSi.contains(charId)) {
-								if(unosQueQuiero.contains(charId)) {
-									heredables.put(charId, characteristic);
-								}
-								if("LOOKUP".equals(characteristic.getString("_datatype"))){
-									boolean skip = false;
-									if("Direction".equals(charId) && direccion != null && !"".equals(direccion)) {
-										skip = true;
-									}
-									if("Section".equals(charId) && seccion != null && !"".equals(seccion)) {
-										skip = true;
-									}
-									if("ItemGroup".equals(charId) && itemGroup != null && !"".equals(itemGroup)) {
-										skip = true;
-									}
-									if("ItemGroupS4H".equals(charId) && itemGroupS4H != null && !"".equals(itemGroupS4H)) {
-										skip = true;
-									}
-									if("BrandName".equals(charId) && brandName != null && !"".equals(brandName)) {
-										skip = true;
-									}
-									if("BRAND_ID_S4H".equals(charId) && brandIdS4H != null && !"".equals(brandIdS4H)) {
-										skip = true;
-									}
-									if(!skip) {
-										appendPlainElementValue(
-												characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
-												characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
-												charId,
-												attributeValues,
-												"MKP".equals(business) ? attributesMKT : attributes,
-												"MKP".equals(business) ? docMKT : doc,
-												propiedadesCaracteristicas);
-									}
-								}else if(!"NONE".equals(characteristic.getString("_datatype"))) {
-									boolean skip = false;
-									java.util.LinkedList<String> vals = new java.util.LinkedList<>();
-									for(int m=0; m<characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").length(); m++) {
-										vals.addLast( String.valueOf( parseDateForSpecificDateFields( characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(m), charId) ));
-									}
-									if("SupplierID".equals(charId) && supplierID != null && !"".equals(supplierID)) {
-										skip = true;
-									}
-									
-									if(!skip){
-										appendPlainElementValue(
-												String.join(",", vals),
-												null,
-												charId,
-												attributeValues,
-												"MKP".equals(business) ? attributesMKT : attributes,
-												"MKP".equals(business) ? docMKT : doc,
-												propiedadesCaracteristicas);
-									}
-								}
-								
-							}
-	        			}
-	        		}
-	        	}
-	        	if(brk) {
-	        		continue;
-	        	}
-	        	if (embeddedCodeWEB != null && !"".equals(embeddedCodeWEB)) {
-					appendPlainElementValue(embeddedCodeWEB, null, "EmbedCodeWEB", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
-							propiedadesCaracteristicas);
-				}
-				if (embeddedCodeWAP != null && !"".equals(embeddedCodeWAP)) {
-					appendPlainElementValue(embeddedCodeWAP, null, "EmbedCodeWAP", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
-							propiedadesCaracteristicas);
-				}
-				if (refundPolicy != null && !"".equals(refundPolicy)) {
-					appendPlainElementValue(refundPolicy, null, "refundPolicy", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
-							propiedadesCaracteristicas);
-				}
-				if (seccion != null && !"".equals(seccion)) {
-					appendPlainElementValue(seccionLabel, seccion, "Section", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
-							propiedadesCaracteristicas);
-				}
-				if (direccion != null && !"".equals(direccion)) {
-					appendPlainElementValue(direccionLabel, direccion, "Direction", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
-							propiedadesCaracteristicas);
-				}
-				if (supplierPartNumber != null && !"".equals(supplierPartNumber)) {
-					appendPlainElementValue(supplierPartNumber, "", "SupplierPartNumber", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
-				}
-				if (supplierID != null && !"".equals(supplierID)) {
-					appendPlainElementValue(supplierIDLabel, supplierID, "SupplierID", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,propiedadesCaracteristicas);
-				}
-				if(productName != null) {
-					name.setTextContent(productName);
-					appendPlainElementValue(
-							productName,
-							null,
-							"ProductName",
-							attributeValues,
-							"MKP".equals(business) ? attributesMKT : attributes,
-							"MKP".equals(business) ? docMKT : doc,
-							propiedadesCaracteristicas);
-				}
-				if (!behvo) {
-					String elese = "SBB".equals(business) ? itemGroupS4H : itemGroup;
-					String dictionary = !"SBB".equals(business)
-							? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H";
-					String laetiqueta = queryDictionary(elese, dictionary);
-					if (laetiqueta != null && !laetiqueta.isBlank()) {
-						String elcode = dastub.getLookupValueCodeByName(
-								"SAP_BEHVOLOV", 10, laetiqueta, true);
-						if (elcode != null && !elcode.isBlank()) {
-							appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO", attributeValues,
-									"MKP".equals(business) ? attributesMKT : attributes,
-									"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
-							behvo = true;
-						}
-					}
-				}
-
-				if (unosQueQuiero.contains("ProductType") && !heredables.containsKey("ProductType")) {
-					heredables.put("ProductType",
-							new org.json.JSONObject().put("_datatype", "LOOKUP")
-									.put("_qualification",
-											new org.json.JSONObject().put(
-													"characteristic",
-													new org.json.JSONObject().put("_code", "ProductType")))
-									.put("_recordLang", new org.json.JSONArray()
-											.put(new org.json.JSONObject().put("values", new org.json.JSONArray().put(
-													new org.json.JSONObject().put("_code", pt).put("_label", ptl))))));
-				}
-				appendPlainElementValue(itemGroup != null && !"".equals(itemGroup) ? itemGroupLabel : itemGroupS4HLabel,
-						itemGroup != null && !"".equals(itemGroup) ? itemGroup : itemGroupS4H, "ItemGroup2",
-						attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
-				appendPlainElementValue(!"SBB".equals(business) ? itemGroupLabel : itemGroupS4HLabel,
-						!"SBB".equals(business) ? itemGroup : itemGroupS4H,
-						!"SBB".equals(business) ? "ItemGroup" : "ItemGroupS4H", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
-						propiedadesCaracteristicas);
-				appendPlainElementValue(!"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel,
-						!"SBB".equals(business) ? brandName : brandIdS4H,
-						!"SBB".equals(business) ? "BrandName" : "BRAND_ID_S4H", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
-						propiedadesCaracteristicas);
-				appendPlainElementValue(!"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel, null,
-						"BrandNameATG", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
-				appendPlainElementValue(!"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel, null, "BrandIDATG",
-						attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
-								"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
-
-				if (productName != null && !"".equals(productName)) {
-					name.setTextContent(productName);
-					appendPlainElementValue(productName, null, "ProductName", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
-							"MKP".equals(business) ? docMKT : doc,
-							propiedadesCaracteristicas);
-				} else {
-					if (charactName != null && !"".equals(charactName)) {
-						name.setTextContent(charactName);
-						appendPlainElementValue(charactName, null, "ProductName", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
-								"MKP".equals(business) ? docMKT : doc,
-								propiedadesCaracteristicas);
-					} else {
-						if (nameLang != null && !"".equals(nameLang)) {
-							name.setTextContent(nameLang);
-							appendPlainElementValue(nameLang, null, "ProductName", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
-									"MKP".equals(business) ? docMKT : doc,
-									propiedadesCaracteristicas);
-						} else {
-							log("Sin product neim, no será posible publicar.");
-							System.out.println("Sin product neim, no será posible publicar.");
-							reqPublishMessage
-									.getJSONArray("rows").put(
-											new org.json.JSONObject()
-													.put("object",
-															new org.json.JSONObject().put("id",
-																	"'" + proposalId + "'@1"))
-													.put("values", new org.json.JSONArray().put("Sin ProductName")));
-							continue;
-						}
-					}
-				}
-
-				if (pt == null) {
-					lst = dataMap.get("AlmacenamientoAtt");
-					if (lst != null) {
-						almacenamientoAtt = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
-								.getJSONArray("values").getJSONObject(0).getString("_code");
-					}
-					lst = dataMap.get("MTART_S4H");
-					if (lst != null) {
-						mtart = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-								.getJSONObject(0).getString("_code");
-					}
-					lst = dataMap.get("SkuType");
-					if (lst != null) {
-						skuType = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
-								.getJSONObject(0).getString("_code");
-					}
-					if ("SERV".equals(skuType) && "0001".equals(almacenamientoAtt)) {
-						pt = "6";
-						ptl = "Digital";
-						appendPlainElementValue("Digital", pt, "ProductType", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
-								"MKP".equals(business) ? docMKT : doc,
-								propiedadesCaracteristicas);
-					} else if ("DIEN".equals(mtart) && "SB87516".equals(itemGroupS4H)) {
-						pt = "6";
-						ptl = "Digital";
-						appendPlainElementValue("Digital", pt, "ProductType", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
-								"MKP".equals(business) ? docMKT : doc,
-								propiedadesCaracteristicas);
-
-					} else {
-						pt = "1";
-						ptl = "Soft line";
-						appendPlainElementValue("Soft line", pt, "ProductType", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
-								"MKP".equals(business) ? docMKT : doc,
-								propiedadesCaracteristicas);
-					}
-				}
-				
-	        	if("SalesItem".equals(productType) && ean_ == null) {
-        			keyValueEAN = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
-        			keyValueEAN.setAttribute("KeyID", "SBB".equals(business) ? "EANS4HKey" : "EANKey");
-        			keyValueEAN.setTextContent(ean_);
-        			product.appendChild(keyValueEAN);
-        			appendPlainElementValue(
-							ean_,
-							null,
-							"MainBarCode",
-							attributeValues,
-							"MKP".equals(business) ? attributesMKT : attributes,
-								"MKP".equals(business) ? docMKT : doc,
-							propiedadesCaracteristicas
-						);
-	        	}
-	        	if("SalesItem".equals(productType) && sku_ == null) {
-        			keyValueSKU = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
-        			keyValueSKU.setAttribute("KeyID","SKUID");
-        			keyValueSKU.setTextContent( sku_ );
-        			product.appendChild(keyValueSKU);
-        			appendPlainElementValue(
-							sku_,
-							null,
-							"SKU",
-							attributeValues,
-							"MKP".equals(business) ? attributesMKT : attributes,
-							"MKP".equals(business) ? docMKT : doc,
-							propiedadesCaracteristicas);
-	        	}
-	        	if("SalesItem".equals(productType) && tamanoUnico != null && !"".equals(tamanoUnico)) {
-	        		talla(clothingSize == null ? sizeVaD : clothingSize, tamanoUnico, business, itemGroup, template, direccion, brandCode, attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas );
-	        		appendPlainElementValue(
-							tamanoUnico,
-							null,
-							"TamanoUnico",
-							attributeValues,
-							"MKP".equals(business) ? attributesMKT : attributes,
-							"MKP".equals(business) ? docMKT : doc,
-							propiedadesCaracteristicas
-							);
-				}
-	        	
-	        	if( ( "SalesItemFamilyMkt".equals(productType) || "SalesItemFamily".equals(productType) ) ) {
-	        		org.json.JSONObject resp = null;
-	        		Element subProduct = null;
-	        		Element subAttributeValues = null;
-	        		Element varName = null;
-	        		String childSAPObjectType = null;
-	        		String childSAPObjectTypeLabel = null;
-	        		String miraklVariantGroupId = null;
-	        		java.util.LinkedList<java.util.LinkedList< String[] >> losdetalles = new java.util.LinkedList<>();
-	        		java.util.LinkedList<java.util.LinkedList< String[] >> losesmoshes = new java.util.LinkedList<>();
-	        		java.util.LinkedList<java.util.LinkedList< String[] >> lasilustraciones = new java.util.LinkedList<>();
-	        		boolean theFirstTime = true;
-	        		for(int a = 0; a<upperRows.length(); a++) {
-	        			procede = false;
-	        			tallaNormalizada = null;
-	        			tamanoUnico = null;
-	        			color = null;
-	        			codigoColor = null;
-	        			childSAPObjectType = null;
-	        			childSAPObjectTypeLabel = null;
-	        			miraklVariantGroupId = null;
-	    				try{
-	    					firstVariant = upperRows.getJSONObject(a).getJSONArray("values").getString(0);
-	    				}catch(org.json.JSONException e) {
-	    				}
-
-	        			subProduct = ("MKP".equals(business) ? docMKT : doc).createElement("Product");
-	        			subProduct.setAttribute("ID", firstVariant);
-	        			subProduct.setAttribute("UserTypeID", "MKP".equals(business) ? "SalesItem" : "SalesItemVariant");
-	        			if(!"MKP".equals(business))
-	        				subProduct.setAttribute("ParentID", proposalId);
-	        			subProduct.setAttribute("Changed", "true");
-	                	subAttributeValues = ("MKP".equals(business) ? docMKT : doc).createElement("Values");
-	                	varName = ("MKP".equals(business) ? docMKT : doc).createElement("Name");
-	                	subProduct.appendChild(varName);
-	                	subProduct.appendChild(subAttributeValues);
-	                	if("MKP".equals(business)) {
-	                		appendPlainElementValue(
-    								"true",
-    								"1",
-    								"isMarketPlace",
-    								subAttributeValues,
-    								"MKP".equals(business) ? attributesMKT : attributes,
-									"MKP".equals(business) ? docMKT : doc,
-    								propiedadesCaracteristicas);
-        				}
-	                	details = new java.util.LinkedList<>();
-	                	smoshes = new java.util.LinkedList<>();
-	                	illustrations = new java.util.LinkedList<>();
-	    				try {
 							raw = rw.makeRequest("GET", "/object/Article/'" + firstVariant + "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData", null);
 							resp = new org.json.JSONObject(raw);
-							resp = resp.getJSONObject("_data");
-							if(!resp.has("_characteristicRecords"))
-								continue;
-							rows = resp.getJSONArray("_characteristicRecords");
+							resp = resp.getJSONObject("_data"); if (!resp.has("_characteristicRecords")) { System.out.println("No characteristics present for " + firstVariant); log("No characteristics present for " + firstVariant); }
+							rows = resp.has("_characteristicRecords") ? resp.getJSONArray("_characteristicRecords") : new org.json.JSONArray();
 							org.json.JSONArray children = null;
 							String[] chunk = null;
-							String sku0 = resp.has("sku") ? String.valueOf( resp.getLong("sku") ) : null;
-							String ean0 = resp.has("gtin") ? resp.getString("gtin") : null;
-							codigoColor = resp.has("articleExtraData") && resp.getJSONArray("articleExtraData").getJSONObject(0).has("coloursLiverpoolAtt") ? resp.getJSONArray("articleExtraData").getJSONObject(0).getJSONObject("coloursLiverpoolAtt").getString("_code") : null;
-							color = resp.has("articleExtraData") && resp.getJSONArray("articleExtraData").getJSONObject(0).has("coloursLiverpoolAtt") ? resp.getJSONArray("articleExtraData").getJSONObject(0).getJSONObject("coloursLiverpoolAtt").getString("_label") : null;
-							tamanoUnico = resp.has("articleExtraData") && resp.getJSONArray("articleExtraData").getJSONObject(0).has("tamanoUnico") ? resp.getJSONArray("articleExtraData").getJSONObject(0).getJSONObject("tamanoUnico").getString("_code") : null;
 							for(int b = 0; b < rows.length(); b++) {
 								imageObject = rows.getJSONObject(b);
 								charId = imageObject.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-								if("MainBarCode".equals(charId) || "MainBarCodeS4H".equals(charId)) {
-									ean0 = ean0 != null && !"".equals(ean0) ? ean0 : imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-				        		}else
-				        		if("SKU".equals(charId)) {
-				        			sku0 = sku0 != null && !"".equals(sku0) ? sku0 : imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-				        		}else
-								if("ProductImage2".equals(charId) && imageObject.has("_children")) {
+								if("SalesItem".equals(productType) && "ProductImage2".equals(charId)) {
 									children = imageObject.getJSONArray("_children");
 									piKey = imageObject.getJSONObject("_qualification").getString("recordKey");
 									for(int c = 0; c<children.length(); c++) {
@@ -1427,9 +632,9 @@ public class RealExportProducts2Mirakl {
 											piUrl = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
 										}
 									}
-								}else if("ProductImageDetail2".equals(charId) && imageObject.has("_children")) {
+								}else if("SalesItem".equals(productType) && "ProductImageDetail2".equals(charId)) {
 									children = imageObject.getJSONArray("_children");
-									chunk = new String[4];
+									chunk = new String[3];
 									chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
 									for(int c = 0; c<children.length(); c++) {
 										charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
@@ -1439,454 +644,116 @@ public class RealExportProducts2Mirakl {
 											chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
 										}
 									}
-									chunk[3] = firstVariant;
 									details.addLast(chunk);
-									if(theFirstTime)
-										losdetalles.addLast(details);
-								}else if("ProductImageSmosh2".equals(charId) && imageObject.has("_children")) {
-									children = imageObject.getJSONArray("_children");
-									chunk = new String[4];
-									chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
-									for(int c = 0; c<children.length(); c++) {
-										charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-										if("ProductImageSmosh_Name2".equals(charId)) {
-											chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-										}else if("ProductImageSmosh_URL2".equals(charId)) {
-											chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-										}
-									}
-									chunk[3] = firstVariant;
-									smoshes.addLast(chunk);
-									if(theFirstTime)
-										losesmoshes.addLast(smoshes);
-								}else if("Illustration2".equals(charId) && imageObject.has("_children")) {
-									children = imageObject.getJSONArray("_children");
-									chunk = new String[4];
-									chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
-									for(int c = 0; c<children.length(); c++) {
-										charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-										if("Illustration_Name2".equals(charId)) {
-											chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-										}else if("Illustration_URL2".equals(charId)) {
-											chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-										}
-									}
-									chunk[3] = firstVariant;
-									illustrations.addLast(chunk);
-									if(theFirstTime)
-										lasilustraciones.addLast(illustrations);
-								} else if("TamanoUnicoSTD".equals(charId)){
+								} else if("SalesItem".equals(productType) && "TamanoUnicoSTD".equals(charId)){
 									tallaNormalizada = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-								}else if("TamanoUnico".equals(charId)) {
-									tamanoUnico = tamanoUnico != null ? tamanoUnico : imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
-								}else if("ColoursLiverpoolAtt".equals(charId)) {
-									color = color != null ? color : imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
-									codigoColor = codigoColor != null ? codigoColor : imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-								}else if("SKU".equals(charId)) {
-									sku0 = sku0 == null || "".equals(sku0) ? imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) : sku0;
-								}else if("MainBarCode".equals(charId)) {
-									ean0 = ean0 == null || "".equals(ean0) ? imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) : ean0;
-								}else if("MainBarCodeS4H".equals(charId)) {
-									ean0 = ean0 == null || "".equals(ean0) ? imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) : ean0;
+								}else if("SalesItem".equals(productType) && "TamanoUnico".equals(charId)) {
+									tamanoUnico = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
+								}else if("SalesItem".equals(productType) && "ColoursLiverpoolAtt".equals(charId)) {
+									color = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
+									codigoColor = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
 								}else if("SAPObjectType".equals(charId)) {
-									childSAPObjectTypeLabel = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
-									childSAPObjectType = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-								}else if("mirakl-variant-group-id".equals(charId)) {
-									miraklVariantGroupId = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-								}else if("ProcedeNoProcede".equals(charId)) {
-									procede = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getBoolean(0);
+									
+								}else if("SalesItem".equals(productType) && "SKU".equals(charId)) {
+								}else if("SalesItem".equals(productType) && ("MainBarCode".equals(charId) || "MainBarCodeS4H".equals(charId))) {
 								}else {
-									if(atributosGeneralesQueSi.contains(charId)) {
-										if(unosQueQuiero.contains(charId)) {
-											heredables.put(charId, characteristic);
-										}
-										if("LOOKUP".equals(imageObject.getString("_datatype"))){
-											appendPlainElementValue(
-													imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
-													imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
-													charId,
-													subAttributeValues,
-													"MKP".equals(business) ? attributesMKT : attributes,
-			    									"MKP".equals(business) ? docMKT : doc,
-													propiedadesCaracteristicas
-													);
-										}else if(!"NONE".equals(imageObject.getString("_datatype"))) {
-											java.util.LinkedList<String> vals = new java.util.LinkedList<>();
-											for(int m=0; m<imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").length(); m++) {
-												vals.addLast( String.valueOf( parseDateForSpecificDateFields( imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(m), charId) ));
-											}
-											appendPlainElementValue(
-													String.join(",", vals),
-													null,
-													charId,
-													subAttributeValues,
-													"MKP".equals(business) ? attributesMKT : attributes,
-			    									"MKP".equals(business) ? docMKT : doc,
-													propiedadesCaracteristicas);
-										}
-									}
-								}
-								theFirstTime = false;
-							}
-							if(sku0 != null && !"".equals(sku0)) {
-								if("MKP".equals(business) && upperRows.length() == 1) {
-									if(sku_ == null || "".equals(sku_)) {
-										sku_ = sku0;
-									}
-								}
-								keyValueSKU = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
-			        			keyValueSKU.setAttribute("KeyID","SKUID");
-			        			String skuval =  sku0;
-			        			keyValueSKU.setTextContent( skuval );
-			        			subProduct.appendChild(keyValueSKU);
-			        			appendPlainElementValue(
-										sku0,
-										null,
-										"SKU",
-										subAttributeValues,
-										"MKP".equals(business) ? attributesMKT : attributes,
-    									"MKP".equals(business) ? docMKT : doc,
-										propiedadesCaracteristicas);
-							}
-							if(ean0 != null) {
-								if("MKP".equals(business) && upperRows.length() == 1) {
-									if(ean_ == null || "".equals(ean_)) {
-										ean_ = ean0;
-									}
-								}
-								keyValueEAN = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
-			        			keyValueEAN.setAttribute("KeyID", "SBB".equals(business) ? "EANS4HKey" : "EANKey");
-			        			keyValueEAN.setTextContent(ean0);
-			        			subProduct.appendChild(keyValueEAN);
-			        			appendPlainElementValue(
-										ean0,
-										null,
-										"MainBarCode",
-										subAttributeValues,
-										"MKP".equals(business) ? attributesMKT : attributes,
-    									"MKP".equals(business) ? docMKT : doc,
-										propiedadesCaracteristicas);
-							}
-//							if(productName != null) {
-//								name.setTextContent(productName);
-//								appendPlainElementValue(
-//										productName,
-//										null,
-//										"ProductName",
-//										subAttributeValues,
-//										"MKP".equals(business) ? attributesMKT : attributes,
-//    									"MKP".equals(business) ? docMKT : doc,
-//										propiedadesCaracteristicas);
-//							}
-							if (productName != null) {
-								name.setTextContent(productName);
-								appendPlainElementValue(productName, null, "ProductName", subAttributeValues,
-										"MKP".equals(business) ? attributesMKT : attributes,
-		    									"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
-							} else {
-								if (charactName != null && !"".equals(charactName)) {
-									name.setTextContent(charactName);
-									appendPlainElementValue(charactName, null, "ProductName", subAttributeValues,
-											"MKP".equals(business) ? attributesMKT : attributes,
-			    									"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
-								} else {
-									if (nameLang != null && !"".equals(nameLang)) {
-										name.setTextContent(nameLang);
-										appendPlainElementValue(nameLang, null, "ProductName", subAttributeValues,
-												"MKP".equals(business) ? attributesMKT : attributes,
-				    									"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
-									} else {
-										log("Sin product neim, no será posible publicar.");
-										System.out.println("Sin product neim, no será posible publicar.");
-										reqPublishMessage.getJSONArray("rows")
-												.put(new org.json.JSONObject()
-														.put("object",
-																new org.json.JSONObject().put("id",
-																		"'" + proposalId + "'@1"))
-														.put("values",
-																new org.json.JSONArray().put("Sin ProductName")));
-										continue;
+									if("ProductImageDeatail2".equals(charId)) {
+										log("Anyway ProductImageDetail2: " + productType);
+									}else if("ProductImage2".equals(charId)) {
+										log("Anyway ProductImage2: " + productType);
 									}
 								}
 							}
-							if (descLong != null) {
-								appendPlainElementValue(descLong, null, "DescriptionLong", subAttributeValues,
-										"MKP".equals(business) ? attributesMKT : attributes,
-		    									"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
-							}
-							log("For: " + firstVariant + ", " + procede);
-							if(!procede) {
-								procede = resp.has("procedeNoProcede") && resp.getBoolean("procedeNoProcede");
-							}
-							if(!procede) {
-								continue;
-							}else {
-			                	product.appendChild(subProduct);
-							}
-							if(miraklVariantGroupId == null && "MKP".equals(business)) {
-								appendPlainElementValue(
-	        							sku_,
-	        							null,
-	        							"mirakl-variant-group-id",
-	        							subAttributeValues,
-	        							"MKP".equals(business) ? attributesMKT : attributes,
-    									"MKP".equals(business) ? docMKT : doc,
-	        							propiedadesCaracteristicas);
-							}
-							varName.setTextContent( name.getTextContent() + ", " + tamanoUnico + ", " + color );
-
-							for(java.util.Map.Entry<String, org.json.JSONObject> entr : heredables.entrySet()) {
-								charId = entr.getKey();
-								characteristic = entr.getValue();
-								if("LOOKUP".equals(characteristic.getString("_datatype"))){
-									if(!characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).has("_label")) {
-										log("FUUUUUUUUFFFFFKKKKKKFFFFFF " + entr + " FUUUUUUUUFFFFFKKKKKKFFFFFF");
-									}
-									System.out.println("\t\tAV: " + characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0) + " || " + entr);
-									if(characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).length() > 0) {
-			        					appendPlainElementValue(
-			        							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
-			        							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
-			        							charId,
-			        							subAttributeValues,
-			        							"MKP".equals(business) ? attributesMKT : attributes,
-	        									"MKP".equals(business) ? docMKT : doc,
-			        							propiedadesCaracteristicas);
-									}else {
-										System.out.println("Pessi: " + entr);
-									}
-		        				}else if(!"NONE".equals(characteristic.getString("_datatype"))) {
-		        					java.util.LinkedList<String> vals = new java.util.LinkedList<>();
-		        					for(int m=0; m<characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").length(); m++) {
-		        						vals.addLast( String.valueOf( characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(m) ));
-		        					}
-		        					appendPlainElementValue(
-		        							String.join(",", vals),
-		        							null,
-		        							charId,
-		        							subAttributeValues,
-		        							"MKP".equals(business) ? attributesMKT : attributes,
-        									"MKP".equals(business) ? docMKT : doc,
-		        							propiedadesCaracteristicas);
-		        				}
-							}
-
-
-							if(descLong != null) {
-								appendPlainElementValue(
-										descLong,
-										null,
-										"DescriptionLong",
-										subAttributeValues,
-										"MKP".equals(business) ? attributesMKT : attributes,
-										"MKP".equals(business) ? docMKT : doc,
-										propiedadesCaracteristicas);
-							}
-							appendPlainElementValue(
-									sku_,
-									null,
-									"ParentSKU",
-									subAttributeValues,
-									"MKP".equals(business) ? attributesMKT : attributes,
-									"MKP".equals(business) ? docMKT : doc,
-									propiedadesCaracteristicas);
-//							if(childSKU != null && !"".equals(childSKU)) {
-//								appendPlainElementValue(
-//										childSKU,
-//										null,
-//										"SKU",
-//										subAttributeValues,
-//										"MKP".equals(business) ? attributesMKT : attributes,
-//										"MKP".equals(business) ? docMKT : doc,
-//										propiedadesCaracteristicas);
-//							}
-//							if(childMainBarCode != null && !"".equals(childMainBarCode)) {
-//								appendPlainElementValue(
-//										childMainBarCode,
-//										null,
-//										"SBB".equals(business) ? "MainBarCodeS4H" : "MainBarCode",
-//										subAttributeValues,
-//										"MKP".equals(business) ? attributesMKT : attributes,
-//										"MKP".equals(business) ? docMKT : doc,
-//										propiedadesCaracteristicas);
-//							}
-							if(childSAPObjectType != null && !"".equals(childSAPObjectType)) {
-								appendPlainElementValue(
-										childSAPObjectTypeLabel,
-										childSAPObjectType,
-										"SAPObjectType",
-										subAttributeValues,
-										"MKP".equals(business) ? attributesMKT : attributes,
-										"MKP".equals(business) ? docMKT : doc,
-										propiedadesCaracteristicas);
-							}
-							if(tamanoUnico != null && !"".equals(tamanoUnico)) {
-								appendPlainElementValue(
-										tamanoUnico,
-										null,
-										"TamanoUnico",
-										subAttributeValues,
-										"MKP".equals(business) ? attributesMKT : attributes,
-										"MKP".equals(business) ? docMKT : doc,
-										propiedadesCaracteristicas);
-								talla(clothingSize == null ? sizeVaD : clothingSize, tamanoUnico, business, itemGroup, template, direccion, brandCode, subAttributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas );
-							}
-							if(tallaNormalizada != null && !"".equals(tallaNormalizada)) {
-								appendPlainElementValue(
-										tallaNormalizada,
-										null,
-										"TC-NormalizedSize",
-										subAttributeValues,
-										"MKP".equals(business) ? attributesMKT : attributes,
-										"MKP".equals(business) ? docMKT : doc,
-										propiedadesCaracteristicas);
-							}
-							if(color != null && !"".equals(color)) {
-								appendPlainElementValue(
-										color,
-										codigoColor,
-										"ColoursLiverpoolAtt",
-										subAttributeValues,
-										"MKP".equals(business) ? attributesMKT : attributes,
-										"MKP".equals(business) ? docMKT : doc,
-										propiedadesCaracteristicas);
-							}
-							appendPlainElementValue(
-	        						itemGroupLabel,
-	        						itemGroup,
-	        						"ItemGroup2",
-	        						subAttributeValues,
-	        						"MKP".equals(business) ? attributesMKT : attributes,
-    								"MKP".equals(business) ? docMKT : doc,
-	        						propiedadesCaracteristicas);
-							if(piName != null && piUrl != null && piKey != null ) {
-								appendMediaAsset(
-				    					piName,
-				    					piUrl,
-				    					"PrimaryProductImage", // String assetType,
-				    					piKey,
-				    					"Imagen Producto", // String assetValueTextContent,
-				    					"ImageURL", // String assetValueAttributeId,
-				    					"ProductImage", // String assetUserTypeId,
-				    					"ProductImage", // String assetKeyPrefix,
-				    					itemId,
-				    					characteristic,
-				    					"ProductImage", // String baseAssetTypeName,
-				    					"MKP".equals(business) ? assetMapMKT : assetMap,
-		    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
-    	    							subProduct,
-		    	    					"MKP".equals(business) ? assetsMKT : assets,
-		    	    					"MKP".equals(business) ? docMKT : doc,
-				    					firstVariant
-				    					);
-							}
-							if( details != null && !details.isEmpty() ) {
-								for(String[] dt : details) {
-									appendMediaAsset(
-											dt[0],
-											dt[1],
-					    					"ProductImage", // String assetType,
-					    					dt[2],
-					    					"Imagen Detalle Producto", // String assetValueTextContent,
-					    					"ImageURL", // String assetValueAttributeId,
-					    					"ProductImageDetail", // String assetUserTypeId,
-					    					"ProductImageDetail", // String assetKeyPrefix,
-					    					itemId,
-					    					characteristic,
-					    					"ProductImageDetail", // String baseAssetTypeName,
-					    					"MKP".equals(business) ? assetMapMKT : assetMap,
-			    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
-			    	    					subProduct,
-			    	    					"MKP".equals(business) ? assetsMKT : assets,
-			    	    					"MKP".equals(business) ? docMKT : doc,
-					    					firstVariant
-					    					);
-								}
-							}
-							if(smoshes != null && !smoshes.isEmpty() ) {
-								for(String[] dt : smoshes) {
-									appendMediaAsset(
-											dt[0],
-											dt[1],
-					    					"ProductImageSmosh", // String assetType,
-					    					dt[2],
-					    					"Imagen Smosh Producto", // String assetValueTextContent,
-					    					"ImageURL", // String assetValueAttributeId,
-					    					"ProductImageSmosh", // String assetUserTypeId,
-					    					"SmoshImg", // String assetKeyPrefix,
-					    					itemId,
-					    					characteristic,
-					    					"ProductImageSmosh", // String baseAssetTypeName,
-					    					"MKP".equals(business) ? assetMapMKT : assetMap,
-			    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
-			    	    					subProduct,
-			    	    					"MKP".equals(business) ? assetsMKT : assets,
-			    	    					"MKP".equals(business) ? docMKT : doc,
-					    					firstVariant
-					    					);
-								}
-							}
-							if(illustrations != null && !illustrations.isEmpty() ) {
-								for(String[] dt : illustrations) {
-									appendMediaAsset(
-											dt[0],
-											dt[1],
-					    					"Illustration", // String assetType,
-					    					dt[2],
-					    					"Imagen Isométrica del Producto", // String assetValueTextContent,
-					    					"ImageURL", // String assetValueAttributeId,
-					    					"Illustration", // String assetUserTypeId,
-					    					"Illustration", // String assetKeyPrefix,
-					    					itemId,
-					    					characteristic,
-					    					"Illustration", // String baseAssetTypeName,
-					    					"MKP".equals(business) ? assetMapMKT : assetMap,
-			    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
-			    	    					subProduct,
-			    	    					"MKP".equals(business) ? assetsMKT : assets,
-			    	    					"MKP".equals(business) ? docMKT : doc,
-					    					firstVariant
-					    					);
-								}
-							}
-
-
-						} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
-							logE(e);
 						}
-	    				theFirstTime = false;
-	    			}
-	        		
-	        		if(sku_ != null && !"".equals(sku_)) {
-		        		keyValueSKU = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
-	        			keyValueSKU.setAttribute("KeyID","SKUID");
-	        			keyValueSKU.setTextContent( sku_ );
-	        			product.appendChild(keyValueSKU);
-	        			appendPlainElementValue(
-								sku_,
-								null,
-								"SKU",
-								attributeValues,
-								"MKP".equals(business) ? attributesMKT : attributes,
-								"MKP".equals(business) ? docMKT : doc,
-								propiedadesCaracteristicas);
-	        		}
-	        		if(ean_ != null && !"".equals(ean_)) {
-		        		keyValueEAN = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
-	        			keyValueEAN.setAttribute("KeyID", "SBB".equals(business) ? "EANS4HKey" : "EANKey");
-	        			keyValueEAN.setTextContent(ean_);
-	        			product.appendChild(keyValueEAN);
-	        			appendPlainElementValue(
-								ean_,
-								null,
-								"MainBarCode",
-								attributeValues,
-								"MKP".equals(business) ? attributesMKT : attributes,
-									"MKP".equals(business) ? docMKT : doc,
-								propiedadesCaracteristicas
-							);
-	        		}
-					if(piName != null && piUrl != null && piKey != null ) {
+						if("SalesItem".equals(productType) && ( piName == null || piUrl == null )) {
+							log("(" + business + ") " + productType);
+							log("(" + business + ") No tenía imágenes2: " + proposalId);
+							log("(" + business + ") Had: " + upperRows.length());
+							log("(" + business + ") Raw: " + upperRows);
+							reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1")).put("values", new org.json.JSONArray().put( "Sin imágenes \"congeladas\"" )));
+							continue;
+						}
+					} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
+						logE(e);
+					}
+					java.util.Set<String> atributosGeneralesQueSi = templateSets.get(template);
+					java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas = templateMetadataSet.get(template);
+					String brandCode = null;
+					if (propiedadesCaracteristicas == null) {
+						propiedadesCaracteristicas = new java.util.TreeMap<>();
+						atributosGeneralesQueSi = new java.util.TreeSet<>();
+						templateSets.put(template, atributosGeneralesQueSi);
+						atributosGeneralesQueSi.addAll(globalSet);
+						templateMetadataSet.put(template, propiedadesCaracteristicas);
+						for (java.util.Map.Entry<String, org.json.JSONObject> entry : globalProperties.entrySet()) {
+							org.json.JSONObject copied = copyCharacteristicMetadata(entry.getValue());
+							java.util.Iterator<?> propertyKeys = entry.getValue().keys();
+							while (propertyKeys.hasNext()) {
+								String propertyKey = String.valueOf(propertyKeys.next());
+								if (!copied.has(propertyKey)) {
+									copied.put(propertyKey, entry.getValue().get(propertyKey));
+								}
+							}
+							propiedadesCaracteristicas.put(entry.getKey(), copied);
+						}
+						java.util.Map<String, org.json.JSONObject> templateProperties =
+								dastub.getTemplateCharacteristicProperties(template);
+						propiedadesCaracteristicas.putAll(templateProperties);
+						for (java.util.Map.Entry<String, org.json.JSONObject> entry : templateProperties.entrySet()) {
+							if ("Y".equals(entry.getValue().optString("RelevantForATG", ""))) {
+								atributosGeneralesQueSi.add(entry.getKey());
+							}
+						}
+						templateStructureGroupAttributeValues.put(template,
+								dastub.getTemplateStructureGroupAttributeValues(template, 10));
+					}
+		        	Element product = null;
+	
+		        	if("MKP".equals(business)) {
+		        		product = docMKT.createElement("Product");
+		        		product.setAttribute("ID", proposalId);
+		        		product.setAttribute("UserTypeID", productType );
+		        		product.setAttribute("ParentID", template);
+		        		product.setAttribute("Changed", "true");
+		        	}else {
+		        		product = doc.createElement("Product");
+		        		product.setAttribute("ID", proposalId);
+		        		product.setAttribute("UserTypeID", productType );
+		        		product.setAttribute("ParentID", template);
+		        		product.setAttribute("Changed", "true");
+		        	}
+	
+		        	/*********************
+		        	 * El atributo en las entidades Changed="true", tiene el efecto
+		        	 * de que broker ignorda todo lo que no tenga Changed="true".
+		        	****************************************************************/
+		        	Element name = ("MKP".equals(business) ? docMKT : doc).createElement("Name");
+		        	name.setAttribute("Changed", "true");
+		        	product.appendChild(name);
+	
+		        	Element keyValueSKU = null;
+		        	Element keyValueEAN = null;
+	
+		        	Element attributeValues = null;
+	
+		        	String charId = null;
+		        	org.json.JSONObject characteristic = null;
+	
+	
+					boolean behvo = false;
+					String almacenamientoAtt = null;
+					String skuType = null;
+					String mtart = null;
+	
+					String pt = null;
+					String ptl = null;
+	
+		        	java.util.ArrayList<String> unosQueQuiero = new java.util.ArrayList<>(YEA);
+		        	java.util.Map<String, org.json.JSONObject> heredables = new java.util.TreeMap<>();
+	
+		        	attributeValues = ("MKP".equals(business) ? docMKT : doc).createElement("Values");
+		        	product.appendChild(attributeValues);
+		        	if( piName != null && piUrl != null && piKey != null ) {
 						appendMediaAsset(
 		    					piName,
 		    					piUrl,
@@ -1900,15 +767,15 @@ public class RealExportProducts2Mirakl {
 		    					characteristic,
 		    					"ProductImage", // String baseAssetTypeName,
 		    					"MKP".equals(business) ? assetMapMKT : assetMap,
-    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
-    	    					product,
-    	    					"MKP".equals(business) ? assetsMKT : assets,
-    	    					"MKP".equals(business) ? docMKT : doc,
-		    					proposalId
+		    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
+		    					product,
+		    					"MKP".equals(business) ? assetsMKT : assets,
+		    					"MKP".equals(business) ? docMKT : doc,
+		    					firstVariant
 		    					);
 					}
-					for(java.util.LinkedList<String[]> eldetalle : losdetalles) {
-						for(String[] dt : eldetalle) {
+					if( details != null && !details.isEmpty() ) {
+						for(String[] dt : details) {
 							appendMediaAsset(
 									dt[0],
 									dt[1],
@@ -1926,211 +793,1431 @@ public class RealExportProducts2Mirakl {
 	    	    					product,
 	    	    					"MKP".equals(business) ? assetsMKT : assets,
 	    	    					"MKP".equals(business) ? docMKT : doc,
-			    					dt[3]
-			    					);
-						}
-					}
-					for(java.util.LinkedList<String[]> elesmoshes : losesmoshes) {
-						for(String[] dt : elesmoshes) {
-							appendMediaAsset(
-									dt[0],
-									dt[1],
-			    					"ProductImageSmosh", // String assetType,
-			    					dt[2],
-			    					"Imagen Smosh Producto", // String assetValueTextContent,
-			    					"ImageURL", // String assetValueAttributeId,
-			    					"ProductImageSmosh", // String assetUserTypeId,
-			    					"SmoshImg", // String assetKeyPrefix,
-			    					itemId,
-			    					characteristic,
-			    					"ProductImageSmosh", // String baseAssetTypeName,
-			    					"MKP".equals(business) ? assetMapMKT : assetMap,
-	    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
-	    	    					product,
-	    	    					"MKP".equals(business) ? assetsMKT : assets,
-	    	    					"MKP".equals(business) ? docMKT : doc,
 			    					firstVariant
 			    					);
 						}
 					}
-					for(java.util.LinkedList<String[]> lailustracion : lasilustraciones) {
-						for(String[] dt : lailustracion) {
-							appendMediaAsset(
-									dt[0],
-									dt[1],
-			    					"Illustration", // String assetType,
-			    					dt[2],
-			    					"Imagen Isométrica del Producto", // String assetValueTextContent,
-			    					"ImageURL", // String assetValueAttributeId,
-			    					"Illustration", // String assetUserTypeId,
-			    					"Illustration", // String assetKeyPrefix,
-			    					itemId,
-			    					characteristic,
-			    					"Illustration", // String baseAssetTypeName,
-			    					"MKP".equals(business) ? assetMapMKT : assetMap,
-	    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
-	    	    					product,
-	    	    					"MKP".equals(business) ? assetsMKT : assets,
-	    	    					"MKP".equals(business) ? docMKT : doc,
-			    					firstVariant
-			    					);
-						}
+	
+		        	if("SalesItem".equals(productType) && tallaNormalizada != null && !"".equals(tallaNormalizada)) {
+						appendPlainElementValue(
+								tallaNormalizada,
+								null,
+								"TC-NormalizedSize",
+								attributeValues,
+								"MKP".equals(business) ? attributesMKT : attributes,
+								"MKP".equals(business) ? docMKT : doc,
+								propiedadesCaracteristicas);
 					}
-	        	}else if("SalesItem".equals(productType)) {
-					try {
-						raw = rw.makeRequest("GET", "/object/Article/'" + firstVariant + "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData", null);
-						org.json.JSONObject resp = new org.json.JSONObject(raw);
-						resp = resp.getJSONObject("_data");
-						if(!resp.has("_characteristicRecords"))
+		        	if("SalesItem".equals(productType) && color != null && !"".equals(color)) {
+		            	appendPlainElementValue(
+		    					color,
+		    					codigoColor,
+		    					"ColoursLiverpoolAtt",
+		    					attributeValues,
+		    					"MKP".equals(business) ? attributesMKT : attributes,
+								"MKP".equals(business) ? docMKT : doc,
+		    					propiedadesCaracteristicas);
+		        	}
+		        	log("********************* PT: " + productType);
+					java.util.Map<String, String> structureAttributeValues =
+							templateStructureGroupAttributeValues.get(template);
+					if (structureAttributeValues == null) {
+						structureAttributeValues = dastub.getTemplateStructureGroupAttributeValues(template, 10);
+						templateStructureGroupAttributeValues.put(template, structureAttributeValues);
+					}
+					for (String attributeName : new String[] {
+							"DisplayGroupOrder", "DisplayOrder", "ConfigurableOrder" }) {
+						if (!structureAttributeValues.containsKey(attributeName)) {
 							continue;
-						if(resp.has("procedeNoProcede")) {
-							procede = resp.getBoolean("procedeNoProcede");
-							log("El procede: " + procede);
 						}
-						rows = resp.getJSONArray("_characteristicRecords");
-						String sku0 = String.valueOf( resp.has("sku") ? resp.getLong("sku") : "" );
-						String ean0 = String.valueOf( resp.has("gtin") ? resp.getString("gtin") : "" );
-						for(int b = 0; b < rows.length(); b++) {
-							imageObject = rows.getJSONObject(b);
-							charId = imageObject.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-							if("ProductImage2".equals(charId)) {
-							}else if("ProductImageDetail2".equals(charId)) {
-							}else if("ProductImageSmosh2".equals(charId)) {
-							}else if("Illustration2".equals(charId)) {
-							}else if("ProductImage".equals(charId)) {
-							}else if("ProductImageDetail".equals(charId)) {
-							}else if("ProductImageSmosh".equals(charId)) {
-							}else if("Illustration".equals(charId)) {
-							}else if("TamanoUnicoSTD".equals(charId)){
-							}else if("TamanoUnico".equals(charId)) {
-							}else if("ColoursLiverpoolAtt".equals(charId)) {
-							}else if("SKU".equals(charId)) {
-								sku0 = sku0 != null && !"".equals(sku0) ? sku0 : treatment( imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
-							}else if("MainBarCode".equals(charId)) {
-								ean0 = ean0 != null && !"".equals(ean0) ? ean0 : imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-							}else if("MainBarCodeS4H".equals(charId)) {
-								ean0 = ean0 != null && !"".equals(ean0) ? ean0 : imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-							}else if("SAPObjectType".equals(charId)) {
-							}else if("ProcedeNoProcede".equals(charId)) {
-								procede = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getBoolean(0);
-							}else {
-								if(atributosGeneralesQueSi.contains(charId)) {
-									if("LOOKUP".equals(imageObject.getString("_datatype"))){
-										appendPlainElementValue(
-												imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
-												imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
-												charId,
-												attributeValues,
-												"MKP".equals(business) ? attributesMKT : attributes,
-				    								"MKP".equals(business) ? docMKT : doc,
-												propiedadesCaracteristicas
-											);
-									}else if(!"NONE".equals(imageObject.getString("_datatype"))) {
-										java.util.LinkedList<String> vals = new java.util.LinkedList<>();
-										for(int m=0; m<imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").length(); m++) {
-											vals.addLast( String.valueOf( parseDateForSpecificDateFields( imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(m), charId) ));
-										}
-										appendPlainElementValue(
-												String.join(",", vals),
-												null,
-												charId,
-												attributeValues,
-												"MKP".equals(business) ? attributesMKT : attributes,
-				    								"MKP".equals(business) ? docMKT : doc,
-												propiedadesCaracteristicas
-											);
+						appendPlainElementValue(structureAttributeValues.get(attributeName), null, attributeName,
+								attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+								"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+					}
+	
+					if(descLong != null) {
+						appendPlainElementValue(
+								descLong,
+								null,
+								"DescriptionLong",
+								attributeValues,
+								"MKP".equals(business) ? attributesMKT : attributes,
+								"MKP".equals(business) ? docMKT : doc,
+								propiedadesCaracteristicas);
+					}
+	
+//					String sku_ = rp.getJSONObject("_data").has("sku") ? String.valueOf( rp.getJSONObject("_data").getLong("sku") ) : null;
+					String ean_ = rp.getJSONObject("_data").has("gtin") ? rp.getJSONObject("_data").getString("gtin") : null;
+	//				System.out.println("---------------------------------------------->" + sku_ + " || " + proposalId + rp.getJSONObject("_data"));
+					if (descLong != null) {
+						appendPlainElementValue(descLong, null, "DescriptionLong", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+								"MKP".equals(business) ? docMKT : doc,
+								propiedadesCaracteristicas);
+					}
+					if (descLong2 != null) {
+						appendPlainElementValue(descLong2, null, "DescriptionLong2", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+								"MKP".equals(business) ? docMKT : doc,
+								propiedadesCaracteristicas);
+					}
+		        	for(int i = 0; i<characteristicArray.length(); i++) {
+		        		characteristic = characteristicArray.getJSONObject(i);
+		        		charId = characteristic.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+		        		if("clothingSize".equals(charId)) {
+							clothingSize = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+						}else if("sizeVaD".equals(charId)) {
+							sizeVaD = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+						}
+		        		if("Business".equals(charId)) {
+	        				if("SBB".equals(business)) {
+	        					log("Returning since business is SBB.");
+	        					brk = true;
+	        					break;
+	        				}
+	        				if("MKP".equals(business)) {
+	        		        	product.setAttribute("UserTypeID", productType = "SalesItem".equals(productType) ? "SalesItem" : "SalesItemFamilyMkt" );
+	        					appendPlainElementValue(
+	    								"true",
+	    								"1",
+	    								"isMarketPlace",
+	    								attributeValues,
+	    								"MKP".equals(business) ? attributesMKT : attributes,
+										"MKP".equals(business) ? docMKT : doc,
+	    								propiedadesCaracteristicas);
+	        				}else {
+	        					product.setAttribute("UserTypeID", productType = "SalesItem".equals(productType) ? "SalesItem" : "SalesItemFamily" );
+	        				}
+	        			}else if("Direction".equals(charId)) {
+	        				direccion = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+	        			}else
+		        		if("MainBarCode".equals(charId) || "MainBarCodeS4H".equals(charId)) {
+		        			if(ean_ == null || "".equals(ean_)) {
+		        				ean_ = treatment( characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
+		        			}
+		        		}else
+		        		if("SKU".equals(charId)) {
+		        			if(sku == null || "".equals(sku)) {
+		        				sku = treatment( characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
+		        			}
+		        		}else
+		        		if("ProductVideo2".equals(charId)) {
+		        			if(characteristic.has("_children")) {
+			        			org.json.JSONArray children = characteristic.getJSONArray("_children");
+								String[] chunk = new String[3];
+								chunk[2] = characteristic.getJSONObject("_qualification").getString("recordKey");
+								for(int c = 0; c<children.length(); c++) {
+									charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+									if("ProductVideo_Name2".equals(charId)) {
+										chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+									}else if("ProductVideo_URL2".equals(charId)) {
+										chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
 									}
 								}
+			        			appendPlainElementValue(
+			        					chunk[1],
+										null,
+										"Video",
+										attributeValues,
+										"MKP".equals(business) ? attributesMKT : attributes,
+										"MKP".equals(business) ? docMKT : doc,
+										propiedadesCaracteristicas);
+		        			}
+		        		}else if("OwnersManual2".equals(charId)) {
+		        			if(characteristic.has("_children")) {
+		        			org.json.JSONArray children = characteristic.getJSONArray("_children");
+								String[] chunk = new String[3];
+								chunk[2] = characteristic.getJSONObject("_qualification").getString("recordKey");
+								for(int c = 0; c<children.length(); c++) {
+									charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+									if("OwnersManual_Name2".equals(charId)) {
+										chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+									}else if("OwnersManual_URL2".equals(charId)) {
+										chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+									}
+								}
+			        			appendMediaAsset(
+			        					chunk[0],
+			        					chunk[1],
+			        					"OwnersManual", // String assetType,
+			        					chunk[2],
+			        					"Manual de Propietario", // String assetValueTextContent,
+			        					"OwnersManualURL", // String assetValueAttributeId,
+			        					"OwnersManual", // String assetUserTypeId,
+			        					"OwnersManual", // String assetKeyPrefix,
+			        					itemId,
+			        					characteristic,
+			        					"OwnersManual", // String baseAssetTypeName,
+				    					"MKP".equals(business) ? assetMapMKT : assetMap,
+		    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
+		    	    					product,
+		    	    					"MKP".equals(business) ? assetsMKT : assets,
+		    	    					"MKP".equals(business) ? docMKT : doc,
+		    							proposalId
+			        					);
+		        			}
+		        		}else if("NOM2".equals(charId)) {
+		        			if(characteristic.has("_children")) {
+			        			org.json.JSONArray children = characteristic.getJSONArray("_children");
+								String[] chunk = new String[3];
+								chunk[2] = characteristic.getJSONObject("_qualification").getString("recordKey");
+								for(int c = 0; c<children.length(); c++) {
+									charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+									if("NOM_Name2".equals(charId)) {
+										chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+									}else if("NOM_URL2".equals(charId)) {
+										chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+									}
+								}
+			        			appendMediaAsset(
+			        					chunk[0],
+			        					chunk[1],
+			        					"NOM", // String assetType,
+			        					chunk[2],
+			        					"NOM", // String assetValueTextContent,
+			        					"ImageURL", // String assetValueAttributeId,
+			        					"NOM", // String assetUserTypeId,
+			        					"NOM", // String assetKeyPrefix,
+			        					itemId,
+			        					characteristic,
+			        					"NOM", // String baseAssetTypeName,
+				    					"MKP".equals(business) ? assetMapMKT : assetMap,
+		    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
+		    	    					product,
+		    	    					"MKP".equals(business) ? assetsMKT : assets,
+		    	    					"MKP".equals(business) ? docMKT : doc,
+		    							proposalId
+			        					);
+		        			}
+		        		}else {
+		        			if ("ProductName".equals(charId)) {
+								productName = productName != null && !"".equals(productName) ? productName
+										: (productName = characteristic.getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getString(0));
+							} else if ("Name".equals(charId)) {
+								charactName = characteristic.getJSONArray("_recordLang").getJSONObject(0)
+										.getJSONArray("values").getString(0);
+							} else if("ItemGroupS4H".equals( charId ) || "ItemGroup".equals( charId )) {
+		        				if(isBannedForMarketplace(characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"), "ItemGroups", "MATKLLOV")) {
+	        						log("Returning since the item group was in the no send to mkt list.");
+	        						brk = true;
+		        					break;
+		        				}
+		        				if("ItemGroupS4H".equals( charId )) {
+			        				itemGroupS4H = itemGroupS4H == null || "".equals(itemGroupS4H)
+											? characteristic.getJSONArray("_recordLang").getJSONObject(0)
+													.getJSONArray("values").getJSONObject(0).getString("_code")
+											: itemGroupS4H;
+									itemGroupS4HLabel = itemGroupS4HLabel == null || "".equals(itemGroupS4HLabel)
+											? characteristic.getJSONArray("_recordLang").getJSONObject(0)
+													.getJSONArray("values").getJSONObject(0).getString("_label")
+											: itemGroupS4HLabel;
+		        				} else {
+									itemGroup = itemGroup == null || "".equals(itemGroup)
+											? characteristic.getJSONArray("_recordLang").getJSONObject(0)
+													.getJSONArray("values").getJSONObject(0).getString("_code")
+											: itemGroup;
+									itemGroupLabel = itemGroupLabel == null || "".equals(itemGroupLabel)
+											? characteristic.getJSONArray("_recordLang").getJSONObject(0)
+													.getJSONArray("values").getJSONObject(0).getString("_label")
+											: itemGroupLabel;
+		        				}
+		        				if (!behvo) {
+			        				String elese = characteristic.getJSONArray("_recordLang").getJSONObject(0)
+			        						.getJSONArray("values").getJSONObject(0).getString("_code");
+			        				String dictionary = "ItemGroup".equals(charId)
+			        						? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H";
+			        				String laetiqueta = queryDictionary(elese, dictionary);
+			        				if (laetiqueta != null && !laetiqueta.isBlank()) {
+			        					String elcode = dastub.getLookupValueCodeByName(
+			        							"SAP_BEHVOLOV", 10, laetiqueta, true);
+			        					if (elcode != null && !elcode.isBlank()) {
+			        						appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO",
+			        								attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+			        								"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+			        						behvo = true;
+			        					}
+			        				}
+			        						        				appendPlainElementValue(
+			        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
+			        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
+			        						"ItemGroup2",
+			        						attributeValues,
+			        						"MKP".equals(business) ? attributesMKT : attributes,
+	        								"MKP".equals(business) ? docMKT : doc,
+			        						propiedadesCaracteristicas);
+		        				}
+		        				appendPlainElementValue(
+		        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
+		        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
+		        						charId,
+		        						attributeValues,
+		        						"MKP".equals(business) ? attributesMKT : attributes,
+	    								"MKP".equals(business) ? docMKT : doc,
+		        						propiedadesCaracteristicas);
+		        				itemGroup = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+		        				itemGroupLabel = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
+		        			}else if("BrandName".equals(charId) || "BRAND_ID_S4H".equals(charId)) {
+		        					if(isBannedForMarketplace(characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"), "Brands", "ZCOMALOV")) {
+		        						log("Returning since brand was in no send to mkt list.");
+		        						continue;
+		        					}
+		        					brandName = brandName == null || "".equals(brandName)
+											? characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+													.getJSONObject(0).getString("_code")
+											: brandName;
+									brandNameLabel = brandNameLabel == null || "".equals(brandNameLabel)
+											? characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+													.getJSONObject(0).getString("_label")
+											: brandNameLabel;
+									appendPlainElementValue(
+		        							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
+		        							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
+		        							charId,
+		        							attributeValues,
+		        							"MKP".equals(business) ? attributesMKT : attributes,
+	    									"MKP".equals(business) ? docMKT : doc,
+		        							propiedadesCaracteristicas);
+									appendPlainElementValue(
+		        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
+		        						null,
+		        						"BrandNameATG",
+		        						attributeValues,
+		        						"MKP".equals(business) ? attributesMKT : attributes,
+	    								"MKP".equals(business) ? docMKT : doc,
+		        						propiedadesCaracteristicas);
+									appendPlainElementValue(
+		    							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
+		    							null,
+		    							"BrandIDATG",
+		    							attributeValues,
+		    							"MKP".equals(business) ? attributesMKT : attributes,
+										"MKP".equals(business) ? docMKT : doc,
+		    							propiedadesCaracteristicas);
+									brandCode = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+		        			}else if("supplierShopId".equals(charId)){
+								heredables.put(charId, characteristic);
+		        				if("LVP".equals(business)) {
+		        					appendPlainElementValue(
+			    							"9999",
+			    							null,
+			    							"supplierShopId",
+			    							attributeValues,
+			    							"MKP".equals(business) ? attributesMKT : attributes,
+	    									"MKP".equals(business) ? docMKT : doc,
+			    							propiedadesCaracteristicas);
+		        				}else {
+		        					appendPlainElementValue(
+			    							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0),
+			    							null,
+			    							"supplierShopId",
+			    							attributeValues,
+			    							"MKP".equals(business) ? attributesMKT : attributes,
+	    									"MKP".equals(business) ? docMKT : doc,
+			    							propiedadesCaracteristicas);
+		        				}
+		        			} else if ("ProductType".equals(charId)) {
+								pt = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+										.getJSONObject(0).getString("_code");
+								ptl = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+										.getJSONObject(0).getString("_label");
+								if ("1".equals(pt)) {
+									lst = dataMap.get("ItemGroupS4H");
+									if (lst != null) {
+										itemGroupS4H = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getJSONObject(0).getString("_code");
+									}
+									lst = dataMap.get("AlmacenamientoAtt");
+									if (lst != null) {
+										almacenamientoAtt = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getJSONObject(0).getString("_code");
+									}
+									lst = dataMap.get("MTART_S4H");
+									if (lst != null) {
+										mtart = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getJSONObject(0).getString("_code");
+									}
+									lst = dataMap.get("SkuType");
+									if (lst != null) {
+										skuType = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
+												.getJSONArray("values").getJSONObject(0).getString("_code");
+									}
+									if ("SERV".equals(skuType) && "0001".equals(almacenamientoAtt)) {
+										pt = "6";
+										ptl = "Digital";
+										appendPlainElementValue("Digital", pt, "ProductType", attributeValues, attributes,
+												doc, propiedadesCaracteristicas);
+									} else if ("DIEN".equals(mtart) && "SB87516".equals(itemGroupS4H)) {
+										pt = "6";
+										ptl = "Digital";
+										appendPlainElementValue("Digital", pt, "ProductType", attributeValues, attributes,
+												doc, propiedadesCaracteristicas);
+	
+									} else {
+										appendPlainElementValue(
+												characteristic.getJSONArray("_recordLang").getJSONObject(0)
+														.getJSONArray("values").getJSONObject(0).getString("_label"),
+												characteristic.getJSONArray("_recordLang").getJSONObject(0)
+														.getJSONArray("values").getJSONObject(0).getString("_code"),
+												"ProductType", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas
+												);
+									}
+								} else {
+									appendPlainElementValue(
+											characteristic.getJSONArray("_recordLang").getJSONObject(0)
+													.getJSONArray("values").getJSONObject(0).getString("_label"),
+											characteristic.getJSONArray("_recordLang").getJSONObject(0)
+													.getJSONArray("values").getJSONObject(0).getString("_code"),
+											"ProductType", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+								}
+							} else {
+		        				if("ItemGroup2".equals(charId)) {
+									continue;
+								}else if(atributosGeneralesQueSi.contains(charId)) {
+									if(unosQueQuiero.contains(charId)) {
+										heredables.put(charId, characteristic);
+									}
+									if("LOOKUP".equals(characteristic.getString("_datatype"))){
+										boolean skip = false;
+										if("Direction".equals(charId) && direccion != null && !"".equals(direccion)) {
+											skip = true;
+										}
+										if("Section".equals(charId) && seccion != null && !"".equals(seccion)) {
+											skip = true;
+										}
+										if("ItemGroup".equals(charId) && itemGroup != null && !"".equals(itemGroup)) {
+											skip = true;
+										}
+										if("ItemGroupS4H".equals(charId) && itemGroupS4H != null && !"".equals(itemGroupS4H)) {
+											skip = true;
+										}
+										if("BrandName".equals(charId) && brandName != null && !"".equals(brandName)) {
+											skip = true;
+										}
+										if("BRAND_ID_S4H".equals(charId) && brandIdS4H != null && !"".equals(brandIdS4H)) {
+											skip = true;
+										}
+										if(!skip) {
+											appendPlainElementValue(
+													characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
+													characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
+													charId,
+													attributeValues,
+													"MKP".equals(business) ? attributesMKT : attributes,
+													"MKP".equals(business) ? docMKT : doc,
+													propiedadesCaracteristicas);
+										}
+									}else if(!"NONE".equals(characteristic.getString("_datatype"))) {
+										boolean skip = false;
+										java.util.LinkedList<String> vals = new java.util.LinkedList<>();
+										for(int m=0; m<characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").length(); m++) {
+											vals.addLast( String.valueOf( parseDateForSpecificDateFields( characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(m), charId) ));
+										}
+										if("SupplierID".equals(charId) && supplierID != null && !"".equals(supplierID)) {
+											skip = true;
+										}
+										
+										if(!skip){
+											appendPlainElementValue(
+													String.join(",", vals),
+													null,
+													charId,
+													attributeValues,
+													"MKP".equals(business) ? attributesMKT : attributes,
+													"MKP".equals(business) ? docMKT : doc,
+													propiedadesCaracteristicas);
+										}
+									}
+									
+								}
+		        			}
+		        		}
+		        	}
+		        	if(brk) {
+		        		continue;
+		        	}
+		        	if (embeddedCodeWEB != null && !"".equals(embeddedCodeWEB)) {
+						appendPlainElementValue(embeddedCodeWEB, null, "EmbedCodeWEB", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
+								propiedadesCaracteristicas);
+					}
+					if (embeddedCodeWAP != null && !"".equals(embeddedCodeWAP)) {
+						appendPlainElementValue(embeddedCodeWAP, null, "EmbedCodeWAP", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
+								propiedadesCaracteristicas);
+					}
+					if (refundPolicy != null && !"".equals(refundPolicy)) {
+						appendPlainElementValue(refundPolicy, null, "refundPolicy", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
+								propiedadesCaracteristicas);
+					}
+					if (seccion != null && !"".equals(seccion)) {
+						appendPlainElementValue(seccionLabel, seccion, "Section", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
+								propiedadesCaracteristicas);
+					}
+					if (direccion != null && !"".equals(direccion)) {
+						appendPlainElementValue(direccionLabel, direccion, "Direction", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
+								propiedadesCaracteristicas);
+					}
+					if (supplierPartNumber != null && !"".equals(supplierPartNumber)) {
+						appendPlainElementValue(supplierPartNumber, "", "SupplierPartNumber", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+					}
+					if (supplierID != null && !"".equals(supplierID)) {
+						appendPlainElementValue(supplierIDLabel, supplierID, "SupplierID", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,propiedadesCaracteristicas);
+					}
+					if(productName != null) {
+						name.setTextContent(productName);
+						appendPlainElementValue(
+								productName,
+								null,
+								"ProductName",
+								attributeValues,
+								"MKP".equals(business) ? attributesMKT : attributes,
+								"MKP".equals(business) ? docMKT : doc,
+								propiedadesCaracteristicas);
+					}
+					if (!behvo) {
+						String elese = "SBB".equals(business) ? itemGroupS4H : itemGroup;
+						String dictionary = !"SBB".equals(business)
+								? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H";
+						String laetiqueta = queryDictionary(elese, dictionary);
+						if (laetiqueta != null && !laetiqueta.isBlank()) {
+							String elcode = dastub.getLookupValueCodeByName(
+									"SAP_BEHVOLOV", 10, laetiqueta, true);
+							if (elcode != null && !elcode.isBlank()) {
+								appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO", attributeValues,
+										"MKP".equals(business) ? attributesMKT : attributes,
+										"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+								behvo = true;
 							}
 						}
-						if(sku_ == null || "".equals(sku_)) {
-							sku_ = sku0;
+					}
+	
+					if (unosQueQuiero.contains("ProductType") && !heredables.containsKey("ProductType")) {
+						heredables.put("ProductType",
+								new org.json.JSONObject().put("_datatype", "LOOKUP")
+										.put("_qualification",
+												new org.json.JSONObject().put(
+														"characteristic",
+														new org.json.JSONObject().put("_code", "ProductType")))
+										.put("_recordLang", new org.json.JSONArray()
+												.put(new org.json.JSONObject().put("values", new org.json.JSONArray().put(
+														new org.json.JSONObject().put("_code", pt).put("_label", ptl))))));
+					}
+					appendPlainElementValue(itemGroup != null && !"".equals(itemGroup) ? itemGroupLabel : itemGroupS4HLabel,
+							itemGroup != null && !"".equals(itemGroup) ? itemGroup : itemGroupS4H, "ItemGroup2",
+							attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+					appendPlainElementValue(!"SBB".equals(business) ? itemGroupLabel : itemGroupS4HLabel,
+							!"SBB".equals(business) ? itemGroup : itemGroupS4H,
+							!"SBB".equals(business) ? "ItemGroup" : "ItemGroupS4H", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
+							propiedadesCaracteristicas);
+					appendPlainElementValue(!"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel,
+							!"SBB".equals(business) ? brandName : brandIdS4H,
+							!"SBB".equals(business) ? "BrandName" : "BRAND_ID_S4H", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
+							propiedadesCaracteristicas);
+					appendPlainElementValue(!"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel, null,
+							"BrandNameATG", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+					appendPlainElementValue(!"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel, null, "BrandIDATG",
+							attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+									"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+	
+					if (productName != null && !"".equals(productName)) {
+						name.setTextContent(productName);
+						appendPlainElementValue(productName, null, "ProductName", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+								"MKP".equals(business) ? docMKT : doc,
+								propiedadesCaracteristicas);
+					} else {
+						if (charactName != null && !"".equals(charactName)) {
+							name.setTextContent(charactName);
+							appendPlainElementValue(charactName, null, "ProductName", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+									"MKP".equals(business) ? docMKT : doc,
+									propiedadesCaracteristicas);
+						} else {
+							if (nameLang != null && !"".equals(nameLang)) {
+								name.setTextContent(nameLang);
+								appendPlainElementValue(nameLang, null, "ProductName", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+										"MKP".equals(business) ? docMKT : doc,
+										propiedadesCaracteristicas);
+							} else {
+								log("Sin product neim, no será posible publicar.");
+								System.out.println("Sin product neim, no será posible publicar.");
+								reqPublishMessage
+										.getJSONArray("rows").put(
+												new org.json.JSONObject()
+														.put("object",
+																new org.json.JSONObject().put("id",
+																		"'" + proposalId + "'@1"))
+														.put("values", new org.json.JSONArray().put("Sin ProductName")));
+								continue;
+							}
 						}
-						if(sku_ != null && !"".equals(sku_)) {
-							keyValueSKU = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
-							keyValueSKU.setAttribute("KeyID","SKUID");
-							String skuval =  sku_;
-							keyValueSKU.setTextContent( skuval );
-							product.appendChild(keyValueSKU);
-							appendPlainElementValue(
-									skuval,
+					}
+	
+					if (pt == null) {
+						lst = dataMap.get("AlmacenamientoAtt");
+						if (lst != null) {
+							almacenamientoAtt = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0)
+									.getJSONArray("values").getJSONObject(0).getString("_code");
+						}
+						lst = dataMap.get("MTART_S4H");
+						if (lst != null) {
+							mtart = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+									.getJSONObject(0).getString("_code");
+						}
+						lst = dataMap.get("SkuType");
+						if (lst != null) {
+							skuType = lst.getFirst().getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
+									.getJSONObject(0).getString("_code");
+						}
+						if ("SERV".equals(skuType) && "0001".equals(almacenamientoAtt)) {
+							pt = "6";
+							ptl = "Digital";
+							appendPlainElementValue("Digital", pt, "ProductType", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+									"MKP".equals(business) ? docMKT : doc,
+									propiedadesCaracteristicas);
+						} else if ("DIEN".equals(mtart) && "SB87516".equals(itemGroupS4H)) {
+							pt = "6";
+							ptl = "Digital";
+							appendPlainElementValue("Digital", pt, "ProductType", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+									"MKP".equals(business) ? docMKT : doc,
+									propiedadesCaracteristicas);
+	
+						} else {
+							pt = "1";
+							ptl = "Soft line";
+							appendPlainElementValue("Soft line", pt, "ProductType", attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+									"MKP".equals(business) ? docMKT : doc,
+									propiedadesCaracteristicas);
+						}
+					}
+					
+		        	if("SalesItem".equals(productType) && ean_ == null) {
+	        			keyValueEAN = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
+	        			keyValueEAN.setAttribute("KeyID", "SBB".equals(business) ? "EANS4HKey" : "EANKey");
+	        			keyValueEAN.setTextContent(ean_);
+	        			product.appendChild(keyValueEAN);
+	        			appendPlainElementValue(
+								ean_,
+								null,
+								"MainBarCode",
+								attributeValues,
+								"MKP".equals(business) ? attributesMKT : attributes,
+									"MKP".equals(business) ? docMKT : doc,
+								propiedadesCaracteristicas
+							);
+		        	}
+		        	if("SalesItem".equals(productType) && sku != null) {
+	        			keyValueSKU = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
+	        			keyValueSKU.setAttribute("KeyID","SKUID");
+	        			keyValueSKU.setTextContent( sku );
+	        			product.appendChild(keyValueSKU);
+	        			appendPlainElementValue(
+								sku,
+								null,
+								"SKU",
+								attributeValues,
+								"MKP".equals(business) ? attributesMKT : attributes,
+								"MKP".equals(business) ? docMKT : doc,
+								propiedadesCaracteristicas);
+		        	}
+		        	if("SalesItem".equals(productType) && tamanoUnico != null && !"".equals(tamanoUnico)) {
+		        		talla(clothingSize == null ? sizeVaD : clothingSize, tamanoUnico, business, itemGroup, template, direccion, brandCode, attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas );
+		        		appendPlainElementValue(
+								tamanoUnico,
+								null,
+								"TamanoUnico",
+								attributeValues,
+								"MKP".equals(business) ? attributesMKT : attributes,
+								"MKP".equals(business) ? docMKT : doc,
+								propiedadesCaracteristicas
+								);
+					}
+		        	
+		        	if( ( "SalesItemFamilyMkt".equals(productType) || "SalesItemFamily".equals(productType) ) ) {
+		        		org.json.JSONObject resp = null;
+		        		Element subProduct = null;
+		        		Element subAttributeValues = null;
+		        		Element varName = null;
+		        		String childSAPObjectType = null;
+		        		String childSAPObjectTypeLabel = null;
+		        		String miraklVariantGroupId = null;
+		        		java.util.LinkedList<java.util.LinkedList< String[] >> losdetalles = new java.util.LinkedList<>();
+		        		java.util.LinkedList<java.util.LinkedList< String[] >> losesmoshes = new java.util.LinkedList<>();
+		        		java.util.LinkedList<java.util.LinkedList< String[] >> lasilustraciones = new java.util.LinkedList<>();
+		        		boolean theFirstTime = true;
+		        		for(int a = 0; a<upperRows.length(); a++) {
+		        			procede = true;
+		        			tallaNormalizada = null;
+		        			tamanoUnico = null;
+		        			color = null;
+		        			codigoColor = null;
+		        			childSAPObjectType = null;
+		        			childSAPObjectTypeLabel = null;
+		        			miraklVariantGroupId = null;
+		    				try{
+		    					firstVariant = upperRows.getJSONObject(a).getJSONArray("values").getString(0);
+		    				}catch(org.json.JSONException e) {
+		    				}
+	
+		        			subProduct = ("MKP".equals(business) ? docMKT : doc).createElement("Product");
+		        			subProduct.setAttribute("ID", firstVariant);
+		        			subProduct.setAttribute("UserTypeID", "MKP".equals(business) ? "SalesItem" : "SalesItemVariant");
+		        			if(!"MKP".equals(business))
+		        				subProduct.setAttribute("ParentID", proposalId);
+		        			subProduct.setAttribute("Changed", "true");
+		                	subAttributeValues = ("MKP".equals(business) ? docMKT : doc).createElement("Values");
+		                	varName = ("MKP".equals(business) ? docMKT : doc).createElement("Name");
+		                	subProduct.appendChild(varName);
+		                	subProduct.appendChild(subAttributeValues);
+		                	if("MKP".equals(business)) {
+		                		appendPlainElementValue(
+	    								"true",
+	    								"1",
+	    								"isMarketPlace",
+	    								subAttributeValues,
+	    								"MKP".equals(business) ? attributesMKT : attributes,
+										"MKP".equals(business) ? docMKT : doc,
+	    								propiedadesCaracteristicas);
+	        				}
+		                	details = new java.util.LinkedList<>();
+		                	smoshes = new java.util.LinkedList<>();
+		                	illustrations = new java.util.LinkedList<>();
+		    				try {
+								raw = rw.makeRequest("GET", "/object/Article/'" + firstVariant + "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData", null);
+								resp = new org.json.JSONObject(raw);
+								resp = resp.getJSONObject("_data");
+								if(!resp.has("_characteristicRecords"))
+									continue;
+								rows = resp.getJSONArray("_characteristicRecords");
+								org.json.JSONArray children = null;
+								String[] chunk = null;
+								String sku0 = resp.has("sku") ? String.valueOf( resp.getLong("sku") ) : null;
+								String ean0 = resp.has("gtin") ? resp.getString("gtin") : null;
+								codigoColor = resp.has("articleExtraData") && resp.getJSONArray("articleExtraData").getJSONObject(0).has("coloursLiverpoolAtt") ? resp.getJSONArray("articleExtraData").getJSONObject(0).getJSONObject("coloursLiverpoolAtt").getString("_code") : null;
+								color = resp.has("articleExtraData") && resp.getJSONArray("articleExtraData").getJSONObject(0).has("coloursLiverpoolAtt") ? resp.getJSONArray("articleExtraData").getJSONObject(0).getJSONObject("coloursLiverpoolAtt").getString("_label") : null;
+								tamanoUnico = resp.has("articleExtraData") && resp.getJSONArray("articleExtraData").getJSONObject(0).has("tamanoUnico") ? resp.getJSONArray("articleExtraData").getJSONObject(0).getJSONObject("tamanoUnico").getString("_code") : null;
+								for(int b = 0; b < rows.length(); b++) {
+									imageObject = rows.getJSONObject(b);
+									charId = imageObject.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+									if("MainBarCode".equals(charId) || "MainBarCodeS4H".equals(charId)) {
+										ean0 = ean0 != null && !"".equals(ean0) ? ean0 : imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+					        		}else
+					        		if("SKU".equals(charId)) {
+					        			sku0 = sku0 != null && !"".equals(sku0) ? sku0 : imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+					        		}else
+									if("ProductImage2".equals(charId) && imageObject.has("_children")) {
+										children = imageObject.getJSONArray("_children");
+										piKey = imageObject.getJSONObject("_qualification").getString("recordKey");
+										for(int c = 0; c<children.length(); c++) {
+											charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+											if("ProductImage_Name2".equals(charId)) {
+												piName = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+											}else if("ProductImage_URL2".equals(charId)) {
+												piUrl = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+											}
+										}
+									}else if("ProductImageDetail2".equals(charId) && imageObject.has("_children")) {
+										children = imageObject.getJSONArray("_children");
+										chunk = new String[4];
+										chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
+										for(int c = 0; c<children.length(); c++) {
+											charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+											if("ProductImageDetail_Name2".equals(charId)) {
+												chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+											}else if("ProductImageDetail_URL2".equals(charId)) {
+												chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+											}
+										}
+										chunk[3] = firstVariant;
+										details.addLast(chunk);
+										if(theFirstTime)
+											losdetalles.addLast(details);
+									}else if("ProductImageSmosh2".equals(charId) && imageObject.has("_children")) {
+										children = imageObject.getJSONArray("_children");
+										chunk = new String[4];
+										chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
+										for(int c = 0; c<children.length(); c++) {
+											charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+											if("ProductImageSmosh_Name2".equals(charId)) {
+												chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+											}else if("ProductImageSmosh_URL2".equals(charId)) {
+												chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+											}
+										}
+										chunk[3] = firstVariant;
+										smoshes.addLast(chunk);
+										if(theFirstTime)
+											losesmoshes.addLast(smoshes);
+									}else if("Illustration2".equals(charId) && imageObject.has("_children")) {
+										children = imageObject.getJSONArray("_children");
+										chunk = new String[4];
+										chunk[2] = imageObject.getJSONObject("_qualification").getString("recordKey");
+										for(int c = 0; c<children.length(); c++) {
+											charId = children.getJSONObject(c).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+											if("Illustration_Name2".equals(charId)) {
+												chunk[0] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+											}else if("Illustration_URL2".equals(charId)) {
+												chunk[1] = children.getJSONObject(c).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+											}
+										}
+										chunk[3] = firstVariant;
+										illustrations.addLast(chunk);
+										if(theFirstTime)
+											lasilustraciones.addLast(illustrations);
+									} else if("TamanoUnicoSTD".equals(charId)){
+										tallaNormalizada = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+									}else if("TamanoUnico".equals(charId)) {
+										tamanoUnico = tamanoUnico != null ? tamanoUnico : imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
+									}else if("ColoursLiverpoolAtt".equals(charId)) {
+										color = color != null ? color : imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
+										codigoColor = codigoColor != null ? codigoColor : imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+									}else if("SKU".equals(charId)) {
+										sku0 = sku0 == null || "".equals(sku0) ? imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) : sku0;
+									}else if("MainBarCode".equals(charId)) {
+										ean0 = ean0 == null || "".equals(ean0) ? imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) : ean0;
+									}else if("MainBarCodeS4H".equals(charId)) {
+										ean0 = ean0 == null || "".equals(ean0) ? imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) : ean0;
+									}else if("SAPObjectType".equals(charId)) {
+										childSAPObjectTypeLabel = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
+										childSAPObjectType = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+									}else if("mirakl-variant-group-id".equals(charId)) {
+										miraklVariantGroupId = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+									}else if("ProcedeNoProcede".equals(charId)) {
+										procede = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getBoolean(0);
+									}else {
+										if(atributosGeneralesQueSi.contains(charId)) {
+											if(unosQueQuiero.contains(charId)) {
+												heredables.put(charId, characteristic);
+											}
+											if("LOOKUP".equals(imageObject.getString("_datatype"))){
+												appendPlainElementValue(
+														imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
+														imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
+														charId,
+														subAttributeValues,
+														"MKP".equals(business) ? attributesMKT : attributes,
+				    									"MKP".equals(business) ? docMKT : doc,
+														propiedadesCaracteristicas
+														);
+											}else if(!"NONE".equals(imageObject.getString("_datatype"))) {
+												java.util.LinkedList<String> vals = new java.util.LinkedList<>();
+												for(int m=0; m<imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").length(); m++) {
+													vals.addLast( String.valueOf( parseDateForSpecificDateFields( imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(m), charId) ));
+												}
+												appendPlainElementValue(
+														String.join(",", vals),
+														null,
+														charId,
+														subAttributeValues,
+														"MKP".equals(business) ? attributesMKT : attributes,
+				    									"MKP".equals(business) ? docMKT : doc,
+														propiedadesCaracteristicas);
+											}
+										}
+									}
+									theFirstTime = false;
+								}
+								if(sku0 != null && !"".equals(sku0)) {
+//									if("MKP".equals(business) && upperRows.length() == 1) {
+//										if(sku_ == null || "".equals(sku_)) {
+//											sku_ = sku0;
+//										}
+//									}
+									keyValueSKU = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
+				        			keyValueSKU.setAttribute("KeyID","SKUID");
+				        			String skuval =  sku0;
+				        			keyValueSKU.setTextContent( skuval );
+				        			subProduct.appendChild(keyValueSKU);
+				        			appendPlainElementValue(
+											sku0,
+											null,
+											"SKU",
+											subAttributeValues,
+											"MKP".equals(business) ? attributesMKT : attributes,
+	    									"MKP".equals(business) ? docMKT : doc,
+											propiedadesCaracteristicas);
+								}
+								if(ean0 != null) {
+									if("MKP".equals(business) && upperRows.length() == 1) {
+										if(ean_ == null || "".equals(ean_)) {
+											ean_ = ean0;
+										}
+									}
+									keyValueEAN = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
+				        			keyValueEAN.setAttribute("KeyID", "SBB".equals(business) ? "EANS4HKey" : "EANKey");
+				        			keyValueEAN.setTextContent(ean0);
+				        			subProduct.appendChild(keyValueEAN);
+				        			appendPlainElementValue(
+											ean0,
+											null,
+											"MainBarCode",
+											subAttributeValues,
+											"MKP".equals(business) ? attributesMKT : attributes,
+	    									"MKP".equals(business) ? docMKT : doc,
+											propiedadesCaracteristicas);
+								}
+	//							if(productName != null) {
+	//								name.setTextContent(productName);
+	//								appendPlainElementValue(
+	//										productName,
+	//										null,
+	//										"ProductName",
+	//										subAttributeValues,
+	//										"MKP".equals(business) ? attributesMKT : attributes,
+	//    									"MKP".equals(business) ? docMKT : doc,
+	//										propiedadesCaracteristicas);
+	//							}
+								if (productName != null) {
+									name.setTextContent(productName);
+									appendPlainElementValue(productName, null, "ProductName", subAttributeValues,
+											"MKP".equals(business) ? attributesMKT : attributes,
+			    									"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+								} else {
+									if (charactName != null && !"".equals(charactName)) {
+										name.setTextContent(charactName);
+										appendPlainElementValue(charactName, null, "ProductName", subAttributeValues,
+												"MKP".equals(business) ? attributesMKT : attributes,
+				    									"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+									} else {
+										if (nameLang != null && !"".equals(nameLang)) {
+											name.setTextContent(nameLang);
+											appendPlainElementValue(nameLang, null, "ProductName", subAttributeValues,
+													"MKP".equals(business) ? attributesMKT : attributes,
+					    									"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+										} else {
+											log("Sin product neim, no será posible publicar.");
+											System.out.println("Sin product neim, no será posible publicar.");
+											reqPublishMessage.getJSONArray("rows")
+													.put(new org.json.JSONObject()
+															.put("object",
+																	new org.json.JSONObject().put("id",
+																			"'" + proposalId + "'@1"))
+															.put("values",
+																	new org.json.JSONArray().put("Sin ProductName")));
+											continue;
+										}
+									}
+								}
+								if (descLong != null) {
+									appendPlainElementValue(descLong, null, "DescriptionLong", subAttributeValues,
+											"MKP".equals(business) ? attributesMKT : attributes,
+			    									"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+								}
+								log("For: " + firstVariant + ", " + procede);
+								if(!procede) {
+									procede = resp.has("procedeNoProcede") && resp.getBoolean("procedeNoProcede");
+								}
+								if(!procede) {
+									continue;
+								}else {
+				                	product.appendChild(subProduct);
+								}
+								if(miraklVariantGroupId == null && "MKP".equals(business)) {
+									appendPlainElementValue(
+		        							sku,
+		        							null,
+		        							"mirakl-variant-group-id",
+		        							subAttributeValues,
+		        							"MKP".equals(business) ? attributesMKT : attributes,
+	    									"MKP".equals(business) ? docMKT : doc,
+		        							propiedadesCaracteristicas);
+								}
+								varName.setTextContent( name.getTextContent() + ", " + tamanoUnico + ", " + color );
+	
+								for(java.util.Map.Entry<String, org.json.JSONObject> entr : heredables.entrySet()) {
+									charId = entr.getKey();
+									characteristic = entr.getValue();
+									if("LOOKUP".equals(characteristic.getString("_datatype"))){
+										if(!characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).has("_label")) {
+											log("FUUUUUUUUFFFFFKKKKKKFFFFFF " + entr + " FUUUUUUUUFFFFFKKKKKKFFFFFF");
+										}
+//										System.out.println("\t\tAV: " + characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0) + " || " + entr);
+										if(characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).length() > 0) {
+				        					appendPlainElementValue(
+				        							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
+				        							characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
+				        							charId,
+				        							subAttributeValues,
+				        							"MKP".equals(business) ? attributesMKT : attributes,
+		        									"MKP".equals(business) ? docMKT : doc,
+				        							propiedadesCaracteristicas);
+										}else {
+											System.out.println("Pessi: " + entr);
+										}
+			        				}else if(!"NONE".equals(characteristic.getString("_datatype"))) {
+			        					java.util.LinkedList<String> vals = new java.util.LinkedList<>();
+			        					for(int m=0; m<characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").length(); m++) {
+			        						vals.addLast( String.valueOf( characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(m) ));
+			        					}
+			        					appendPlainElementValue(
+			        							String.join(",", vals),
+			        							null,
+			        							charId,
+			        							subAttributeValues,
+			        							"MKP".equals(business) ? attributesMKT : attributes,
+	        									"MKP".equals(business) ? docMKT : doc,
+			        							propiedadesCaracteristicas);
+			        				}
+								}
+	
+	
+								if(descLong != null) {
+									appendPlainElementValue(
+											descLong,
+											null,
+											"DescriptionLong",
+											subAttributeValues,
+											"MKP".equals(business) ? attributesMKT : attributes,
+											"MKP".equals(business) ? docMKT : doc,
+											propiedadesCaracteristicas);
+								}
+								appendPlainElementValue(
+										sku,
+										null,
+										"ParentSKU",
+										subAttributeValues,
+										"MKP".equals(business) ? attributesMKT : attributes,
+										"MKP".equals(business) ? docMKT : doc,
+										propiedadesCaracteristicas);
+	//							if(childSKU != null && !"".equals(childSKU)) {
+	//								appendPlainElementValue(
+	//										childSKU,
+	//										null,
+	//										"SKU",
+	//										subAttributeValues,
+	//										"MKP".equals(business) ? attributesMKT : attributes,
+	//										"MKP".equals(business) ? docMKT : doc,
+	//										propiedadesCaracteristicas);
+	//							}
+	//							if(childMainBarCode != null && !"".equals(childMainBarCode)) {
+	//								appendPlainElementValue(
+	//										childMainBarCode,
+	//										null,
+	//										"SBB".equals(business) ? "MainBarCodeS4H" : "MainBarCode",
+	//										subAttributeValues,
+	//										"MKP".equals(business) ? attributesMKT : attributes,
+	//										"MKP".equals(business) ? docMKT : doc,
+	//										propiedadesCaracteristicas);
+	//							}
+								if(childSAPObjectType != null && !"".equals(childSAPObjectType)) {
+									appendPlainElementValue(
+											childSAPObjectTypeLabel,
+											childSAPObjectType,
+											"SAPObjectType",
+											subAttributeValues,
+											"MKP".equals(business) ? attributesMKT : attributes,
+											"MKP".equals(business) ? docMKT : doc,
+											propiedadesCaracteristicas);
+								}
+								if(tamanoUnico != null && !"".equals(tamanoUnico)) {
+									appendPlainElementValue(
+											tamanoUnico,
+											null,
+											"TamanoUnico",
+											subAttributeValues,
+											"MKP".equals(business) ? attributesMKT : attributes,
+											"MKP".equals(business) ? docMKT : doc,
+											propiedadesCaracteristicas);
+									talla(clothingSize == null ? sizeVaD : clothingSize, tamanoUnico, business, itemGroup, template, direccion, brandCode, subAttributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas );
+								}
+								if(tallaNormalizada != null && !"".equals(tallaNormalizada)) {
+									appendPlainElementValue(
+											tallaNormalizada,
+											null,
+											"TC-NormalizedSize",
+											subAttributeValues,
+											"MKP".equals(business) ? attributesMKT : attributes,
+											"MKP".equals(business) ? docMKT : doc,
+											propiedadesCaracteristicas);
+								}
+								if(color != null && !"".equals(color)) {
+									appendPlainElementValue(
+											color,
+											codigoColor,
+											"ColoursLiverpoolAtt",
+											subAttributeValues,
+											"MKP".equals(business) ? attributesMKT : attributes,
+											"MKP".equals(business) ? docMKT : doc,
+											propiedadesCaracteristicas);
+								}
+								appendPlainElementValue(
+		        						itemGroupLabel,
+		        						itemGroup,
+		        						"ItemGroup2",
+		        						subAttributeValues,
+		        						"MKP".equals(business) ? attributesMKT : attributes,
+	    								"MKP".equals(business) ? docMKT : doc,
+		        						propiedadesCaracteristicas);
+								if(piName != null && piUrl != null && piKey != null ) {
+									appendMediaAsset(
+					    					piName,
+					    					piUrl,
+					    					"PrimaryProductImage", // String assetType,
+					    					piKey,
+					    					"Imagen Producto", // String assetValueTextContent,
+					    					"ImageURL", // String assetValueAttributeId,
+					    					"ProductImage", // String assetUserTypeId,
+					    					"ProductImage", // String assetKeyPrefix,
+					    					itemId,
+					    					characteristic,
+					    					"ProductImage", // String baseAssetTypeName,
+					    					"MKP".equals(business) ? assetMapMKT : assetMap,
+			    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
+	    	    							subProduct,
+			    	    					"MKP".equals(business) ? assetsMKT : assets,
+			    	    					"MKP".equals(business) ? docMKT : doc,
+					    					firstVariant
+					    					);
+								}
+								if( details != null && !details.isEmpty() ) {
+									for(String[] dt : details) {
+										appendMediaAsset(
+												dt[0],
+												dt[1],
+						    					"ProductImage", // String assetType,
+						    					dt[2],
+						    					"Imagen Detalle Producto", // String assetValueTextContent,
+						    					"ImageURL", // String assetValueAttributeId,
+						    					"ProductImageDetail", // String assetUserTypeId,
+						    					"ProductImageDetail", // String assetKeyPrefix,
+						    					itemId,
+						    					characteristic,
+						    					"ProductImageDetail", // String baseAssetTypeName,
+						    					"MKP".equals(business) ? assetMapMKT : assetMap,
+				    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
+				    	    					subProduct,
+				    	    					"MKP".equals(business) ? assetsMKT : assets,
+				    	    					"MKP".equals(business) ? docMKT : doc,
+						    					firstVariant
+						    					);
+									}
+								}
+								if(smoshes != null && !smoshes.isEmpty() ) {
+									for(String[] dt : smoshes) {
+										appendMediaAsset(
+												dt[0],
+												dt[1],
+						    					"ProductImageSmosh", // String assetType,
+						    					dt[2],
+						    					"Imagen Smosh Producto", // String assetValueTextContent,
+						    					"ImageURL", // String assetValueAttributeId,
+						    					"ProductImageSmosh", // String assetUserTypeId,
+						    					"SmoshImg", // String assetKeyPrefix,
+						    					itemId,
+						    					characteristic,
+						    					"ProductImageSmosh", // String baseAssetTypeName,
+						    					"MKP".equals(business) ? assetMapMKT : assetMap,
+				    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
+				    	    					subProduct,
+				    	    					"MKP".equals(business) ? assetsMKT : assets,
+				    	    					"MKP".equals(business) ? docMKT : doc,
+						    					firstVariant
+						    					);
+									}
+								}
+								if(illustrations != null && !illustrations.isEmpty() ) {
+									for(String[] dt : illustrations) {
+										appendMediaAsset(
+												dt[0],
+												dt[1],
+						    					"Illustration", // String assetType,
+						    					dt[2],
+						    					"Imagen Isométrica del Producto", // String assetValueTextContent,
+						    					"ImageURL", // String assetValueAttributeId,
+						    					"Illustration", // String assetUserTypeId,
+						    					"Illustration", // String assetKeyPrefix,
+						    					itemId,
+						    					characteristic,
+						    					"Illustration", // String baseAssetTypeName,
+						    					"MKP".equals(business) ? assetMapMKT : assetMap,
+				    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
+				    	    					subProduct,
+				    	    					"MKP".equals(business) ? assetsMKT : assets,
+				    	    					"MKP".equals(business) ? docMKT : doc,
+						    					firstVariant
+						    					);
+									}
+								}
+	
+	
+							} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
+								logE(e);
+							}
+		    				theFirstTime = false;
+		    			}
+		        		
+		        		if(sku != null && !"".equals(sku)) {
+			        		keyValueSKU = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
+		        			keyValueSKU.setAttribute("KeyID","SKUID");
+		        			keyValueSKU.setTextContent( sku );
+		        			product.appendChild(keyValueSKU);
+		        			appendPlainElementValue(
+									sku,
 									null,
 									"SKU",
 									attributeValues,
 									"MKP".equals(business) ? attributesMKT : attributes,
-    								"MKP".equals(business) ? docMKT : doc,
-									propiedadesCaracteristicas
-								);
-						}
-						if(ean_ == null) {
-							ean_ = ean0;
-						}
-						if(ean_ != null) {
-							keyValueEAN = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
-							keyValueEAN.setAttribute("KeyID", "SBB".equals(business) ? "EANS4HKey" : "EANKey");
-							keyValueEAN.setTextContent(ean_);
-							product.appendChild(keyValueEAN);
-							appendPlainElementValue(
+									"MKP".equals(business) ? docMKT : doc,
+									propiedadesCaracteristicas);
+		        		}
+		        		if(ean_ != null && !"".equals(ean_)) {
+			        		keyValueEAN = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
+		        			keyValueEAN.setAttribute("KeyID", "SBB".equals(business) ? "EANS4HKey" : "EANKey");
+		        			keyValueEAN.setTextContent(ean_);
+		        			product.appendChild(keyValueEAN);
+		        			appendPlainElementValue(
 									ean_,
 									null,
 									"MainBarCode",
 									attributeValues,
 									"MKP".equals(business) ? attributesMKT : attributes,
-	    								"MKP".equals(business) ? docMKT : doc,
+										"MKP".equals(business) ? docMKT : doc,
 									propiedadesCaracteristicas
 								);
+		        		}
+						if(piName != null && piUrl != null && piKey != null ) {
+							appendMediaAsset(
+			    					piName,
+			    					piUrl,
+			    					"PrimaryProductImage", // String assetType,
+			    					piKey,
+			    					"Imagen Producto", // String assetValueTextContent,
+			    					"ImageURL", // String assetValueAttributeId,
+			    					"ProductImage", // String assetUserTypeId,
+			    					"ProductImage", // String assetKeyPrefix,
+			    					itemId,
+			    					characteristic,
+			    					"ProductImage", // String baseAssetTypeName,
+			    					"MKP".equals(business) ? assetMapMKT : assetMap,
+	    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
+	    	    					product,
+	    	    					"MKP".equals(business) ? assetsMKT : assets,
+	    	    					"MKP".equals(business) ? docMKT : doc,
+			    					proposalId
+			    					);
 						}
-						log("For: " + firstVariant + ", " + procede);
-						if(!procede) {
-							procede = resp.has("procedeNoProcede") && resp.getBoolean("procedeNoProcede");
+						for(java.util.LinkedList<String[]> eldetalle : losdetalles) {
+							for(String[] dt : eldetalle) {
+								appendMediaAsset(
+										dt[0],
+										dt[1],
+				    					"ProductImage", // String assetType,
+				    					dt[2],
+				    					"Imagen Detalle Producto", // String assetValueTextContent,
+				    					"ImageURL", // String assetValueAttributeId,
+				    					"ProductImageDetail", // String assetUserTypeId,
+				    					"ProductImageDetail", // String assetKeyPrefix,
+				    					itemId,
+				    					characteristic,
+				    					"ProductImageDetail", // String baseAssetTypeName,
+				    					"MKP".equals(business) ? assetMapMKT : assetMap,
+		    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
+		    	    					product,
+		    	    					"MKP".equals(business) ? assetsMKT : assets,
+		    	    					"MKP".equals(business) ? docMKT : doc,
+				    					dt[3]
+				    					);
+							}
 						}
-						if(procede) {
+						for(java.util.LinkedList<String[]> elesmoshes : losesmoshes) {
+							for(String[] dt : elesmoshes) {
+								appendMediaAsset(
+										dt[0],
+										dt[1],
+				    					"ProductImageSmosh", // String assetType,
+				    					dt[2],
+				    					"Imagen Smosh Producto", // String assetValueTextContent,
+				    					"ImageURL", // String assetValueAttributeId,
+				    					"ProductImageSmosh", // String assetUserTypeId,
+				    					"SmoshImg", // String assetKeyPrefix,
+				    					itemId,
+				    					characteristic,
+				    					"ProductImageSmosh", // String baseAssetTypeName,
+				    					"MKP".equals(business) ? assetMapMKT : assetMap,
+		    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
+		    	    					product,
+		    	    					"MKP".equals(business) ? assetsMKT : assets,
+		    	    					"MKP".equals(business) ? docMKT : doc,
+				    					firstVariant
+				    					);
+							}
 						}
-					} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
-						logE(e);
-					}
-		        	}
-	        	if (rw.getXmm().listImmediateChildElements(product).get("Product") != null || "SalesItem".equals(productType)) {
-		        	if("MKP".equals(business)) {
-		        		productsMKT.appendChild(product);
+						for(java.util.LinkedList<String[]> lailustracion : lasilustraciones) {
+							for(String[] dt : lailustracion) {
+								appendMediaAsset(
+										dt[0],
+										dt[1],
+				    					"Illustration", // String assetType,
+				    					dt[2],
+				    					"Imagen Isométrica del Producto", // String assetValueTextContent,
+				    					"ImageURL", // String assetValueAttributeId,
+				    					"Illustration", // String assetUserTypeId,
+				    					"Illustration", // String assetKeyPrefix,
+				    					itemId,
+				    					characteristic,
+				    					"Illustration", // String baseAssetTypeName,
+				    					"MKP".equals(business) ? assetMapMKT : assetMap,
+		    	    					"MKP".equals(business) ? assetReferencesMapMKT : assetReferencesMap,
+		    	    					product,
+		    	    					"MKP".equals(business) ? assetsMKT : assets,
+		    	    					"MKP".equals(business) ? docMKT : doc,
+				    					firstVariant
+				    					);
+							}
+						}
+		        	}else if("SalesItem".equals(productType)) {
+						try {
+							raw = rw.makeRequest("GET", "/object/Article/'" + firstVariant + "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData", null);
+							org.json.JSONObject resp = new org.json.JSONObject(raw);
+							resp = resp.getJSONObject("_data");
+							if(!resp.has("_characteristicRecords"))
+								continue;
+							if(resp.has("procedeNoProcede")) {
+								procede = resp.getBoolean("procedeNoProcede");
+								log("El procede: " + procede);
+							}
+							rows = resp.getJSONArray("_characteristicRecords");
+							String sku0 = String.valueOf( resp.has("sku") ? resp.getLong("sku") : "" );
+							String ean0 = String.valueOf( resp.has("gtin") ? resp.getString("gtin") : "" );
+							for(int b = 0; b < rows.length(); b++) {
+								imageObject = rows.getJSONObject(b);
+								charId = imageObject.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+								if("ProductImage2".equals(charId)) {
+								}else if("ProductImageDetail2".equals(charId)) {
+								}else if("ProductImageSmosh2".equals(charId)) {
+								}else if("Illustration2".equals(charId)) {
+								}else if("ProductImage".equals(charId)) {
+								}else if("ProductImageDetail".equals(charId)) {
+								}else if("ProductImageSmosh".equals(charId)) {
+								}else if("Illustration".equals(charId)) {
+								}else if("TamanoUnicoSTD".equals(charId)){
+								}else if("TamanoUnico".equals(charId)) {
+								}else if("ColoursLiverpoolAtt".equals(charId)) {
+								}else if("SKU".equals(charId)) {
+									sku0 = sku0 != null && !"".equals(sku0) ? sku0 : treatment( imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
+								}else if("MainBarCode".equals(charId)) {
+									ean0 = ean0 != null && !"".equals(ean0) ? ean0 : imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+								}else if("MainBarCodeS4H".equals(charId)) {
+									ean0 = ean0 != null && !"".equals(ean0) ? ean0 : imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+								}else if("SAPObjectType".equals(charId)) {
+								}else if("ProcedeNoProcede".equals(charId)) {
+									procede = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getBoolean(0);
+								}else {
+									if(atributosGeneralesQueSi.contains(charId)) {
+										if("LOOKUP".equals(imageObject.getString("_datatype"))){
+											appendPlainElementValue(
+													imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
+													imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
+													charId,
+													attributeValues,
+													"MKP".equals(business) ? attributesMKT : attributes,
+					    								"MKP".equals(business) ? docMKT : doc,
+													propiedadesCaracteristicas
+												);
+										}else if(!"NONE".equals(imageObject.getString("_datatype"))) {
+											java.util.LinkedList<String> vals = new java.util.LinkedList<>();
+											for(int m=0; m<imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").length(); m++) {
+												vals.addLast( String.valueOf( parseDateForSpecificDateFields( imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(m), charId) ));
+											}
+											appendPlainElementValue(
+													String.join(",", vals),
+													null,
+													charId,
+													attributeValues,
+													"MKP".equals(business) ? attributesMKT : attributes,
+					    								"MKP".equals(business) ? docMKT : doc,
+													propiedadesCaracteristicas
+												);
+										}
+									}
+								}
+							}
+							if(sku == null || "".equals(sku)) {
+								sku = sku0;
+							}
+							if(sku != null && !"".equals(sku)) {
+								keyValueSKU = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
+								keyValueSKU.setAttribute("KeyID","SKUID");
+								String skuval =  sku;
+								keyValueSKU.setTextContent( skuval );
+								product.appendChild(keyValueSKU);
+								appendPlainElementValue(
+										skuval,
+										null,
+										"SKU",
+										attributeValues,
+										"MKP".equals(business) ? attributesMKT : attributes,
+	    								"MKP".equals(business) ? docMKT : doc,
+										propiedadesCaracteristicas
+									);
+							}
+							if(ean_ == null) {
+								ean_ = ean0;
+							}
+							if(ean_ != null) {
+								keyValueEAN = ("MKP".equals(business) ? docMKT : doc).createElement("KeyValue");
+								keyValueEAN.setAttribute("KeyID", "SBB".equals(business) ? "EANS4HKey" : "EANKey");
+								keyValueEAN.setTextContent(ean_);
+								product.appendChild(keyValueEAN);
+								appendPlainElementValue(
+										ean_,
+										null,
+										"MainBarCode",
+										attributeValues,
+										"MKP".equals(business) ? attributesMKT : attributes,
+		    								"MKP".equals(business) ? docMKT : doc,
+										propiedadesCaracteristicas
+									);
+							}
+							log("For: " + firstVariant + ", " + procede);
+							if(!procede) {
+								procede = resp.has("procedeNoProcede") && resp.getBoolean("procedeNoProcede");
+							}
+							if(procede) {
+							}
+						} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
+							logE(e);
+						}
+			        	}
+		        	if (rw.getXmm().listImmediateChildElements(product).get("Product") != null || "SalesItem".equals(productType)) {
+			        	if("MKP".equals(business)) {
+			        		productsMKT.appendChild(product);
+			        	}else {
+			        		products.appendChild(product);
+			        	}
 		        	}else {
-		        		products.appendChild(product);
+		        		log("Dropped. " + product.getAttribute("ID"));
+		        		System.out.println("Dropped. " + productType + "---");
+		        		System.out.println(rw.getXmm().prettyPrint(product));
+		        		this.dropped++;
 		        	}
-	        	}else {
-	        		log("Dropped. " + product.getAttribute("ID"));
-	        		this.dropped++;
-	        	}
-    				    			System.out.println(sku_ + " - " + proposalId);
-				} finally {
-					if (hasProducts(current)) {
-						long[] candidateBytes = measureMergedSizes(batch, current);
-						if (hasProducts(batch) && exceedsLimit(candidateBytes)) {
-							appendResult(result, finishBatch(batch, send, batchNumber++));
-							batch = createMiraklExportContext();
+	    				    			System.out.println(sku + " - " + proposalId);
+					} finally {
+						if (hasProducts(current)) {
+							long[] candidateBytes = measureMergedSizes(batch, current);
+							if (hasProducts(batch) && exceedsLimit(candidateBytes)) {
+								appendResult(result, finishBatch(batch, send, batchNumber++));
+								batch = createMiraklExportContext();
+							}
+							mergeContext(batch, current, true);
+							long[] batchBytes = serializedSizes(batch);
+							if (exceedsLimit(batchBytes) && batch.proposalIds.size() == 1) {
+								log("La propuesta " + current.currentProposalId
+										+ " supera individualmente 7 MB (LVP=" + batchBytes[0]
+										+ ", MKT=" + batchBytes[1] + "). Se conserva íntegra.");
+								appendResult(result, finishBatch(batch, send, batchNumber++));
+								batch = createMiraklExportContext();
+							}
+						} else {
+							mergeContext(batch, current, false);
 						}
-						mergeContext(batch, current, true);
-						long[] batchBytes = serializedSizes(batch);
-						if (exceedsLimit(batchBytes) && batch.proposalIds.size() == 1) {
-							log("La propuesta " + current.currentProposalId
-									+ " supera individualmente 7 MB (LVP=" + batchBytes[0]
-									+ ", MKT=" + batchBytes[1] + "). Se conserva íntegra.");
-							appendResult(result, finishBatch(batch, send, batchNumber++));
-							batch = createMiraklExportContext();
-						}
-					} else {
-						mergeContext(batch, current, false);
 					}
 				}
+				if (hasPendingWork(batch)) {
+					appendResult(result, finishBatch(batch, send, batchNumber));
+				}
+			} catch (TransformerException e) {
+				logE(e);
+			} catch (ParserConfigurationException e) {
+				logE(e);
 			}
-			if (hasPendingWork(batch)) {
-				appendResult(result, finishBatch(batch, send, batchNumber));
-			}
-		} catch (TransformerException e) {
-			logE(e);
-		} catch (ParserConfigurationException e) {
-			logE(e);
+			return result.length() == 0 ? null : result.toString();
 		}
-		return result.length() == 0 ? null : result.toString();
 	}
 	
 
@@ -2316,8 +2403,69 @@ public class RealExportProducts2Mirakl {
 		clone.appendChild(clone.importNode(source.getDocumentElement(), true));
 		return clone;
 	}
+	
+	private static void removeInvalidXml10ControlCharacters(Node node) {
+	    if (node == null) {
+	        return;
+	    }
+
+	    NamedNodeMap attributes = node.getAttributes();
+
+	    if (attributes != null) {
+	        for (int i = 0; i < attributes.getLength(); i++) {
+	            Node attribute = attributes.item(i);
+	            attribute.setNodeValue(
+	                    removeInvalidXml10ControlCharacters(attribute.getNodeValue())
+	            );
+	        }
+	    }
+
+	    switch (node.getNodeType()) {
+	        case Node.TEXT_NODE:
+	        case Node.CDATA_SECTION_NODE:
+	        case Node.COMMENT_NODE:
+	        case Node.PROCESSING_INSTRUCTION_NODE:
+	            node.setNodeValue(
+	                    removeInvalidXml10ControlCharacters(node.getNodeValue())
+	            );
+	            break;
+
+	        default:
+	            break;
+	    }
+
+	    NodeList children = node.getChildNodes();
+
+	    for (int i = 0; i < children.getLength(); i++) {
+	        removeInvalidXml10ControlCharacters(children.item(i));
+	    }
+	}
+
+	private static String removeInvalidXml10ControlCharacters(String value) {
+	    if (value == null || value.isEmpty()) {
+	        return value;
+	    }
+
+	    StringBuilder result = new StringBuilder(value.length());
+
+	    for (int offset = 0; offset < value.length();) {
+	        int codePoint = value.codePointAt(offset);
+
+	        if (codePoint >= 0x20
+	                || codePoint == '\t'
+	                || codePoint == '\n'
+	                || codePoint == '\r') {
+	            result.appendCodePoint(codePoint);
+	        }
+
+	        offset += Character.charCount(codePoint);
+	    }
+
+	    return result.toString();
+	}
 
 	private String serializeMiraklXml(Document document) throws TransformerException {
+		removeInvalidXml10ControlCharacters(document);
 		Transformer transformer = TransformerFactory.newInstance().newTransformer();
 		transformer.setOutputProperty(OutputKeys.ENCODING, StandardCharsets.UTF_8.name());
 		transformer.setOutputProperty(OutputKeys.OMIT_XML_DECLARATION, "no");
@@ -2326,8 +2474,7 @@ public class RealExportProducts2Mirakl {
 		return new String(output.toByteArray(), StandardCharsets.UTF_8)
 				.replace("&lt;CRLF&gt;", "&#13;&#10;")
 				.replace("<CRLF>", "&#13;&#10;")
-				.replaceAll("&#0*(?:[0-8]|11|12|1[4-9]|2[0-9]|3[01]);", "")
-				.replaceAll("(?i)&#x0*(?:[0-8]|B|C|E|F|1[0-9A-F]);", "");
+				;
 	}
 
 	private long serializedSize(Document document) throws TransformerException {
@@ -2375,19 +2522,46 @@ public class RealExportProducts2Mirakl {
 		} catch (IOException e) {
 			logE(e);
 		}
+		if (java.nio.file.Files.exists(file)) {
+			this.generatedMarketplaceFiles.add(file.toString());
+		} else {
+			this.marketplaceBrokerFailure = true;
+		}
 		log(channel + " batch " + batchNumber + ": " + productIds.size()
 				+ " propuestas, " + bytes + " bytes, archivo " + file);
+		System.out.println(channel + " batch " + batchNumber + ": " + productIds.size()
+		+ " propuestas, " + bytes + " bytes, archivo " + file);
 		if (!send) {
 			return file.toString();
 		}
 		try {
 			RestClient client = new RestClient("Content-Type: application/xml", "Accept: application/xml");
 			String response = client.getRequest("POST", endpoint, xmlOutput);
+			this.marketplaceBrokerResponses.add(response == null ? "" : response);
+			if (!isKnownSuccessfulBrokerResponse(response)) {
+				this.marketplaceUnrecognizedResponse = true;
+			}
 			log(channel + " batch " + batchNumber + " enviado para " + productIds + ": " + response);
+			System.out.println(channel + " batch " + batchNumber + " enviado para " + productIds + ": " + response);
 			return file + "<::>" + response;
 		} catch (IOException e) {
+			this.marketplaceBrokerFailure = true;
+			this.marketplaceBrokerResponses.add("IOException: " + e.getMessage());
 			logE(e);
 			return file.toString();
+		}
+	}
+
+	private static boolean isKnownSuccessfulBrokerResponse(String response) {
+		if (response == null || response.trim().isEmpty()) {
+			return false;
+		}
+
+		try {
+			org.json.JSONObject json = new org.json.JSONObject(response);
+			return !json.optString("tracking_id", "").trim().isEmpty();
+		} catch (org.json.JSONException e) {
+			return false;
 		}
 	}
 
@@ -3076,12 +3250,14 @@ public class RealExportProducts2Mirakl {
 	}
 
 	private void logE(Exception ex){
-		try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream( java.nio.file.Paths.get( "..","logs","real_export_products_mkt.log").toString(), true)))){
-		  ex.printStackTrace(pw);
+		try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream( java.nio.file.Paths.get( "..","logs","real_export_products_mkt.err").toString(), true)))){
+			pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())) + "] BEGIN EXCEPT ");
+			ex.printStackTrace(pw);
+			pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())) + "] END EXCEPT. ");
 		}catch(java.io.IOException e){}
 	}
 
-	private java.util.Set<String> YEA;
+	public java.util.Set<String> YEA;
 
 	private java.util.Map<String, String> mapaDeDirecciones; // = new java.util.TreeMap<>();
 	private java.util.Map<String, String> mapaDeDireccionesAtributoTallaWeb; // = new java.util.TreeMap<>();

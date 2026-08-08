@@ -10,8 +10,6 @@ import java.util.logging.Logger;
 
 import org.json.JSONObject;
 
-import mx.com.liverpool.p360.services.core.temp.product2g.maintenance.EliminaImagenesDeVariantes;
-
 public class LasImagenes {
 	
 	private static final RESTWrapper rw = new RESTWrapper();

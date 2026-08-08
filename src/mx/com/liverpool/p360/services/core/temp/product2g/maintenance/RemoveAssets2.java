@@ -1,5 +1,6 @@
 package mx.com.liverpool.p360.services.core.temp.product2g.maintenance;
 
+import mx.com.liverpool.p360.services.core.EliminaImagenesDeVariantes;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 
 public class RemoveAssets2 {
