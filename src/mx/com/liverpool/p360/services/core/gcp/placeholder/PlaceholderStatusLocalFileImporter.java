@@ -7,12 +7,14 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.logging.Logger;
 
+import mx.com.liverpool.p360.services.core.gcp.storage.GcpBucketLogger;
+
 /**
  * Imports a file that already exists on the application server.
  */
 public class PlaceholderStatusLocalFileImporter {
 
-    private static final Logger LOGGER = Logger.getLogger(PlaceholderStatusLocalFileImporter.class.getName());
+    private static final Logger LOGGER = GcpBucketLogger.getLogger();
 
     private final PlaceholderStatusFileStorage storage;
     private final Logger logger;

@@ -4,6 +4,7 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 
 /**
  * Resolves a SKU to the P360 product identifier stored in
@@ -19,7 +20,7 @@ public class SkuProductNoPlaceholderIdResolver implements PlaceholderIdResolver 
 
     @Override
     public String resolve(String sku) throws Exception {
-        try (DBAccessDataStub db = new DBAccessDataStub(new DBAccessDataStub.ELog() {
+        try (DBAccessDataStub db = new DBAccessDataStub(new ELog() {
             @Override
             public void logE(Exception e) {
                 logger.log(Level.WARNING, "Error resolving placeholder identifier for SKU: " + sku, e);

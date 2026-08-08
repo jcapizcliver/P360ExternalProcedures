@@ -2,16 +2,16 @@ package mx.com.liverpool.p360.services.core.gcp.storage;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.logging.Logger;
 
-import com.google.auth.oauth2.AccessToken;
-import com.google.auth.oauth2.GoogleCredentials;
+import mx.com.liverpool.p360.services.core.gcp.GcpCredentialsProvider;
 
 /**
  * Minimal Google Cloud Storage client backed by the JSON API.
@@ -24,12 +24,21 @@ public class GcpStorageClient {
 
     private static final String STORAGE_SCOPE = "https://www.googleapis.com/auth/devstorage.read_only";
     private static final String STORAGE_BASE_URL = "https://storage.googleapis.com/storage/v1/b/";
+    private static final String OBJECT_LIST_FIELDS = "items(name,size,updated),nextPageToken";
+    private static final Logger GCP_LOGGER = GcpBucketLogger.getLogger();
 
-    private final String serviceAccountFile;
-    private GoogleCredentials credentials;
+    private final GcpCredentialsProvider credentialsProvider;
 
-    public GcpStorageClient(String serviceAccountFile) {
-        this.serviceAccountFile = serviceAccountFile;
+    public GcpStorageClient() {
+        this((String) null);
+    }
+
+    public GcpStorageClient(String impersonateServiceAccount) {
+        this(new GcpCredentialsProvider(impersonateServiceAccount, Arrays.asList(STORAGE_SCOPE), GCP_LOGGER));
+    }
+
+    public GcpStorageClient(GcpCredentialsProvider credentialsProvider) {
+        this.credentialsProvider = credentialsProvider;
     }
 
     public InputStream read(String bucket, String objectName) throws IOException {
@@ -38,7 +47,27 @@ public class GcpStorageClient {
 
     public byte[] readBytes(String bucket, String objectName) throws IOException {
         URL url = new URL(objectUrl(bucket, objectName) + "?alt=media");
+        GCP_LOGGER.info("Reading GCS object. bucket=" + bucket + ", object=" + objectName + ", url=" + url);
         return executeGet(url);
+    }
+
+    public org.json.JSONArray listObjectNames(String bucket, String prefix, int maxResults) throws IOException {
+        StringBuilder url = new StringBuilder(STORAGE_BASE_URL)
+                .append(encodePathPart(bucket))
+                .append("/o?fields=")
+                .append(encodePathPart(OBJECT_LIST_FIELDS));
+        if (prefix != null && prefix.trim().length() > 0) {
+            url.append("&prefix=").append(encodePathPart(prefix.trim()));
+        }
+        if (maxResults > 0) {
+            url.append("&maxResults=").append(maxResults);
+        }
+
+        GCP_LOGGER.info("Listing GCS objects. bucket=" + bucket + ", prefix=" + prefix + ", maxResults=" + maxResults);
+        byte[] response = executeGet(new URL(url.toString()));
+        org.json.JSONObject json = new org.json.JSONObject(new String(response, StandardCharsets.UTF_8));
+        org.json.JSONArray items = json.optJSONArray("items");
+        return items == null ? new org.json.JSONArray() : items;
     }
 
     private byte[] executeGet(URL url) throws IOException {
@@ -51,6 +80,8 @@ public class GcpStorageClient {
         int status = connection.getResponseCode();
         try (InputStream in = status >= 200 && status < 300 ? connection.getInputStream() : connection.getErrorStream()) {
             byte[] response = readFully(in);
+            GCP_LOGGER.info("GCS request completed. method=GET, status=" + status + ", url=" + url
+                    + ", responseBytes=" + response.length);
             if (status < 200 || status >= 300) {
                 throw new IOException("GCS request failed. method=GET, status=" + status + ", url=" + url
                         + ", response=" + new String(response, StandardCharsets.UTF_8));
@@ -66,29 +97,7 @@ public class GcpStorageClient {
     }
 
     private String getAccessToken() throws IOException {
-        GoogleCredentials currentCredentials = getOrLoadCredentials();
-        currentCredentials.refreshIfExpired();
-        AccessToken token = currentCredentials.getAccessToken();
-        if (token == null) {
-            currentCredentials.refresh();
-            token = currentCredentials.getAccessToken();
-        }
-        return token.getTokenValue();
-    }
-
-    private GoogleCredentials getOrLoadCredentials() throws IOException {
-        if (credentials != null) {
-            return credentials;
-        }
-        synchronized (this) {
-            if (credentials != null) {
-                return credentials;
-            }
-            try (FileInputStream in = new FileInputStream(serviceAccountFile)) {
-                credentials = GoogleCredentials.fromStream(in).createScoped(STORAGE_SCOPE);
-            }
-            return credentials;
-        }
+        return credentialsProvider.getAccessToken();
     }
 
     private static String encodePathPart(String value) throws IOException {
@@ -107,4 +116,5 @@ public class GcpStorageClient {
         }
         return out.toByteArray();
     }
+
 }

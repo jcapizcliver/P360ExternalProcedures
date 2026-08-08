@@ -2,12 +2,14 @@ package mx.com.liverpool.p360.services.core.gcp.placeholder;
 
 import java.util.logging.Logger;
 
+import mx.com.liverpool.p360.services.core.gcp.storage.GcpBucketLogger;
+
 /**
  * Shared orchestrator used by HTTP services and scheduled workers.
  */
 public class PlaceholderStatusJobRunner {
 
-    private static final Logger LOGGER = Logger.getLogger(PlaceholderStatusJobRunner.class.getName());
+    private static final Logger LOGGER = GcpBucketLogger.getLogger();
 
     private final PlaceholderStatusLocalFileImporter localFileImporter;
     private final PlaceholderStatusBucketFileImporter bucketFileImporter;

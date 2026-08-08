@@ -8,13 +8,14 @@ import java.nio.file.Path;
 import java.util.logging.Logger;
 
 import mx.com.liverpool.p360.services.core.gcp.placeholder.PlaceholderStatusFileProcessor.ProcessedFile;
+import mx.com.liverpool.p360.services.core.gcp.storage.GcpBucketLogger;
 
 /**
  * Processes a placeholder status file that already exists in local storage.
  */
 public class PlaceholderStatusFileJob {
 
-    private static final Logger LOGGER = Logger.getLogger(PlaceholderStatusFileJob.class.getName());
+    private static final Logger LOGGER = GcpBucketLogger.getLogger();
 
     private final PlaceholderStatusFileProcessor processor;
     private final Logger logger;
