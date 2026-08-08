@@ -12,6 +12,86 @@ public class DBAccessDataStub implements AutoCloseable {
 		this.log = log;
 	}
 	
+	public java.util.List<org.json.JSONObject> getLookupValueCodeNameExternalCodeRows(String lookupIdentifier, int languageID, String externalSystemCode, boolean onlyActive) {
+		
+		java.util.List<org.json.JSONObject> rows = new java.util.ArrayList<>();
+		if (lookupIdentifier == null || lookupIdentifier.isBlank()) {
+			return rows;
+		}
+		Integer externalSystemID = null;
+		if (externalSystemCode != null
+				&& !externalSystemCode.isBlank()) {
+			externalSystemID = getLookupValueId("ExternalSystems", externalSystemCode);
+		}
+
+		String sql =
+				  " select /*+ "
+				+ "     leading(aa bb cc dd) "
+				+ "     use_nl(bb cc dd) "
+				+ "     index(aa XAK2_LookupRevision) "
+				+ "     index(bb XIF2_LookupValueRevision) "
+				+ "     index(cc XAK1_LookupValueLang) "
+				+ "     index(dd XAK1_LookupValueIdentifier) "
+				+ " */ "
+				+ "        bb.\"Code\" "
+				+ "            \"Code\" "
+				+ "       ,cc.\"Name\" "
+				+ "            \"Name\" "
+				+ "       ,dd.\"Code\" "
+				+ "            \"ExternalCode\" "
+				+ " from PIM_MAIN.\"LookupRevision\" aa "
+				+ " inner join PIM_MAIN.\"LookupValueRevision\" bb "
+				+ "    on bb.\"LookupID\" = aa.\"LookupID\" "
+				+ "   and bb.\"RevisionID\" = 1 "
+				+ "   and bb.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ (onlyActive
+						? "   and bb.\"IsActive\" = 1 "
+						: "")
+				+ " left join PIM_MAIN.\"LookupValueLang\" cc "
+				+ "    on cc.\"LookupValueRevisionID\" = bb.\"ID\" "
+				+ "   and cc.\"LanguageID\" = ? "
+				+ "   and cc.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " left join PIM_MAIN.\"LookupValueIdentifier\" dd "
+				+ "    on dd.\"LookupValueRevisionID\" = bb.\"ID\" "
+				+ "   and dd.\"SystemID\" = ? "
+				+ "   and dd.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " where aa.\"Identifier\" = ? "
+				+ "   and aa.\"RevisionID\" = 1 "
+				+ "   and aa.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " order by bb.\"Code\" asc";
+
+		try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(sql)) {
+			pstmnt.setInt(1, languageID);
+			if (externalSystemID == null) {
+				pstmnt.setNull(2, java.sql.Types.NUMERIC);
+			} else {
+				pstmnt.setInt(2, externalSystemID);
+			}
+			pstmnt.setNString(3, lookupIdentifier);
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				while (rs.next()) {
+					String code = rs.getString("Code");
+					if (code == null || code.isBlank()) {
+						continue;
+					}
+					rows.add(
+						new org.json.JSONObject()
+							.put( "code", code)
+							.put( "name", java.util.Objects.toString( rs.getString("Name"), "" ))
+							.put( "externalCode", java.util.Objects.toString( rs.getString("ExternalCode"), "" )));
+				}
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+		}
+
+		return rows;
+	}
+	
 	private void handleRefreshConnection() {
 		if (con != null) {
 			try {
@@ -226,6 +306,111 @@ public class DBAccessDataStub implements AutoCloseable {
 		return values;
 	}
 	
+	
+	public java.util.Map<String, org.json.JSONObject> getProductCharacteristicValues(
+			java.util.Collection<String> identifiers,
+			java.util.Collection<String> characteristicIdentifiers)
+			throws java.sql.SQLException {
+
+		java.util.Map<String, org.json.JSONObject> result = new java.util.LinkedHashMap<>();
+
+		java.util.List<String> characteristics = normalizeIdentifiers(characteristicIdentifiers);
+
+		java.util.List<java.util.List<String>> idChunks = identifierChunks(identifiers);
+
+		for (java.util.List<String> idChunk : idChunks) {
+			for (String identifier : idChunk) {
+				org.json.JSONObject row = new org.json.JSONObject().put("product", identifier);
+				for (String characteristic : characteristics) {
+					row.put(characteristic, "");
+				}
+				result.put(identifier, row);
+			}
+		}
+		if (idChunks.isEmpty() || characteristics.isEmpty()) {
+			return result;
+		}
+		handleRefreshConnection();
+		for (java.util.List<String> idChunk : idChunks) {
+			for (java.util.List<String> characteristicChunk : identifierChunks(characteristics)) {
+
+				String sql =
+						  " select /*+ leading(aa bb cc dd ee) "
+						+ "use_nl(bb cc dd ee) "
+						+ "index(aa IX_AR_TUNE_01) "
+						+ "index(bb XAK1_ArticleCharactValue) "
+						+ "index(cc XAK1_CharacteristicRevision) "
+						+ "index(dd XAK1_LookupValueRevision) "
+						+ "index(ee XAK1_LookupValueLang) */ "
+						+ "        aa.\"Identifier\" \"ItemIdentifier\" "
+						+ "       ,cc.\"Identifier\" \"CharacteristicIdentifier\" "
+						+ "       ,case "
+						+ "            when bb.\"Value\" is not null then bb.\"Value\" "
+						+ "            else ee.\"Name\" "
+						+ "        end \"CharacteristicValue\" "
+						+ " from \"ArticleRevision\" aa "
+						+ " inner join \"ArticleCharactValue\" bb "
+						+ "    on bb.\"ArticleRevisionID\" = aa.\"ID\" "
+						+ "   and bb.\"DeletionTimestamp\" = "
+						+ "       timestamp '9999-12-31 00:00:00.0' "
+						+ " inner join PIM_MAIN.\"CharacteristicRevision\" cc "
+						+ "    on cc.\"CharacteristicID\" = bb.\"CharacteristicID\" "
+						+ "   and cc.\"RevisionID\" = 1 "
+						+ "   and cc.\"DeletionTimestamp\" = "
+						+ "       timestamp '9999-12-31 00:00:00.0' "
+						+ " left join PIM_MAIN.\"LookupValueRevision\" dd "
+						+ "    on dd.\"LookupValueID\" = bb.\"LookupValueID\" "
+						+ "   and dd.\"RevisionID\" = 1 "
+						+ "   and dd.\"DeletionTimestamp\" = "
+						+ "       timestamp '9999-12-31 00:00:00.0' "
+						+ " left join PIM_MAIN.\"LookupValueLang\" ee "
+						+ "    on ee.\"LookupValueRevisionID\" = dd.\"ID\" "
+						+ "   and ee.\"LanguageID\" = 10 "
+						+ "   and ee.\"DeletionTimestamp\" = "
+						+ "       timestamp '9999-12-31 00:00:00.0' "
+						+ " where aa.\"Identifier\" in ("
+						+ placeholders(idChunk.size())
+						+ ") "
+						+ "   and cc.\"Identifier\" in ("
+						+ placeholders(characteristicChunk.size())
+						+ ") "
+						+ "   and aa.\"EntityID\" = 1100 "
+						+ "   and aa.\"RevisionID\" = 1 "
+						+ "   and aa.\"DeletionTimestamp\" = "
+						+ "       timestamp '9999-12-31 00:00:00.0'";
+
+				try (java.sql.PreparedStatement pstmnt =
+						connection().prepareStatement(sql)) {
+
+					bindNStrings(pstmnt, 1, idChunk);
+					bindNStrings(
+							pstmnt,
+							idChunk.size() + 1,
+							characteristicChunk);
+
+					pstmnt.setQueryTimeout(120);
+					pstmnt.setFetchSize(1000);
+
+					try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+						while (rs.next()) {
+							org.json.JSONObject row =
+									result.get(rs.getString("ItemIdentifier"));
+							if (row != null) {
+								row.put(
+									rs.getString("CharacteristicIdentifier"),
+									java.util.Objects.toString(
+										rs.getNString("CharacteristicValue"),
+										""));
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return result;
+	}
+	
 	public String getLookupValueCodeByName(String lookupIdentifier, int languageID, String name, boolean onlyActive) {
 
 		if (lookupIdentifier == null || lookupIdentifier.isBlank() || name == null) {
@@ -304,7 +489,7 @@ public class DBAccessDataStub implements AutoCloseable {
 				+ "    on cc.\"StructureGroupLangID\" = bb.\"ID\" "
 				+ "   and cc.\"DeletionTimestamp\" = "
 				+ "       timestamp '9999-12-31 00:00:00.0' "
-				+ " where aa.\"StructureID\" = 12000 "
+				+ " where aa.\"StructureID\" = (select /*+ index(sr XAK1_StructureRevision) */ sr.\"StructureID\" from PIM_MAIN.\"StructureRevision\" sr where sr.\"Identifier\" = N'Sitios Web' and sr.\"RevisionID\" = 1 and sr.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0') "
 				+ "   and aa.\"RevisionID\" = 1 "
 				+ "   and aa.\"DeletionTimestamp\" = "
 				+ "       timestamp '9999-12-31 00:00:00.0' "
@@ -328,6 +513,783 @@ public class DBAccessDataStub implements AutoCloseable {
 			logE(e);
 		}
 		return synonyms;
+	}
+
+	private static final int BULK_BIND_CHUNK_SIZE = 900;
+
+	private java.util.List<String> normalizeIdentifiers(
+			java.util.Collection<String> identifiers) {
+
+		java.util.LinkedHashSet<String> normalized =
+				new java.util.LinkedHashSet<>();
+
+		if (identifiers != null) {
+			for (String identifier : identifiers) {
+				if (identifier != null && !identifier.isBlank()) {
+					normalized.add(identifier);
+				}
+			}
+		}
+
+		return new java.util.ArrayList<>(normalized);
+	}
+
+	private java.util.List<java.util.List<String>> identifierChunks(
+			java.util.Collection<String> identifiers) {
+
+		java.util.List<String> normalized = normalizeIdentifiers(identifiers);
+		java.util.List<java.util.List<String>> chunks =
+				new java.util.ArrayList<>();
+
+		for (int start = 0;
+				start < normalized.size();
+				start += BULK_BIND_CHUNK_SIZE) {
+
+			chunks.add(
+				normalized.subList(
+					start,
+					Math.min(
+						start + BULK_BIND_CHUNK_SIZE,
+						normalized.size())));
+		}
+
+		return chunks;
+	}
+
+	private String placeholders(int count) {
+		return String.join(
+				",",
+				java.util.Collections.nCopies(count, "?"));
+	}
+
+	private void bindNStrings(
+			java.sql.PreparedStatement pstmnt,
+			int firstParameter,
+			java.util.List<String> values)
+			throws java.sql.SQLException {
+
+		for (int i = 0; i < values.size(); i++) {
+			pstmnt.setNString(firstParameter + i, values.get(i));
+		}
+	}
+	
+	public java.util.Map<String, String> getProductsBySKUs(
+			java.util.Collection<String> skus) {
+
+		java.util.Map<String, String> productsBySKU =
+				new java.util.LinkedHashMap<>();
+		java.util.List<java.util.List<String>> chunks =
+				identifierChunks(skus);
+
+		if (chunks.isEmpty()) {
+			return productsBySKU;
+		}
+
+		handleRefreshConnection();
+
+		for (java.util.List<String> chunk : chunks) {
+			java.util.List<Long> numericSKUs = new java.util.ArrayList<>();
+			java.util.Map<Long, java.util.List<String>> originalSKUsByNumber =
+					new java.util.LinkedHashMap<>();
+
+			for (String sku : chunk) {
+				try {
+					Long numericSKU = Long.valueOf(sku);
+					if (!originalSKUsByNumber.containsKey(numericSKU)) {
+						numericSKUs.add(numericSKU);
+						originalSKUsByNumber.put(
+								numericSKU,
+								new java.util.ArrayList<String>());
+					}
+					originalSKUsByNumber.get(numericSKU).add(sku);
+				} catch (NumberFormatException e) {
+					log("Invalid SKU: " + sku);
+				}
+			}
+
+			if (numericSKUs.isEmpty()) {
+				continue;
+			}
+
+			String productSql =
+					  " select /*+ leading(aa bb) use_nl(bb) */ "
+					+ "        aa.\"Res_Int_02\" \"SKU\" "
+					+ "       ,bb.\"Identifier\" \"ProductNo\" "
+					+ " from \"ArticleDetail\" aa "
+					+ " inner join \"ArticleRevision\" bb "
+					+ "    on bb.\"ID\" = aa.\"ArticleRevisionID\" "
+					+ "   and bb.\"EntityID\" = 1100 "
+					+ "   and bb.\"RevisionID\" = 1 "
+					+ "   and bb.\"DeletionTimestamp\" = "
+					+ "       timestamp '9999-12-31 00:00:00.0' "
+					+ " where aa.\"Res_Int_02\" in ("
+					+ placeholders(numericSKUs.size())
+					+ ") "
+					+ "   and aa.\"DeletionTimestamp\" = "
+					+ "       timestamp '9999-12-31 00:00:00.0'";
+
+			try (java.sql.PreparedStatement pstmnt =
+					connection().prepareStatement(productSql)) {
+
+				for (int i = 0; i < numericSKUs.size(); i++) {
+					pstmnt.setLong(i + 1, numericSKUs.get(i));
+				}
+
+				try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+					while (rs.next()) {
+						java.util.List<String> originalSKUs =
+								originalSKUsByNumber.get(
+										rs.getLong("SKU"));
+						if (originalSKUs != null) {
+							for (String originalSKU : originalSKUs) {
+								productsBySKU.put(
+										originalSKU,
+										rs.getString("ProductNo"));
+							}
+						}
+					}
+				}
+			} catch (java.sql.SQLException e) {
+				logE(e);
+			}
+
+			String variantSql =
+					  " select /*+ leading(aa bb) use_nl(bb cc dd) "
+					+ "index(cc XAK1_ArticleReference) */ "
+					+ "        aa.\"Res_Int_02\" \"SKU\" "
+					+ "       ,dd.\"Identifier\" \"ProductNo\" "
+					+ " from \"ArticleDetail\" aa "
+					+ " inner join \"ArticleRevision\" bb "
+					+ "    on bb.\"ID\" = aa.\"ArticleRevisionID\" "
+					+ "   and bb.\"EntityID\" = 1000 "
+					+ "   and bb.\"RevisionID\" = 1 "
+					+ "   and bb.\"DeletionTimestamp\" = "
+					+ "       timestamp '9999-12-31 00:00:00.0' "
+					+ " inner join \"ArticleReference\" cc "
+					+ "    on cc.\"ArticleRevisionID\" = bb.\"ID\" "
+					+ "   and cc.\"DeletionTimestamp\" = "
+					+ "       timestamp '9999-12-31 00:00:00.0' "
+					+ " inner join \"ArticleRevision\" dd "
+					+ "    on dd.\"ArticleID\" = cc.\"RefIntArtID\" "
+					+ "   and dd.\"Identifier\" = cc.\"RefExtArtIdentifier\" "
+					+ "   and dd.\"EntityID\" = 1100 "
+					+ "   and dd.\"RevisionID\" = 1 "
+					+ "   and dd.\"DeletionTimestamp\" = "
+					+ "       timestamp '9999-12-31 00:00:00.0' "
+					+ " where aa.\"Res_Int_02\" in ("
+					+ placeholders(numericSKUs.size())
+					+ ") "
+					+ "   and aa.\"DeletionTimestamp\" = "
+					+ "       timestamp '9999-12-31 00:00:00.0'";
+
+			try (java.sql.PreparedStatement pstmnt =
+					connection().prepareStatement(variantSql)) {
+
+				for (int i = 0; i < numericSKUs.size(); i++) {
+					pstmnt.setLong(i + 1, numericSKUs.get(i));
+				}
+
+				try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+					while (rs.next()) {
+						java.util.List<String> originalSKUs =
+								originalSKUsByNumber.get(
+										rs.getLong("SKU"));
+						if (originalSKUs != null) {
+							for (String originalSKU : originalSKUs) {
+								productsBySKU.putIfAbsent(
+										originalSKU,
+										rs.getString("ProductNo"));
+							}
+						}
+					}
+				}
+			} catch (java.sql.SQLException e) {
+				logE(e);
+			}
+		}
+
+		return productsBySKU;
+	}
+
+	/**
+	 * Resolves product/proposal identifiers in bulk. EntityID 1100 identifiers
+	 * resolve to themselves; EntityID 1000 identifiers resolve through their
+	 * active ArticleReference to the parent product.
+	 */
+	public java.util.Map<String, String> getProductsByIdentifiers(
+			java.util.Collection<String> identifiers) {
+
+		java.util.Map<String, String> productsByIdentifier =
+				new java.util.LinkedHashMap<>();
+		java.util.List<java.util.List<String>> chunks =
+				identifierChunks(identifiers);
+
+		if (chunks.isEmpty()) {
+			return productsByIdentifier;
+		}
+
+		handleRefreshConnection();
+
+		for (java.util.List<String> chunk : chunks) {
+			String sql =
+					  " select /*+ leading(aa) use_nl(bb) "
+					+ "index(aa IX_AR_TUNE_01) "
+					+ "index(bb XAK1_ArticleReference) */ "
+					+ "        aa.\"Identifier\" \"RequestedIdentifier\" "
+					+ "       ,case "
+					+ "            when aa.\"EntityID\" = 1100 "
+					+ "            then aa.\"Identifier\" "
+					+ "            else bb.\"RefExtArtIdentifier\" "
+					+ "        end \"ProductNo\" "
+					+ " from \"ArticleRevision\" aa "
+					+ " left join \"ArticleReference\" bb "
+					+ "    on bb.\"ArticleRevisionID\" = aa.\"ID\" "
+					+ "   and aa.\"EntityID\" = 1000 "
+					+ "   and bb.\"DeletionTimestamp\" = "
+					+ "       timestamp '9999-12-31 00:00:00.0' "
+					+ " where aa.\"Identifier\" in ("
+					+ placeholders(chunk.size())
+					+ ") "
+					+ "   and aa.\"EntityID\" in (1000, 1100) "
+					+ "   and aa.\"RevisionID\" = 1 "
+					+ "   and aa.\"DeletionTimestamp\" = "
+					+ "       timestamp '9999-12-31 00:00:00.0'";
+
+			try (java.sql.PreparedStatement pstmnt =
+					connection().prepareStatement(sql)) {
+
+				bindNStrings(pstmnt, 1, chunk);
+
+				try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+					while (rs.next()) {
+						String productNo = rs.getString("ProductNo");
+						if (productNo != null && !productNo.isBlank()) {
+							productsByIdentifier.put(
+									rs.getString("RequestedIdentifier"),
+									productNo);
+						}
+					}
+				}
+			} catch (java.sql.SQLException e) {
+				logE(e);
+			}
+		}
+
+		return productsByIdentifier;
+	}
+
+	private org.json.JSONObject emptyProductData(String identifier) {
+		return new org.json.JSONObject()
+				.put("product", identifier)
+				.put("Section", "")
+				.put("ItemGroup", "")
+				.put("ItemGroupS4H", "")
+				.put("BrandName", "")
+				.put("BRAND_ID_S4H", "")
+				.put("Business", "")
+				.put("SKU", "")
+				.put("SupplierID", "")
+				.put("Template", "")
+				.put("CurrentStatus", "")
+				.put("AssignTakeNoTake", "")
+				.put("SAPObjectType", "")
+				.put("FotoTomadaLiverpool", "")
+				.put("MainBarCode", "")
+				.put("MainBarCodeS4H", "")
+				.put("SupplierPartNumber", "");
+	}
+	
+	public java.util.Map<String, org.json.JSONObject> getProductData(
+			java.util.Collection<String> identifiers) {
+
+		java.util.Map<String, org.json.JSONObject> result =
+				new java.util.LinkedHashMap<>();
+		java.util.List<java.util.List<String>> chunks =
+				identifierChunks(identifiers);
+
+		for (java.util.List<String> chunk : chunks) {
+			for (String identifier : chunk) {
+				result.put(identifier, emptyProductData(identifier));
+			}
+
+			String sql =
+					  " SELECT /*+ leading(aa bb) "
+					+ "use_nl(bb foto_cv assign_cv) "
+					+ "index(aa IX_AR_TUNE_01) "
+					+ "index(foto_cv XAK1_ArticleCharactValue) "
+					+ "index(assign_cv XAK1_ArticleCharactValue) */ "
+					+ "       aa.\"Identifier\" AS \"ProductNo\", "
+					+ "       bb.\"EAN\", "
+					+ "       bb.\"Res_Int_02\" AS \"SKU\", "
+					+ "       bb.\"CurrentStatus\", "
+					+ "       bus_lvr.\"Code\" AS \"Business\", "
+					+ "       sec_lvr.\"Code\" AS \"Section\", "
+					+ "       ig_lvr.\"Code\" AS \"ItemGroup\", "
+					+ "       igs4h_lvr.\"Code\" AS \"ItemGroupS4H\", "
+					+ "       brand_lvr.\"Code\" AS \"BrandName\", "
+					+ "       brand_s4h_lvr.\"Code\" AS \"BRAND_ID_S4H\", "
+					+ "       sap_lvr.\"Code\" AS \"SAPObjectType\", "
+					+ "       sup_lvr.\"Code\" AS \"SupplierID\", "
+					+ "       foto_lvr.\"Code\" AS \"FotoTomadaLiverpool\", "
+					+ "       assign_lvr.\"Code\" AS \"AssignTakeNoTake\", "
+					+ "       cc.\"Res_Text250_01\" AS \"SupplierPartNumber\", "
+					+ "       dd.\"StructureGroupIdentifier\" "
+					+ "FROM \"ArticleRevision\" aa "
+					+ "INNER JOIN \"ArticleDetail\" bb "
+					+ " ON bb.\"ArticleRevisionID\" = aa.\"ID\" "
+					+ "AND bb.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN \"ArticleDomain\" cc "
+					+ " ON cc.\"ArticleRevisionID\" = aa.\"ID\" "
+					+ "AND cc.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN \"ArticleStructureMap\" dd "
+					+ " ON dd.\"ArticleRevisionID\" = aa.\"ID\" "
+					+ "AND dd.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "AND dd.\"StructureID\" = (select /*+ index(sr XAK1_StructureRevision) */ sr.\"StructureID\" from PIM_MAIN.\"StructureRevision\" sr where sr.\"Identifier\" = N'PrimaryProductTaxonomy' and sr.\"RevisionID\" = 1 and sr.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0') "
+					+ "LEFT JOIN \"ArticleCharactValue\" foto_cv "
+					+ " ON foto_cv.\"ArticleRevisionID\" = aa.\"ID\" "
+					+ "AND foto_cv.\"CharacteristicID\" = 4473 "
+					+ "AND foto_cv.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" foto_lvr "
+					+ " ON foto_lvr.\"LookupValueID\" = foto_cv.\"LookupValueID\" "
+					+ "AND foto_lvr.\"RevisionID\" = 1 "
+					+ "AND foto_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN \"ArticleCharactValue\" assign_cv "
+					+ " ON assign_cv.\"ArticleRevisionID\" = aa.\"ID\" "
+					+ "AND assign_cv.\"CharacteristicID\" = 3227 "
+					+ "AND assign_cv.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" assign_lvr "
+					+ " ON assign_lvr.\"LookupValueID\" = assign_cv.\"LookupValueID\" "
+					+ "AND assign_lvr.\"RevisionID\" = 1 "
+					+ "AND assign_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" bus_lvr "
+					+ " ON bus_lvr.\"LookupValueID\" = bb.\"Res_Int_01\" "
+					+ "AND bus_lvr.\"RevisionID\" = 1 "
+					+ "AND bus_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" sec_lvr "
+					+ " ON sec_lvr.\"LookupValueID\" = cc.\"Res_Int_02\" "
+					+ "AND sec_lvr.\"RevisionID\" = 1 "
+					+ "AND sec_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" ig_lvr "
+					+ " ON ig_lvr.\"LookupValueID\" = cc.\"Res_Int_03\" "
+					+ "AND ig_lvr.\"RevisionID\" = 1 "
+					+ "AND ig_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" igs4h_lvr "
+					+ " ON igs4h_lvr.\"LookupValueID\" = cc.\"Res_Int_04\" "
+					+ "AND igs4h_lvr.\"RevisionID\" = 1 "
+					+ "AND igs4h_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" brand_lvr "
+					+ " ON brand_lvr.\"LookupValueID\" = cc.\"Res_Int_05\" "
+					+ "AND brand_lvr.\"RevisionID\" = 1 "
+					+ "AND brand_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" brand_s4h_lvr "
+					+ " ON brand_s4h_lvr.\"LookupValueID\" = cc.\"Res_Int_06\" "
+					+ "AND brand_s4h_lvr.\"RevisionID\" = 1 "
+					+ "AND brand_s4h_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" sap_lvr "
+					+ " ON sap_lvr.\"LookupValueID\" = cc.\"Res_Int_08\" "
+					+ "AND sap_lvr.\"RevisionID\" = 1 "
+					+ "AND sap_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" sup_lvr "
+					+ " ON sup_lvr.\"LookupValueID\" = cc.\"Std_Int_10\" "
+					+ "AND sup_lvr.\"RevisionID\" = 1 "
+					+ "AND sup_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "WHERE aa.\"Identifier\" IN ("
+					+ placeholders(chunk.size())
+					+ ") "
+					+ "AND aa.\"EntityID\" = 1100 "
+					+ "AND aa.\"RevisionID\" = 1 "
+					+ "AND aa.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'";
+
+			try (java.sql.PreparedStatement pstmnt =
+					connection().prepareStatement(sql)) {
+
+				bindNStrings(pstmnt, 1, chunk);
+
+				try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+					while (rs.next()) {
+						String identifier = rs.getString("ProductNo");
+						Object currentStatus = rs.getObject("CurrentStatus");
+						result.put(
+							identifier,
+							emptyProductData(identifier)
+								.put("Section", stringValue(rs, "Section"))
+								.put("ItemGroup", stringValue(rs, "ItemGroup"))
+								.put("ItemGroupS4H", stringValue(rs, "ItemGroupS4H"))
+								.put("BrandName", stringValue(rs, "BrandName"))
+								.put("BRAND_ID_S4H", stringValue(rs, "BRAND_ID_S4H"))
+								.put("Business", stringValue(rs, "Business"))
+								.put("SKU", stringValue(rs, "SKU"))
+								.put("SupplierID", stringValue(rs, "SupplierID"))
+								.put("Template", stringValue(rs, "StructureGroupIdentifier"))
+								.put("CurrentStatus", currentStatus == null
+										? ""
+										: String.valueOf(currentStatus))
+								.put("AssignTakeNoTake", stringValue(rs, "AssignTakeNoTake"))
+								.put("SAPObjectType", stringValue(rs, "SAPObjectType"))
+								.put("FotoTomadaLiverpool", stringValue(rs, "FotoTomadaLiverpool"))
+								.put("MainBarCode", stringValue(rs, "EAN"))
+								.put("SupplierPartNumber", stringValue(rs, "SupplierPartNumber")));
+					}
+				}
+			} catch (java.sql.SQLException e) {
+				logE(e);
+			}
+		}
+
+		return result;
+	}
+
+
+	private String stringValue(
+			java.sql.ResultSet rs,
+			String column) throws java.sql.SQLException {
+
+		return java.util.Objects.toString(rs.getString(column), "");
+	}
+
+	public java.util.Map<String, org.json.JSONObject> getProductExtraData(
+			java.util.Collection<String> identifiers,
+			String[] characteristicIdentifiers) {
+
+		return getBulkExtraData(
+				identifiers,
+				characteristicIdentifiers,
+				1100,
+				"product",
+				true);
+	}
+
+	public java.util.Map<String, org.json.JSONObject> getArticleExtraData(
+			java.util.Collection<String> identifiers,
+			String[] characteristicIdentifiers) {
+
+		return getBulkExtraData(
+				identifiers,
+				characteristicIdentifiers,
+				1000,
+				"variant",
+				false);
+	}
+
+	private java.util.Map<String, org.json.JSONObject> getBulkExtraData(
+			java.util.Collection<String> identifiers,
+			String[] characteristicIdentifiers,
+			int entityID,
+			String idProperty,
+			boolean includeProductLanguageData) {
+
+		java.util.Map<String, org.json.JSONObject> result =
+				new java.util.LinkedHashMap<>();
+		java.util.List<String> characteristics =
+				normalizeIdentifiers(
+					characteristicIdentifiers == null
+						? java.util.Collections.emptyList()
+						: java.util.Arrays.asList(characteristicIdentifiers));
+		java.util.List<java.util.List<String>> idChunks =
+				identifierChunks(identifiers);
+
+		for (java.util.List<String> idChunk : idChunks) {
+			for (String identifier : idChunk) {
+				org.json.JSONObject row =
+						new org.json.JSONObject().put(idProperty, identifier);
+				for (String characteristic : characteristics) {
+					row.put(characteristic, "");
+				}
+				if (includeProductLanguageData) {
+					row.put("ProductName", "")
+						.put("DescriptionLong", "")
+						.put("DescriptionLong2", "");
+				}
+				result.put(identifier, row);
+			}
+
+			for (java.util.List<String> characteristicChunk :
+					identifierChunks(characteristics)) {
+
+				String sql =
+						  " select /*+ leading(aa bb cc dd ee) "
+						+ "use_nl(bb cc dd ee) "
+						+ "index(aa IX_AR_TUNE_01) "
+						+ "index(bb XAK1_ArticleCharactValue) "
+						+ "index(cc XAK1_CharacteristicRevision) "
+						+ "index(dd XAK1_LookupValueRevision) "
+						+ "index(ee XAK1_LookupValueLang) */ "
+						+ "        aa.\"Identifier\" \"ItemIdentifier\" "
+						+ "       ,cc.\"Identifier\" \"CharacteristicIdentifier\" "
+						+ "       ,case "
+						+ "            when bb.\"Value\" is not null then bb.\"Value\" "
+						+ "            else ee.\"Name\" "
+						+ "        end \"CharacteristicValue\" "
+						+ " from \"ArticleRevision\" aa "
+						+ " inner join \"ArticleCharactValue\" bb "
+						+ "    on bb.\"ArticleRevisionID\" = aa.\"ID\" "
+						+ "   and bb.\"DeletionTimestamp\" = "
+						+ "       timestamp '9999-12-31 00:00:00.0' "
+						+ " inner join PIM_MAIN.\"CharacteristicRevision\" cc "
+						+ "    on cc.\"CharacteristicID\" = bb.\"CharacteristicID\" "
+						+ "   and cc.\"RevisionID\" = 1 "
+						+ "   and cc.\"DeletionTimestamp\" = "
+						+ "       timestamp '9999-12-31 00:00:00.0' "
+						+ " left join PIM_MAIN.\"LookupValueRevision\" dd "
+						+ "    on dd.\"LookupValueID\" = bb.\"LookupValueID\" "
+						+ "   and dd.\"RevisionID\" = 1 "
+						+ "   and dd.\"DeletionTimestamp\" = "
+						+ "       timestamp '9999-12-31 00:00:00.0' "
+						+ " left join PIM_MAIN.\"LookupValueLang\" ee "
+						+ "    on ee.\"LookupValueRevisionID\" = dd.\"ID\" "
+						+ "   and ee.\"LanguageID\" = 10 "
+						+ "   and ee.\"DeletionTimestamp\" = "
+						+ "       timestamp '9999-12-31 00:00:00.0' "
+						+ " where aa.\"Identifier\" in ("
+						+ placeholders(idChunk.size())
+						+ ") "
+						+ "   and cc.\"Identifier\" in ("
+						+ placeholders(characteristicChunk.size())
+						+ ") "
+						+ "   and aa.\"EntityID\" = ? "
+						+ "   and aa.\"RevisionID\" = 1 "
+						+ "   and aa.\"DeletionTimestamp\" = "
+						+ "       timestamp '9999-12-31 00:00:00.0'";
+
+				try (java.sql.PreparedStatement pstmnt =
+						connection().prepareStatement(sql)) {
+
+					bindNStrings(pstmnt, 1, idChunk);
+					bindNStrings(
+							pstmnt,
+							idChunk.size() + 1,
+							characteristicChunk);
+					pstmnt.setInt(
+							idChunk.size()
+								+ characteristicChunk.size()
+								+ 1,
+							entityID);
+
+					try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+						while (rs.next()) {
+							org.json.JSONObject row =
+									result.get(rs.getString("ItemIdentifier"));
+							if (row != null) {
+								row.put(
+									rs.getString("CharacteristicIdentifier"),
+									java.util.Objects.toString(
+										rs.getNString("CharacteristicValue"),
+										""));
+							}
+						}
+					}
+				} catch (java.sql.SQLException e) {
+					logE(e);
+				}
+			}
+
+			if (includeProductLanguageData) {
+				String languageSql =
+						  " select /*+ leading(aa bb) use_nl(bb) "
+						+ "index(aa IX_AR_TUNE_01) "
+						+ "index(bb XAK1_ArticleLang) */ "
+						+ "        aa.\"Identifier\" \"ProductNo\" "
+						+ "       ,bb.\"Res_Text250_01\" \"ProductName\" "
+						+ "       ,bb.\"DescriptionLong\" \"DescriptionLong\" "
+						+ "       ,bb.\"Res_Text2G_01\" \"DescriptionLong2\" "
+						+ " from \"ArticleRevision\" aa "
+						+ " inner join \"ArticleLang\" bb "
+						+ "    on bb.\"ArticleRevisionID\" = aa.\"ID\" "
+						+ "   and bb.\"LanguageID\" = 10 "
+						+ "   and bb.\"DeletionTimestamp\" = "
+						+ "       timestamp '9999-12-31 00:00:00.0' "
+						+ " where aa.\"Identifier\" in ("
+						+ placeholders(idChunk.size())
+						+ ") "
+						+ "   and aa.\"EntityID\" = 1100 "
+						+ "   and aa.\"RevisionID\" = 1 "
+						+ "   and aa.\"DeletionTimestamp\" = "
+						+ "       timestamp '9999-12-31 00:00:00.0'";
+
+				try (java.sql.PreparedStatement pstmnt =
+						connection().prepareStatement(languageSql)) {
+
+					bindNStrings(pstmnt, 1, idChunk);
+
+					try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+						while (rs.next()) {
+							org.json.JSONObject row =
+									result.get(rs.getString("ProductNo"));
+							if (row != null) {
+								row.put("ProductName", stringValue(rs, "ProductName"))
+									.put("DescriptionLong", stringValue(rs, "DescriptionLong"))
+									.put("DescriptionLong2", stringValue(rs, "DescriptionLong2"));
+							}
+						}
+					}
+				} catch (java.sql.SQLException e) {
+					logE(e);
+				}
+			}
+		}
+
+		return result;
+	}
+
+	public java.util.Map<String, java.util.Set<String>> getProductVariants(
+			java.util.Collection<String> identifiers) {
+
+		java.util.Map<String, java.util.Set<String>> result =
+				new java.util.LinkedHashMap<>();
+
+		for (java.util.List<String> chunk : identifierChunks(identifiers)) {
+			for (String identifier : chunk) {
+				result.put(
+						identifier,
+						new java.util.LinkedHashSet<String>());
+			}
+
+			String sql =
+					  " select /*+ leading(aa bb) use_nl(bb cc) "
+					+ "index(bb XAK1_ArticleReference) */ "
+					+ "        aa.\"Identifier\" \"ProductNo\" "
+					+ "       ,cc.\"Identifier\" \"ArticleIdentifier\" "
+					+ " from \"ArticleRevision\" aa "
+					+ " inner join \"ArticleReference\" bb "
+					+ "    on bb.\"RefIntArtID\" = aa.\"ArticleID\" "
+					+ "   and bb.\"RefExtArtIdentifier\" = aa.\"Identifier\" "
+					+ "   and bb.\"DeletionTimestamp\" = "
+					+ "       timestamp '9999-12-31 00:00:00.0' "
+					+ " inner join \"ArticleRevision\" cc "
+					+ "    on cc.\"ID\" = bb.\"ArticleRevisionID\" "
+					+ "   and cc.\"EntityID\" = 1000 "
+					+ "   and cc.\"RevisionID\" = 1 "
+					+ "   and cc.\"DeletionTimestamp\" = "
+					+ "       timestamp '9999-12-31 00:00:00.0' "
+					+ " where aa.\"Identifier\" in ("
+					+ placeholders(chunk.size())
+					+ ") "
+					+ "   and aa.\"EntityID\" = 1100 "
+					+ "   and aa.\"RevisionID\" = 1 "
+					+ "   and aa.\"DeletionTimestamp\" = "
+					+ "       timestamp '9999-12-31 00:00:00.0' "
+					+ " order by aa.\"Identifier\", cc.\"Identifier\"";
+
+			try (java.sql.PreparedStatement pstmnt =
+					connection().prepareStatement(sql)) {
+
+				bindNStrings(pstmnt, 1, chunk);
+
+				try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+					while (rs.next()) {
+						java.util.Set<String> variants =
+								result.get(rs.getString("ProductNo"));
+						if (variants != null) {
+							variants.add(rs.getString("ArticleIdentifier"));
+						}
+					}
+				}
+			} catch (java.sql.SQLException e) {
+				logE(e);
+			}
+		}
+
+		return result;
+	}
+
+	public java.util.Map<String, org.json.JSONObject> getArticleData(
+			java.util.Collection<String> identifiers) {
+
+		java.util.Map<String, org.json.JSONObject> result =
+				new java.util.LinkedHashMap<>();
+
+		for (java.util.List<String> chunk : identifierChunks(identifiers)) {
+			for (String identifier : chunk) {
+				result.put(identifier, emptyArticleData(identifier));
+			}
+
+			String sql =
+					  "SELECT /*+ leading(aa) "
+					+ "use_nl(bb cc assign_cv assign_lvr sec_lvr ig_lvr ar) "
+					+ "index(aa IX_AR_TUNE_01) "
+					+ "index(assign_cv XAK1_ArticleCharactValue) "
+					+ "index(ar XAK1_ArticleReference) */ "
+					+ "       aa.\"Identifier\" AS \"VariantIdentifier\", "
+					+ "       bb.\"EAN\", "
+					+ "       bb.\"Res_Int_02\" AS \"SKU\", "
+					+ "       bb.\"Res_Text250_02\" AS \"ProductImageURL\", "
+					+ "       sec_lvr.\"Code\" AS \"TamanoUnico\", "
+					+ "       ig_lvr.\"Code\" AS \"Color\", "
+					+ "       assign_lvr.\"Code\" AS \"AssignTakeNoTake\", "
+					+ "       cc.\"Res_Text250_01\" AS \"SupplierPartNumber\", "
+					+ "       ar.\"RefExtArtIdentifier\" AS \"ProductNo\" "
+					+ "FROM \"ArticleRevision\" aa "
+					+ "INNER JOIN \"ArticleDetail\" bb "
+					+ " ON bb.\"ArticleRevisionID\" = aa.\"ID\" "
+					+ "AND bb.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN \"ArticleDomain\" cc "
+					+ " ON cc.\"ArticleRevisionID\" = aa.\"ID\" "
+					+ "AND cc.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN \"ArticleCharactValue\" assign_cv "
+					+ " ON assign_cv.\"ArticleRevisionID\" = aa.\"ID\" "
+					+ "AND assign_cv.\"CharacteristicID\" = 3227 "
+					+ "AND assign_cv.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" assign_lvr "
+					+ " ON assign_lvr.\"LookupValueID\" = assign_cv.\"LookupValueID\" "
+					+ "AND assign_lvr.\"RevisionID\" = 1 "
+					+ "AND assign_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" sec_lvr "
+					+ " ON sec_lvr.\"LookupValueID\" = cc.\"Res_Int_01\" "
+					+ "AND sec_lvr.\"RevisionID\" = 1 "
+					+ "AND sec_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" ig_lvr "
+					+ " ON ig_lvr.\"LookupValueID\" = cc.\"Res_Int_02\" "
+					+ "AND ig_lvr.\"RevisionID\" = 1 "
+					+ "AND ig_lvr.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "LEFT JOIN \"ArticleReference\" ar "
+					+ " ON ar.\"ArticleRevisionID\" = aa.\"ID\" "
+					+ "AND ar.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0' "
+					+ "WHERE aa.\"Identifier\" IN ("
+					+ placeholders(chunk.size())
+					+ ") "
+					+ "AND aa.\"EntityID\" = 1000 "
+					+ "AND aa.\"RevisionID\" = 1 "
+					+ "AND aa.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'";
+
+			try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(sql)) {
+				bindNStrings(pstmnt, 1, chunk);
+				try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+					while (rs.next()) {
+						String identifier = rs.getString("VariantIdentifier");
+						result.put(
+							identifier,
+							emptyArticleData(identifier)
+								.put("ProductNo", stringValue(rs, "ProductNo"))
+								.put("SKU", stringValue(rs, "SKU"))
+								.put("ColoursLiverpoolAtt", stringValue(rs, "Color"))
+								.put("TamanoUnico", stringValue(rs, "TamanoUnico"))
+								.put("ProductImage", stringValue(rs, "ProductImageURL"))
+								.put("MainBarCode", stringValue(rs, "EAN"))
+								.put("AssignTakeNoTake", stringValue(rs, "AssignTakeNoTake"))
+								.put("SupplierPartNumber", stringValue(rs, "SupplierPartNumber")));
+					}
+				}
+			} catch (java.sql.SQLException e) {
+				logE(e);
+			}
+		}
+
+		return result;
+	}
+
+
+	private org.json.JSONObject emptyArticleData(String identifier) {
+		return new org.json.JSONObject()
+				.put("variant", identifier)
+				.put("ProductNo", "")
+				.put("ColoursLiverpoolAtt", "")
+				.put("TamanoUnico", "")
+				.put("ProductImage", "")
+				.put("AssignTakeNoTake", "")
+				.put("SKU", "")
+				.put("MainBarCode", "")
+				.put("MainBarCodeS4H", "")
+				.put("SupplierPartNumber", "");
 	}
 	
 	public java.util.List<org.json.JSONObject> getWebHierarchyRows(int languageID) {
@@ -362,7 +1324,7 @@ public class DBAccessDataStub implements AutoCloseable {
 				+ "   and cc.\"Res_LK_Int_01\" = 0 "
 				+ "   and cc.\"DeletionTimestamp\" = "
 				+ "       timestamp '9999-12-31 00:00:00.0' "
-				+ " where aa.\"StructureID\" = 12000 "
+				+ " where aa.\"StructureID\" = (select /*+ index(sr XAK1_StructureRevision) */ sr.\"StructureID\" from PIM_MAIN.\"StructureRevision\" sr where sr.\"Identifier\" = N'Sitios Web' and sr.\"RevisionID\" = 1 and sr.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0') "
 				+ "   and aa.\"RevisionID\" = 1 "
 				+ "   and aa.\"DeletionTimestamp\" = "
 				+ "       timestamp '9999-12-31 00:00:00.0' "
@@ -437,7 +1399,7 @@ public class DBAccessDataStub implements AutoCloseable {
 				+ "       timestamp '9999-12-31 00:00:00.0' "
 				+ " where aa.\"Identifier\" = ? "
 				+ "   and aa.\"RevisionID\" = 1 "
-				+ "   and aa.\"StructureID\" = 10000 "
+				+ "   and aa.\"StructureID\" = (select /*+ index(sr XAK1_StructureRevision) */ sr.\"StructureID\" from PIM_MAIN.\"StructureRevision\" sr where sr.\"Identifier\" = N'PrimaryProductTaxonomy' and sr.\"RevisionID\" = 1 and sr.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0') "
 				+ "   and aa.\"DeletionTimestamp\" = "
 				+ "       timestamp '9999-12-31 00:00:00.0' "
 				+ "   and ee.\"Name\" in ( "
@@ -947,6 +1909,23 @@ public class DBAccessDataStub implements AutoCloseable {
 				.put( "order", row.optString("order", "") );
 		}
 		return propiedadesCaracteristicas;
+	}
+	
+	public String getPartySupplierType(String supplierCode) {
+		if (supplierCode == null || supplierCode.isBlank()) {
+			return null;
+		}
+
+		java.util.Map<String, String> supplierTypes =
+				getReferencedLookupValues(
+						"Party",
+						supplierCode,
+						"TipoProveedorSAPAttLOV",
+						10);
+
+		return supplierTypes.isEmpty()
+				? null
+				: supplierTypes.keySet().iterator().next();
 	}
 	
 	public java.util.Map<String, String> getLookupValueCodeNameMap(
@@ -2116,6 +3095,935 @@ public class DBAccessDataStub implements AutoCloseable {
 		return null;
 	}
 	
+	public Integer getProductCurrentStatusByArticleIdentifier(String articleIdentifier) {
+		handleRefreshConnection();
+
+		try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(
+				  "select /*+ leading(article_ar article_ref product_ar product_ad) "
+				+ "           use_nl(article_ref product_ar product_ad) "
+				+ "           index(article_ar IX_AR_TUNE_01) "
+				+ "           index(article_ref XAK1_ArticleReference) "
+				+ "           index(product_ar IX_AR_TUNE_01) */ "
+				+ "       product_ad.\"CurrentStatus\" "
+				+ "from PIM_MASTER.\"ArticleRevision\" article_ar "
+				+ "inner join PIM_MASTER.\"ArticleReference\" article_ref "
+				+ "        on article_ref.\"ArticleRevisionID\" = article_ar.\"ID\" "
+				+ "       and article_ref.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
+				+ "inner join PIM_MASTER.\"ArticleRevision\" product_ar "
+				+ "        on product_ar.\"ArticleID\" = article_ref.\"RefIntArtID\" "
+				+ "       and product_ar.\"Identifier\" = article_ref.\"RefExtArtIdentifier\" "
+				+ "       and product_ar.\"EntityID\" = 1100 "
+				+ "       and product_ar.\"RevisionID\" = 1 "
+				+ "       and product_ar.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
+				+ "inner join PIM_MASTER.\"ArticleDetail\" product_ad "
+				+ "        on product_ad.\"ArticleRevisionID\" = product_ar.\"ID\" "
+				+ "       and product_ad.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
+				+ "where article_ar.\"Identifier\" = ? "
+				+ "  and article_ar.\"EntityID\" = 1000 "
+				+ "  and article_ar.\"RevisionID\" = 1 "
+				+ "  and article_ar.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0'"
+		)) {
+			pstmnt.setString(1, articleIdentifier);
+
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				if (rs.next()) {
+					int currentStatus = rs.getInt("CurrentStatus");
+					return rs.wasNull() ? null : Integer.valueOf(currentStatus);
+				}
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+		}
+
+		return null;
+	}
+	
+
+	public java.util.Map<String, org.json.JSONObject> getTemplateCharacteristicPropertiesForVendorCenter(String template) {
+	
+		java.util.Map<String, org.json.JSONObject> result = new java.util.LinkedHashMap<>();
+	
+		if (template == null || template.isBlank()) {
+			return result;
+		}
+	
+		Integer templateLVID = getLookupValueId("PPH_L4_Templates", template);
+		Integer euCatSystemID = getLookupValueId("ExternalSystems", "EUCat");
+	
+		if (templateLVID == null || euCatSystemID == null) {
+			return result;
+		}
+	
+		String sql =
+				  " select /*+ "
+				+ "     leading(bb aa dd pp pi cl lr) "
+				+ "     use_nl(aa dd pp pi cl lr) "
+				+ "     index(bb XAK2_LookupRevision) "
+				+ "     index(aa IX_LVREV_METADATA_EXT_01) "
+				+ "     index(dd XAK1_CharacteristicRevision) "
+				+ "     index(pp XAK1_LookupValueRevision) "
+				+ "     index(pi XAK1_LookupValueIdentifier) "
+				+ "     index(cl XAK1_CharacteristicLang) "
+				+ "     index(lr XAK1_LookupRevision) "
+				+ " */ "
+				+ "        dd.\"Identifier\" \"Characteristic\" "
+				+ "       ,pi.\"Code\" \"Property\" "
+				+ "       ,aa.\"Res_Text2G_01\" \"PropertyValue\" "
+				+ "       ,cl.\"Name\" \"FriendlyName\" "
+				+ "       ,dd.\"DataType\" \"DataType\" "
+				+ "       ,lr.\"Identifier\" \"CharacteristicLookup\" "
+				+ " from PIM_MAIN.\"LookupRevision\" bb "
+				+ " inner join PIM_MAIN.\"LookupValueRevision\" aa "
+				+ "    on aa.\"LookupID\" = bb.\"LookupID\" "
+				+ "   and aa.\"Res_Int_01\" = ? "
+				+ "   and aa.\"RevisionID\" = 1 "
+				+ "   and aa.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " inner join PIM_MAIN.\"CharacteristicRevision\" dd "
+				+ "    on dd.\"CharacteristicID\" = aa.\"Res_Int_02\" "
+				+ "   and dd.\"RevisionID\" = 1 "
+				+ "   and dd.\"IsActive\" = 1 "
+				+ "   and dd.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " inner join PIM_MAIN.\"LookupValueRevision\" pp "
+				+ "    on pp.\"LookupValueID\" = aa.\"Res_Int_03\" "
+				+ "   and pp.\"RevisionID\" = 1 "
+				+ "   and pp.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " inner join PIM_MAIN.\"LookupValueIdentifier\" pi "
+				+ "    on pi.\"LookupValueRevisionID\" = pp.\"ID\" "
+				+ "   and pi.\"SystemID\" = ? "
+				+ "   and pi.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " left join PIM_MAIN.\"CharacteristicLang\" cl "
+				+ "    on cl.\"CharacteristicRevisionID\" = dd.\"ID\" "
+				+ "   and cl.\"LanguageID\" = 10 "
+				+ "   and cl.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " left join PIM_MAIN.\"LookupRevision\" lr "
+				+ "    on lr.\"LookupID\" = dd.\"LookupID\" "
+				+ "   and lr.\"RevisionID\" = 1 "
+				+ "   and lr.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " where bb.\"Identifier\" = "
+				+ "       'ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla' "
+				+ "   and bb.\"RevisionID\" = 1 "
+				+ "   and bb.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " order by dd.\"Identifier\" asc, pi.\"Code\" asc";
+	
+		try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(sql)) {
+	
+			pstmnt.setInt(1, templateLVID);
+			pstmnt.setInt(2, euCatSystemID);
+			pstmnt.setQueryTimeout(30);
+			pstmnt.setFetchSize(500);
+	
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				while (rs.next()) {
+					String characteristic =
+							java.util.Objects.toString(
+									rs.getNString("Characteristic"), "");
+	
+					String property =
+							java.util.Objects.toString(
+									rs.getNString("Property"), "");
+	
+					if (characteristic.isBlank() || property.isBlank()) {
+						continue;
+					}
+	
+					org.json.JSONObject values = result.get(characteristic);
+	
+					if (values == null) {
+						values = new org.json.JSONObject()
+								.put(
+										"_friendlyName",
+										java.util.Objects.toString(
+												rs.getNString("FriendlyName"),
+												characteristic))
+								.put(
+										"_dataType",
+										java.util.Objects.toString(
+												rs.getNString("DataType"), ""))
+								.put(
+										"_lookup",
+										java.util.Objects.toString(
+												rs.getNString(
+														"CharacteristicLookup"),
+												""));
+	
+						result.put(characteristic, values);
+					}
+	
+					values.put(
+							property,
+							java.util.Objects.toString(
+									rs.getNString("PropertyValue"), ""));
+				}
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+		}
+	
+		return result;
+	}
+	
+	public java.util.List<org.json.JSONObject> getTemplateCharacteristicPropertyRowsByLocalizedName(
+				String template,
+				String creationType,
+				int languageID) {
+	
+		java.util.List<org.json.JSONObject> rows =
+				new java.util.ArrayList<>();
+		
+		if (template == null || template.isBlank()) {
+			return rows;
+		}
+		
+		if (creationType == null || creationType.isBlank()) {
+			creationType = "CreateProposal";
+		}
+		
+		Integer templateLVID = getLookupValueId("PPH_L4_Templates", template);
+		Integer creationTypeLVID = getLookupValueId("CreationType", creationType);
+		
+		if (templateLVID == null || creationTypeLVID == null) {
+			return rows;
+		}
+		
+		String sql =
+				  " select /*+ "
+				+ "     leading(bb aa sg cr cl pv pl) "
+				+ "     use_nl(aa sg cr cl pv pl) "
+				+ "     index(bb XAK2_LookupRevision) "
+				+ "     index(aa IX_LVREV_METADATA_EXT_01) "
+				+ "     index(sg XAK1_LookupValueRevision) "
+				+ "     index(cr XAK1_CharacteristicRevision) "
+				+ "     index(cl XAK1_CharacteristicLang) "
+				+ "     index(pv XAK1_LookupValueRevision) "
+				+ "     index(pl XAK1_LookupValueLang) "
+				+ " */ "
+				+ "        sg.\"Code\" \"StructureGroup\" "
+				+ "       ,cr.\"Identifier\" \"CharacteristicIdentifier\" "
+				+ "       ,cl.\"Name\" \"CharacteristicName\" "
+				+ "       ,pl.\"Name\" \"Property\" "
+				+ "       ,aa.\"Res_Text2G_01\" \"PropertyValue\" "
+				+ " from PIM_MAIN.\"LookupRevision\" bb "
+				+ " inner join PIM_MAIN.\"LookupValueRevision\" aa "
+				+ "    on aa.\"LookupID\" = bb.\"LookupID\" "
+				+ "   and aa.\"Res_Int_01\" = ? "
+				+ "   and aa.\"Res_Int_04\" = ? "
+				+ "   and aa.\"RevisionID\" = 1 "
+				+ "   and aa.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " inner join PIM_MAIN.\"LookupValueRevision\" sg "
+				+ "    on sg.\"LookupValueID\" = aa.\"Res_Int_01\" "
+				+ "   and sg.\"RevisionID\" = 1 "
+				+ "   and sg.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " inner join PIM_MAIN.\"CharacteristicRevision\" cr "
+				+ "    on cr.\"CharacteristicID\" = aa.\"Res_Int_02\" "
+				+ "   and cr.\"RevisionID\" = 1 "
+				+ "   and cr.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " left join PIM_MAIN.\"CharacteristicLang\" cl "
+				+ "    on cl.\"CharacteristicRevisionID\" = cr.\"ID\" "
+				+ "   and cl.\"LanguageID\" = ? "
+				+ "   and cl.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " inner join PIM_MAIN.\"LookupValueRevision\" pv "
+				+ "    on pv.\"LookupValueID\" = aa.\"Res_Int_03\" "
+				+ "   and pv.\"RevisionID\" = 1 "
+				+ "   and pv.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " left join PIM_MAIN.\"LookupValueLang\" pl "
+				+ "    on pl.\"LookupValueRevisionID\" = pv.\"ID\" "
+				+ "   and pl.\"LanguageID\" = ? "
+				+ "   and pl.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " where bb.\"Identifier\" = "
+				+ "       'ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla' "
+				+ "   and bb.\"RevisionID\" = 1 "
+				+ "   and bb.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " order by cl.\"Name\" asc, cr.\"Identifier\" asc, "
+				+ "          pl.\"Name\" asc";
+		
+		try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(sql)) {
+		
+			pstmnt.setInt(1, templateLVID);
+			pstmnt.setInt(2, creationTypeLVID);
+			pstmnt.setInt(3, languageID);
+			pstmnt.setInt(4, languageID);
+			pstmnt.setQueryTimeout(30);
+			pstmnt.setFetchSize(500);
+		
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				while (rs.next()) {
+					rows.add(
+							new org.json.JSONObject()
+									.put(
+											"structureGroup",
+											java.util.Objects.toString(
+													rs.getNString("StructureGroup"),
+													template))
+									.put(
+											"characteristicIdentifier",
+											java.util.Objects.toString(
+													rs.getNString(
+															"CharacteristicIdentifier"),
+													""))
+									.put(
+											"characteristicName",
+											java.util.Objects.toString(
+													rs.getNString("CharacteristicName"),
+													""))
+									.put(
+											"property",
+											java.util.Objects.toString(
+													rs.getNString("Property"), ""))
+									.put(
+											"propertyValue",
+											java.util.Objects.toString(
+													rs.getNString("PropertyValue"),
+													"")));
+				}
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+		}
+		
+		return rows;
+	}
+	
+	public java.util.Date getTemplateCharacteristicMetadataLastChangeDate( String template ) {
+
+		if (template == null || template.isBlank()) {
+			return null;
+		}
+
+		Integer templateLVID = getLookupValueId("PPH_L4_Templates", template);
+
+		if (templateLVID == null) {
+			return null;
+		}
+
+		String sql =
+				  " select /*+ "
+				+ "     leading(bb aa cr) "
+				+ "     use_nl(aa cr) "
+				+ "     index(bb XAK2_LookupRevision) "
+				+ "     index(aa IX_LVREV_METADATA_EXT_01) "
+				+ "     index(cr XAK1_CharacteristicRevision) "
+				+ " */ "
+				+ "        max(nvl( "
+				+ "            aa.\"ModificationTimestamp\", "
+				+ "            aa.\"CreationTimestamp\" "
+				+ "        )) \"LastChange\" "
+				+ " from PIM_MAIN.\"LookupRevision\" bb "
+				+ " inner join PIM_MAIN.\"LookupValueRevision\" aa "
+				+ "    on aa.\"LookupID\" = bb.\"LookupID\" "
+				+ "   and aa.\"Res_Int_01\" = ? "
+				+ "   and aa.\"RevisionID\" = 1 "
+				+ "   and aa.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " inner join PIM_MAIN.\"CharacteristicRevision\" cr "
+				+ "    on cr.\"CharacteristicID\" = aa.\"Res_Int_02\" "
+				+ "   and cr.\"RevisionID\" = 1 "
+				+ "   and cr.\"IsActive\" = 1 "
+				+ "   and cr.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " where bb.\"Identifier\" = "
+				+ "       'ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla' "
+				+ "   and bb.\"RevisionID\" = 1 "
+				+ "   and bb.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0'";
+
+		try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(sql)) {
+
+			pstmnt.setInt(1, templateLVID);
+			pstmnt.setQueryTimeout(30);
+
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				if (rs.next()) {
+					java.sql.Timestamp value = rs.getTimestamp("LastChange");
+					return value == null
+							? null
+							: new java.util.Date(value.getTime());
+				}
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+		}
+
+		return null;
+	}
+	
+	public java.util.Date getDictionaryLastChangeDate( String dictionaryIdentifier ) {
+
+		if (dictionaryIdentifier == null || dictionaryIdentifier.isBlank()) {
+			return null;
+		}
+
+		String sql =
+				  " select /*+ "
+				+ "     leading(aa bb) "
+				+ "     use_nl(bb) "
+				+ "     index(aa XAK1_Dictionary) "
+				+ "     index(bb IX_DICTENTRY_TUNE_02) "
+				+ " */ "
+				+ "        max(nvl( "
+				+ "            bb.\"ModificationTimestamp\", "
+				+ "            bb.\"CreationTimestamp\" "
+				+ "        )) \"LastChange\" "
+				+ " from PIM_MAIN.\"Dictionary\" aa "
+				+ " inner join PIM_MAIN.\"DictionaryEntry\" bb "
+				+ "    on bb.\"DictionaryID\" = aa.\"ID\" "
+				+ "   and bb.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " where aa.\"Identifier\" = ? "
+				+ "   and aa.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0'";
+
+		try (java.sql.PreparedStatement pstmnt =
+				connection().prepareStatement(sql)) {
+
+			pstmnt.setNString(1, dictionaryIdentifier);
+			pstmnt.setQueryTimeout(30);
+
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				if (rs.next()) {
+					java.sql.Timestamp value = rs.getTimestamp("LastChange");
+					return value == null
+							? null
+							: new java.util.Date(value.getTime());
+				}
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+		}
+
+		return null;
+	}
+	
+	public java.util.Date getStructureGroupLastModified(String template) {
+		if (template == null || template.isBlank()) {
+			return null;
+		}
+
+		String sql =
+				  " select /*+ "
+				+ "     index(aa XAK1_StructureGroupRevision) "
+				+ "     first_rows(1) "
+				+ " */ "
+				+ "        nvl( "
+				+ "            aa.\"LastModified\", "
+				+ "            nvl( "
+				+ "                aa.\"ModificationTimestamp\", "
+				+ "                aa.\"CreationTimestamp\" "
+				+ "            ) "
+				+ "        ) \"LastModified\" "
+				+ " from PIM_MAIN.\"StructureGroupRevision\" aa "
+				+ " where aa.\"Identifier\" = ? "
+				+ "   and aa.\"RevisionID\" = 1 "
+				+ "   and aa.\"StructureID\" = (select /*+ index(sr XAK1_StructureRevision) */ sr.\"StructureID\" from PIM_MAIN.\"StructureRevision\" sr where sr.\"Identifier\" = N'PrimaryProductTaxonomy' and sr.\"RevisionID\" = 1 and sr.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0') "
+				+ "   and aa.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ "   and rownum = 1";
+
+		try (java.sql.PreparedStatement pstmnt =
+				connection().prepareStatement(sql)) {
+
+			pstmnt.setNString(1, template);
+			pstmnt.setQueryTimeout(30);
+
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				if (rs.next()) {
+					java.sql.Timestamp value =
+							rs.getTimestamp("LastModified");
+
+					return value == null
+							? null
+							: new java.util.Date(value.getTime());
+				}
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+		}
+
+		return null;
+	}
+	
+	public Integer getLookupValueId(String lookupIdentifier, String code, boolean failOnError) {
+		String sql =
+				  " select /*+ "
+				+ "     leading(bb aa) "
+				+ "     use_nl(aa) "
+				+ "     index(bb XAK2_LookupRevision) "
+				+ "     index(aa XAK2_LookupValueRevision) "
+				+ " */ "
+				+ "        aa.\"LookupValueID\" "
+				+ " from PIM_MAIN.\"LookupRevision\" bb "
+				+ " inner join PIM_MAIN.\"LookupValueRevision\" aa "
+				+ "    on aa.\"LookupID\" = bb.\"LookupID\" "
+				+ "   and aa.\"RevisionID\" = 1 "
+				+ "   and aa.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ "   and aa.\"Code\" = ? "
+				+ " where bb.\"Identifier\" = ? "
+				+ "   and bb.\"RevisionID\" = 1 "
+				+ "   and bb.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0'";
+
+		try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(sql)) {
+			pstmnt.setNString(1, code);
+			pstmnt.setNString(2, lookupIdentifier);
+			pstmnt.setQueryTimeout(30);
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				return rs.next() ? rs.getInt(1) : null;
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+			if (failOnError) {
+				throw new IllegalStateException( "Error consultando el código " + code + " en el lookup " + lookupIdentifier, e );
+			}
+			return null;
+		}
+	}
+	
+	public java.util.List<String> getLookupValueCodesByName(
+			String lookupIdentifier,
+			int languageID,
+			String name,
+			boolean onlyActive) {
+
+		java.util.List<String> codes = new java.util.ArrayList<>();
+
+		if (lookupIdentifier == null
+				|| lookupIdentifier.isBlank()
+				|| name == null
+				|| name.isBlank()) {
+			return codes;
+		}
+
+		String sql =
+				  " select /*+ leading(cc bb aa) use_nl(bb aa) */ "
+				+ "        bb.\"Code\" "
+				+ " from PIM_MAIN.\"LookupValueLang\" cc "
+				+ " inner join PIM_MAIN.\"LookupValueRevision\" bb "
+				+ "    on bb.\"ID\" = cc.\"LookupValueRevisionID\" "
+				+ "   and bb.\"RevisionID\" = 1 "
+				+ "   and bb.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ (onlyActive ? "   and bb.\"IsActive\" = 1 " : "")
+				+ " inner join PIM_MAIN.\"LookupRevision\" aa "
+				+ "    on aa.\"LookupID\" = bb.\"LookupID\" "
+				+ "   and aa.\"RevisionID\" = 1 "
+				+ "   and aa.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " where cc.\"Name\" = ? "
+				+ "   and cc.\"LanguageID\" = ? "
+				+ "   and cc.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ "   and aa.\"Identifier\" = ?";
+
+		try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(sql)) {
+			pstmnt.setNString(1, name);
+			pstmnt.setInt(2, languageID);
+			pstmnt.setNString(3, lookupIdentifier);
+			pstmnt.setQueryTimeout(30);
+
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				while (rs.next()) {
+					String code = rs.getString(1);
+					if (code != null && !code.isBlank()) {
+						codes.add(code);
+					}
+				}
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+		}
+
+		return codes;
+	}
+
+	public java.util.Map<String, String> getTemplateStructureGroupAttributeValues(
+				String template,
+				int languageID,
+				java.util.Collection<String> attributeNames) {
+	
+		java.util.Map<String, String> values = new java.util.TreeMap<>();
+		
+		if (template == null
+				|| template.isBlank()
+				|| attributeNames == null
+				|| attributeNames.isEmpty()) {
+			return values;
+		}
+		
+		java.util.List<String> requestedNames = new java.util.ArrayList<>();
+		
+		for (String attributeName : attributeNames) {
+			if (attributeName != null && !attributeName.isBlank()) {
+				requestedNames.add(attributeName.trim());
+			}
+		}
+		
+		if (requestedNames.isEmpty()) {
+			return values;
+		}
+	
+		String placeholders = String.join(
+				",",
+				java.util.Collections.nCopies(requestedNames.size(), "?"));
+		
+		String sql =
+				  " select /*+ "
+				+ "     leading(aa bb dd ee cc) "
+				+ "     use_nl(bb dd ee cc) "
+				+ "     index(aa XAK1_StructureGroupRevision) "
+				+ "     index(bb XAK1_StructureGroupAttribute) "
+				+ "     index(dd XAK2_StructAttrRevision) "
+				+ "     index(ee XAK1_StructureAttributeLang) "
+				+ "     index(cc XAK1_SGAVal) "
+				+ " */ "
+				+ "        ee.\"Name\" \"AttributeName\" "
+				+ "       ,cc.\"Value\" \"AttributeValue\" "
+				+ " from PIM_MAIN.\"StructureGroupRevision\" aa "
+				+ " inner join PIM_MAIN.\"StructureGroupAttribute\" bb "
+				+ "    on bb.\"StructureGroupRevisionID\" = aa.\"ID\" "
+				+ "   and bb.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " inner join PIM_MAIN.\"StructureAttributeRevision\" dd "
+				+ "    on dd.\"StructureAttributeID\" = "
+				+ "       bb.\"StructureAttributeID\" "
+				+ "   and dd.\"StructureID\" = aa.\"StructureID\" "
+				+ "   and dd.\"RevisionID\" = 1 "
+				+ "   and dd.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " inner join PIM_MAIN.\"StructureAttributeLang\" ee "
+				+ "    on ee.\"StructureAttributeRevisionID\" = dd.\"ID\" "
+				+ "   and ee.\"LanguageID\" = ? "
+				+ "   and ee.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " inner join PIM_MAIN.\"StructureGroupAttributeVal\" cc "
+				+ "    on cc.\"StructureGroupAttributeID\" = bb.\"ID\" "
+				+ "   and cc.\"Identifier\" = 'DEFAULT' "
+				+ "   and cc.\"LanguageID\" = ? "
+				+ "   and cc.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " where aa.\"Identifier\" = ? "
+				+ "   and aa.\"RevisionID\" = 1 "
+				+ "   and aa.\"StructureID\" = (select /*+ index(sr XAK1_StructureRevision) */ sr.\"StructureID\" from PIM_MAIN.\"StructureRevision\" sr where sr.\"Identifier\" = N'PrimaryProductTaxonomy' and sr.\"RevisionID\" = 1 and sr.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0') "
+				+ "   and aa.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ "   and ee.\"Name\" in (" + placeholders + ") "
+				+ " order by ee.\"Name\" asc";
+		
+		try (java.sql.PreparedStatement pstmnt =
+				connection().prepareStatement(sql)) {
+		
+			int parameterIndex = 1;
+			pstmnt.setInt(parameterIndex++, languageID);
+			pstmnt.setInt(parameterIndex++, languageID);
+			pstmnt.setNString(parameterIndex++, template);
+		
+			for (String attributeName : requestedNames) {
+				pstmnt.setNString(parameterIndex++, attributeName);
+			}
+		
+			pstmnt.setQueryTimeout(30);
+			pstmnt.setFetchSize(Math.min(requestedNames.size(), 500));
+		
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				while (rs.next()) {
+					String attributeName =
+							java.util.Objects.toString(
+									rs.getNString("AttributeName"), "");
+		
+					if (attributeName.isBlank()) {
+						continue;
+					}
+		
+					values.put(
+							attributeName,
+							java.util.Objects.toString(
+									rs.getNString("AttributeValue"), ""));
+				}
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+		}
+		
+		return values;
+	}
+	
+	
+	public java.util.Map<String, java.util.Map<String, String>> getReferencedLookupValuesBySourceCodes(
+				String sourceLookupIdentifier,
+				java.util.Collection<String> sourceValueCodes,
+				String targetLookupIdentifier,
+				int languageID) {
+		java.util.Map<String, java.util.Map<String, String>> result = new java.util.LinkedHashMap<>();
+		java.util.List<String> normalizedSourceCodes = normalizeIdentifiers(sourceValueCodes);
+		if (sourceLookupIdentifier == null
+				|| sourceLookupIdentifier.isBlank()
+				|| normalizedSourceCodes.isEmpty()
+				|| targetLookupIdentifier == null
+				|| targetLookupIdentifier.isBlank()) {
+		
+			return result;
+		}
+		
+		for (String sourceValueCode : normalizedSourceCodes) {
+			result.put(sourceValueCode, new java.util.LinkedHashMap<String, String>());
+		}
+		
+		for (java.util.List<String> chunk : identifierChunks(normalizedSourceCodes)) {
+			String sql =
+					  "select /*+ "
+					+ "           qb_name(main_qb) "
+					+ "           leading(src_lookup src_value ref target_lookup target_value target_lang) "
+					+ "           use_nl(src_value ref target_lookup target_value target_lang) "
+					+ "           index(src_lookup XAK2_LookupRevision) "
+					+ "           index(src_value XAK2_LookupValueRevision) "
+					+ "           index(ref XAK1_LookupValueReference) "
+					+ "           index(target_lookup XAK2_LookupRevision) "
+					+ "           index(target_value XAK1_LookupValueRevision) "
+					+ "       */ "
+					+ "       src_value.\"Code\" "
+					+ "           \"SourceCode\", "
+					+ "       target_value.\"Code\" "
+					+ "           \"ReferencedCode\", "
+					+ "       target_lang.\"Name\" "
+					+ "           \"ReferencedName\" "
+					+ "from PIM_MAIN.\"LookupRevision\" src_lookup "
+					+ "inner join PIM_MAIN.\"LookupValueRevision\" src_value "
+					+ "        on src_value.\"LookupID\" = src_lookup.\"LookupID\" "
+					+ "       and src_value.\"Code\" in ("
+					+ placeholders(chunk.size())
+					+ ") "
+					+ "       and src_value.\"RevisionID\" = 1 "
+					+ "       and src_value.\"DeletionTimestamp\" = "
+					+ "           timestamp '9999-12-31 00:00:00.0' "
+					+ "inner join PIM_MAIN.\"LookupValueReference\" ref "
+					+ "        on ref.\"LookupValueRevisionID\" = src_value.\"ID\" "
+					+ "       and ref.\"DeletionTimestamp\" = "
+					+ "           timestamp '9999-12-31 00:00:00.0' "
+					+ "inner join PIM_MAIN.\"LookupRevision\" target_lookup "
+					+ "        on target_lookup.\"LookupID\" = ref.\"RefLookupID\" "
+					+ "       and target_lookup.\"Identifier\" = ? "
+					+ "       and target_lookup.\"RevisionID\" = 1 "
+					+ "       and target_lookup.\"DeletionTimestamp\" = "
+					+ "           timestamp '9999-12-31 00:00:00.0' "
+					+ "inner join PIM_MAIN.\"LookupValueRevision\" target_value "
+					+ "        on target_value.\"LookupValueID\" = ref.\"RefLookupValueID\" "
+					+ "       and target_value.\"LookupID\" = ref.\"RefLookupID\" "
+					+ "       and target_value.\"RevisionID\" = 1 "
+					+ "       and target_value.\"DeletionTimestamp\" = "
+					+ "           timestamp '9999-12-31 00:00:00.0' "
+					+ "left join PIM_MAIN.\"LookupValueLang\" target_lang "
+					+ "       on target_lang.\"LookupValueRevisionID\" = target_value.\"ID\" "
+					+ "      and target_lang.\"LanguageID\" = ? "
+					+ "      and target_lang.\"DeletionTimestamp\" = "
+					+ "          timestamp '9999-12-31 00:00:00.0' "
+					+ "where src_lookup.\"Identifier\" = ? "
+					+ "  and src_lookup.\"RevisionID\" = 1 "
+					+ "  and src_lookup.\"DeletionTimestamp\" = "
+					+ "      timestamp '9999-12-31 00:00:00.0' "
+					+ "order by src_value.\"Code\", target_value.\"Code\"";
+		
+			try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(sql)) {
+				bindNStrings(
+						pstmnt,
+						1,
+						chunk);
+				int parameterIndex = chunk.size() + 1;
+		
+				pstmnt.setNString( parameterIndex++, targetLookupIdentifier );
+				pstmnt.setInt(parameterIndex++, languageID);
+				pstmnt.setNString( parameterIndex, sourceLookupIdentifier );
+		
+				pstmnt.setQueryTimeout(30);
+				pstmnt.setFetchSize(500);
+		
+				try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+					while (rs.next()) {
+						String sourceCode = rs.getString("SourceCode");
+						String referencedCode = rs.getString("ReferencedCode");
+						if (sourceCode == null
+								|| sourceCode.isBlank()
+								|| referencedCode == null
+								|| referencedCode.isBlank()) {
+							continue;
+						}
+		
+						java.util.Map<String, String> referencedValues = result.get(sourceCode);
+		
+						if (referencedValues == null) {
+							referencedValues = new java.util.LinkedHashMap<>();
+							result.put(sourceCode, referencedValues);
+						}
+						referencedValues.put( referencedCode, java.util.Objects.toString( rs.getString("ReferencedName"), "") );
+					}
+				}
+			} catch (java.sql.SQLException e) {
+				logE(e);
+			}
+		}
+		
+		return result;
+	}
+	
+	public java.util.Map<String, String> getReferencedLookupValues(
+			String sourceLookupIdentifier,
+			String sourceValueCode,
+			String targetLookupIdentifier,
+			int languageID
+	) {
+		java.util.Map<String, String> values = new java.util.LinkedHashMap<>();
+
+		if (sourceLookupIdentifier == null || sourceLookupIdentifier.isBlank()
+				|| sourceValueCode == null || sourceValueCode.isBlank()
+				|| targetLookupIdentifier == null || targetLookupIdentifier.isBlank()) {
+			return values;
+		}
+
+		String sql =
+				    "select /*+\r\n"
+				  + "           qb_name(main_qb)\r\n"
+				  + "           leading(src_lookup src_value ref target_lookup target_value target_lang)\r\n"
+				  + "           use_nl(src_value ref target_lookup target_value target_lang)\r\n"
+				  + "           index(src_lookup XAK2_LookupRevision)\r\n"
+				  + "           index(src_value XAK2_LookupValueRevision)\r\n"
+				  + "           index(ref XAK1_LookupValueReference)\r\n"
+				  + "           index(target_lookup XAK2_LookupRevision)\r\n"
+				  + "           index(target_value XAK1_LookupValueRevision)\r\n"
+				  + "       */\r\n"
+				  + "       target_value.\"Code\" \"ReferencedCode\",\r\n"
+				  + "       target_lang.\"Name\" \"ReferencedName\"\r\n"
+				  + "from PIM_MAIN.\"LookupRevision\" src_lookup\r\n"
+				  + "inner join PIM_MAIN.\"LookupValueRevision\" src_value\r\n"
+				  + "        on src_value.\"LookupID\" = src_lookup.\"LookupID\"\r\n"
+				  + "       and src_value.\"Code\" = ?\r\n"
+				  + "       and src_value.\"RevisionID\" = 1\r\n"
+				  + "       and src_value.\"DeletionTimestamp\" =\r\n"
+				  + "           timestamp '9999-12-31 00:00:00.0'\r\n"
+				  + "inner join PIM_MAIN.\"LookupValueReference\" ref\r\n"
+				  + "        on ref.\"LookupValueRevisionID\" = src_value.\"ID\"\r\n"
+				  + "       and ref.\"DeletionTimestamp\" =\r\n"
+				  + "           timestamp '9999-12-31 00:00:00.0'\r\n"
+				  + "inner join PIM_MAIN.\"LookupRevision\" target_lookup\r\n"
+				  + "        on target_lookup.\"LookupID\" = ref.\"RefLookupID\"\r\n"
+				  + "       and target_lookup.\"Identifier\" = ?\r\n"
+				  + "       and target_lookup.\"RevisionID\" = 1\r\n"
+				  + "       and target_lookup.\"DeletionTimestamp\" =\r\n"
+				  + "           timestamp '9999-12-31 00:00:00.0'\r\n"
+				  + "inner join PIM_MAIN.\"LookupValueRevision\" target_value\r\n"
+				  + "        on target_value.\"LookupValueID\" = ref.\"RefLookupValueID\"\r\n"
+				  + "       and target_value.\"LookupID\" = ref.\"RefLookupID\"\r\n"
+				  + "       and target_value.\"RevisionID\" = 1\r\n"
+				  + "       and target_value.\"DeletionTimestamp\" =\r\n"
+				  + "           timestamp '9999-12-31 00:00:00.0'\r\n"
+				  + "left join PIM_MAIN.\"LookupValueLang\" target_lang\r\n"
+				  + "       on target_lang.\"LookupValueRevisionID\" = target_value.\"ID\"\r\n"
+				  + "      and target_lang.\"LanguageID\" = ?\r\n"
+				  + "      and target_lang.\"DeletionTimestamp\" =\r\n"
+				  + "          timestamp '9999-12-31 00:00:00.0'\r\n"
+				  + "where src_lookup.\"Identifier\" = ?\r\n"
+				  + "  and src_lookup.\"RevisionID\" = 1\r\n"
+				  + "  and src_lookup.\"DeletionTimestamp\" =\r\n"
+				  + "      timestamp '9999-12-31 00:00:00.0'\r\n"
+				  + "order by target_value.\"Code\""
+				;
+
+		try (java.sql.PreparedStatement pstmnt =
+				connection().prepareStatement(sql)) {
+
+			pstmnt.setNString(1, sourceValueCode);
+			pstmnt.setNString(2, targetLookupIdentifier);
+			pstmnt.setInt(3, languageID);
+			pstmnt.setNString(4, sourceLookupIdentifier);
+			pstmnt.setQueryTimeout(30);
+
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				while (rs.next()) {
+					values.put(
+						rs.getString("ReferencedCode"),
+						java.util.Objects.toString(
+							rs.getString("ReferencedName"),
+							""
+						)
+					);
+				}
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+		}
+
+		return values;
+	}
+	
+	public String getLookupValueName(
+			String lookupIdentifier,
+			String code,
+			int languageID
+	) {
+		if (lookupIdentifier == null || lookupIdentifier.isBlank()
+				|| code == null || code.isBlank()) {
+			return null;
+		}
+
+		String sql =
+				  "select /*+\r\n"
+				  + "           qb_name(main_qb)\r\n"
+				  + "           leading(lr lvr lvl)\r\n"
+				  + "           use_nl(lvr lvl)\r\n"
+				  + "           index(lr XAK2_LookupRevision)\r\n"
+				  + "           index(lvr XAK2_LookupValueRevision)\r\n"
+				  + "           first_rows(1)\r\n"
+				  + "       */\r\n"
+				  + "       lvl.\"Name\"\r\n"
+				  + "from PIM_MAIN.\"LookupRevision\" lr\r\n"
+				  + "inner join PIM_MAIN.\"LookupValueRevision\" lvr\r\n"
+				  + "        on lvr.\"LookupID\" = lr.\"LookupID\"\r\n"
+				  + "       and lvr.\"Code\" = ?\r\n"
+				  + "       and lvr.\"RevisionID\" = 1\r\n"
+				  + "       and lvr.\"DeletionTimestamp\" =\r\n"
+				  + "           timestamp '9999-12-31 00:00:00.0'\r\n"
+				  + "inner join PIM_MAIN.\"LookupValueLang\" lvl\r\n"
+				  + "        on lvl.\"LookupValueRevisionID\" = lvr.\"ID\"\r\n"
+				  + "       and lvl.\"LanguageID\" = ?\r\n"
+				  + "       and lvl.\"DeletionTimestamp\" =\r\n"
+				  + "           timestamp '9999-12-31 00:00:00.0'\r\n"
+				  + "where lr.\"Identifier\" = ?\r\n"
+				  + "  and lr.\"RevisionID\" = 1\r\n"
+				  + "  and lr.\"DeletionTimestamp\" =\r\n"
+				  + "      timestamp '9999-12-31 00:00:00.0'\r\n"
+				  + "  and rownum = 1"
+				;
+
+		try (java.sql.PreparedStatement pstmnt =
+				connection().prepareStatement(sql)) {
+
+			pstmnt.setNString(1, code);
+			pstmnt.setInt(2, languageID);
+			pstmnt.setNString(3, lookupIdentifier);
+			pstmnt.setQueryTimeout(30);
+
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				return rs.next()
+						? rs.getString("Name")
+						: null;
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+			return null;
+		}
+	}
+	
 	public String[] variantBySKU(String sku) {
 		long init = System.currentTimeMillis();
 		handleRefreshConnection();
@@ -2344,7 +4252,7 @@ public class DBAccessDataStub implements AutoCloseable {
 				  + "LEFT JOIN \"ArticleStructureMap\" dd\r\n"
 				  + "       ON dd.\"ArticleRevisionID\" = aa.\"ID\"\r\n"
 				  + "      AND dd.\"DeletionTimestamp\" = TIMESTAMP '9999-12-31 00:00:00.0'\r\n"
-				  + "      AND dd.\"StructureID\" = 10000\r\n"
+				  + "      AND dd.\"StructureID\" = (select /*+ index(sr XAK1_StructureRevision) */ sr.\"StructureID\" from PIM_MAIN.\"StructureRevision\" sr where sr.\"Identifier\" = N'PrimaryProductTaxonomy' and sr.\"RevisionID\" = 1 and sr.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0') \r\n"
 				  + "LEFT JOIN \"ArticleCharactValue\" foto_cv\r\n"
 				  + "       ON foto_cv.\"ArticleRevisionID\" = aa.\"ID\"\r\n"
 				  + "      AND foto_cv.\"CharacteristicID\" = 4473\r\n"

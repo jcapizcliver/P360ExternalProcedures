@@ -489,7 +489,7 @@ public class P360ActiveMQBPMStage extends Thread {
 			     	try{
 			     		log("Now processing message...");
 			     		messageProcessor(((TextMessage) responseMessage).getText());
-			     	}catch(org.json.JSONException e) {
+			     	}catch(javax.net.ssl.SSLHandshakeException | org.json.JSONException e) {
 			     		logE(e);
 			     	}
 			     	log("Doney");

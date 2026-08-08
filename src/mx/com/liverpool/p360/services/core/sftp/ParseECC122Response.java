@@ -964,7 +964,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 							sendWriteRequest("Article", itemId, articleCharacteristicRecords, null, null);
 						} else {
 							log("Brand new SKU for P360: " + sku + " (" + znprst + ")");
-							log("Not a known product (" + znprst + ") <:>" + negocio + "<:>");
+							log("Not a known product (" + znprst + ") <:>" + negocio + "<:>" + attyp);
 							if("00".equals(attyp)) {
 								sendProductSKUToAdmin(externalId, sku, dr);
 								sendArticleSKUToAdmin(externalId, sku, dr);
@@ -2756,7 +2756,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 		return -1;
 	}
 	
-	private void collectNumberOfImages(String productId, String fotosTomaLiverpool) {
+	private void collectNumberOfImages(String productId, String fotoTomadaLiverpool) {
 		int lacuenta = 0;
 		DataRequestor dr = new DataRequestor();
 		String rsp = dr.getProductData( new org.json.JSONArray().put( productId ));
@@ -2764,7 +2764,6 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 		org.json.JSONArray items = jr.getJSONArray("items");
 		org.json.JSONObject j0 = items.getJSONObject(0);
 		String business = j0.getString("Business");
-		if(!propuestasRevisadas.contains(productId)) {
 			java.util.Set<String> variants = dr.getVariants(productId);
 			org.json.JSONArray itms = new org.json.JSONArray();
 			variants.forEach(itms::put);
@@ -2775,28 +2774,27 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 				for(int i=0; i<items.length(); i++) {
 					if(!"".equals(items.getJSONObject(i).getString("ProductImage"))) {
 						lacuenta++;
-						variantesConImagen.add(items.getJSONObject(i).getString("variant"));
+//						variantesConImagen.add(items.getJSONObject(i).getString("variant"));
 					}
 				}
 			}catch(org.json.JSONException e) {
 				logE(e);
 			}
-			propuestasRevisadas.add(productId);
-		}
+//			propuestasRevisadas.add(productId);
 		qp.put("includeObjectsInProtocol", "false");
 		log("Las imágenes...");
-		if("MKP".equals(business) || ( "Corregido".equals(fotosTomaLiverpool) || (("N".equals(fotosTomaLiverpool) || "".equals(fotosTomaLiverpool)) && lacuenta > 0 ) )) {
+		if("MKP".equals(business) || lacuenta > 0 || ( "Corregido".equals(fotoTomadaLiverpool) || (("N".equals(fotoTomadaLiverpool) || "".equals(fotoTomadaLiverpool)) && lacuenta > 0 ) )) {
 			log("1");
 			requestStatus.getJSONArray("rows")
 				.put(new org.json.JSONObject()
 						.put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1"))
 						.put("values", new org.json.JSONArray().put(1020).put(1022).put("EnProcesoLiverpool")));
-		}else if("Y".equals(fotosTomaLiverpool)) {
-			log("2");
+		}else if("Y".equals(fotoTomadaLiverpool)) {
+			log("2 LC: " + lacuenta);
 			requestStatus.getJSONArray("rows")
 			.put(new org.json.JSONObject()
 					.put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1"))
-					.put("values", new org.json.JSONArray().put(1020).put(1002).put("EnProcesoLiverpool")));
+					.put("values", new org.json.JSONArray().put(1020).put( lacuenta > 0 ? 1022 : 1002).put("EnProcesoLiverpool")));
 		}else {
 			log("3");
 			requestStatus.getJSONArray("rows")
@@ -2972,7 +2970,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 									"SERVICIOS".equals(negocio) ? "EnProcesoLiverpool" : "PropuestaGenerada"
 					;
 			if("SFERA".equals(negocio)) {
-				ingresaWorkflow(id, "1234567", "Sfera", "Nuevo producto Sfera");
+				ingresaWorkflow("'" + id + "'@1", "1234567", "Sfera", "Nuevo producto Sfera");
 			}
 			requestStatus.getJSONArray("rows")
 				.put(new org.json.JSONObject()

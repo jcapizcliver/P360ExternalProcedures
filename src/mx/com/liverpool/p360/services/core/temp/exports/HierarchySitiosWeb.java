@@ -35,7 +35,7 @@ public class HierarchySitiosWeb {
 	
 	public static void main(String[] args) throws ServiceUnavailableException {
 		HierarchySitiosWeb h = new HierarchySitiosWeb();
-		h.createHierarchyFile( new String[] {"catst61360530", "catst61360547"} );
+		h.createHierarchyFile( new String[] {"catst83801977","catst84046110","catst83801982","catst83801983","catst83801984","catst83801987","catst83801988","catst83801989","catst83801991","catst83801992","catst83801993","ctst84046005","catst84046006","catst84046007","catst84046009","catst84046010","catst84046011","catst84046012","catst84046014","catst84046015","catst83850477","catst83801733","catst83801734","catst84787001","catst84787002","catst84787003"} );
 	}
 	
 	private void createHierarchyFile(String[] ofInterest) throws ServiceUnavailableException {

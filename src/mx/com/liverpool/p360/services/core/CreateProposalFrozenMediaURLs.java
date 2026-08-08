@@ -2,8 +2,6 @@ package mx.com.liverpool.p360.services.core;
 
 import org.json.JSONObject;
 
-import mx.com.liverpool.p360.services.core.temp.product2g.maintenance.EliminaImagenesDeVariantes;
-
 public class CreateProposalFrozenMediaURLs {
 
 	private String input = null;

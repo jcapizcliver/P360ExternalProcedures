@@ -75,7 +75,6 @@ public class StructureGroupChangeProcessor {
 			if(doc != null) {
 				Element rootElement = doc.getDocumentElement();
 				if("StructureGroup".equals(entity)){ // catst
-					SendStructureGroupToPubSub s = new SendStructureGroupToPubSub();
 					if("'Sitios Web'".equals(structureExternalId)) {
 						if(externalId.startsWith("'StructureGroup_")) {
 							String nid = "catst" + externalId.replaceFirst("'StructureGroup_", "").substring(7).replaceAll("'.+", "");
@@ -89,6 +88,9 @@ public class StructureGroupChangeProcessor {
 							);
 						}
 					}else if("'PrimaryProductTaxonomy'".equals(structureExternalId)) {
+						SendStructureGroupToPubSub s = new SendStructureGroupToPubSub();
+						s.sendDataToPubSub(json.getJSONObject("entityItemChange").getString("_identifier"), "idmc_put_template");
+						log("Sent " + json.getJSONObject("entityItemChange").getString("_identifier") + " to pubSub: idmc:put_template");
 						if(externalId.startsWith("'StructureGroup_")) {
 							XMLMisc xmm = rw.getXmm();
 							String level = null;
@@ -109,7 +111,6 @@ public class StructureGroupChangeProcessor {
 								);
 							}
 						}
-						s.sendDataToPubSub(externalId, "idmc_put_template");
 					}
 				}
 			}

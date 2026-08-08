@@ -12,6 +12,19 @@ public class EchamelosCompa {
 //		rc = new RestClient("Accept: application/json", "Content-Type: application/json", "Authorization: Basic " + encoded);
 	}
 	
+	private final ELog el = new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			EchamelosCompa.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			EchamelosCompa.this.log(message);;
+		}
+	};
+	
 	public org.json.JSONObject processRequest(String[] args) throws ServiceUnavailableException {
 		org.json.JSONObject globalResponse = null;
 		String rawRequest = args[0];
@@ -118,7 +131,7 @@ public class EchamelosCompa {
 									org.json.JSONObject jr = new org.json.JSONObject(resp);
 									org.json.JSONArray items = jr.getJSONArray("items");
 									org.json.JSONObject item = items.getJSONObject(0);
-									log("Eléjele: " + item + " (" + r.get("proposalId") + ")");
+//									log("Eléjele: " + item + " (" + r.get("proposalId") + ")");
 									if(!"".equals(item.get("CurrentStatus"))) {
 										proposalId = String.valueOf( r.get("proposalId") );
 									}
@@ -409,187 +422,248 @@ public class EchamelosCompa {
 		String resp2 = null;
 		org.json.JSONArray r = new org.json.JSONArray();
 		org.json.JSONArray newValues = null;
-		DataRequestor dr = new DataRequestor();
-		org.json.JSONArray items0 = new org.json.JSONArray();
-		org.json.JSONArray items = new org.json.JSONArray();
-		org.json.JSONArray items2 = new org.json.JSONArray();
-		java.util.List<String> asList = new java.util.ArrayList<>(externalIds);
-		asList.forEach(items::put);
-		asList.forEach(items0::put);
-		log("Los pedidos: " + externalIds);
-		resp = dr.getProductData(items);
-		resp2 = dr.getProductExtraData(items);
-		log("ProductExtraDataResponse to see: " + resp2);
-		if(resp != null && resp2 != null) {
-			try{
-				org.json.JSONObject jr = new org.json.JSONObject(resp);
-				org.json.JSONObject jr2 = new org.json.JSONObject(resp2);
-				items = jr.getJSONArray("items");
-				items2 = jr2.getJSONArray("items");
-				org.json.JSONObject item = null;
-				org.json.JSONObject item2 = null;
-				for(int i=0; i<items.length(); i++) {
-					newValues = new org.json.JSONArray();
-					log("Over: " + items0.get(i));
-					item = items.getJSONObject(i);
-					item2 = items2.getJSONObject(i);
-					newValues.put(item.get("product"));
-					newValues.put("");
-					newValues.put("");
-//					.put("Section", values[0])
-//					.put("ItemGroup", values[1])
-//					.put("ItemGroupS4H", values[2])
-//					.put("BrandName", values[3])
-//					.put("BRAND_ID_S4H", values[4])
-//					.put("Business", values[5])
-//					.put("SKU", values[6])
-//					.put("SupplierID", values[7])
-//					.put("Template", values[8])
-//					.put("CurrentStatus", values[9])
-//					.put("AssignTakeNoTake", values[10])
-//					.put("SAPObjectType", values[11])
-//					.put("FotoTomadaLiverpool", values.length > 12 ? values[12] : "")
-//					.put("MainBarCode", values.length > 13 ? values[13] : "")
-//					.put("MainBarCodeS4H", values.length > 14 ? values[14] : "")
-//					.put("SupplierPartNumber", values.length > 15 ? values[15] : "")
-					newValues.put(item.get("SupplierID"));
-					newValues.put(item2.get("supplierShopId"));
-					newValues.put(item.get("Business"));
-					newValues.put(item.get("SAPObjectType"));
-					newValues.put(item.get("SKU"));
-					newValues.put(item2.get("ProductName"));
-					newValues.put(item.get("MainBarCode"));
-					newValues.put(item.get("MainBarCodeS4H"));
-					newValues.put(item2.get("BuyerRejectionMessage"));
-					newValues.put(item2.get("SupplierRejectionMessage"));
-					newValues.put(item.get("ItemGroup"));
-					newValues.put(item.get("Section"));
-					newValues.put(item.get("CurrentStatus"));
-					newValues.put(item2.get("SkuType"));
-					newValues.put(item2.get("BWSCL"));
-					newValues.put(item2.get("TImportacion"));
-					newValues.put(item2.get("Negocio"));
-					newValues.put(item2.get("EXTWG_S4H"));
-					newValues.put(item.get("FotoTomadaLiverpool"));
-					newValues.put(item2.get("MesdeEntregadeMercancIa"));
-					newValues.put(item2.get("Temporada"));
-					newValues.put(item2.get("BWVOR"));
-					newValues.put(item2.get("AnoEstacion"));
-					newValues.put(item.get("SupplierPartNumber"));
-					newValues.put(item2.get("TextoAdicional"));
-					newValues.put(item2.get("Evento"));
-					newValues.put(item2.get("CostobrutoSinIVA"));
-					newValues.put(item2.get("PrecioSugeridocIVA"));
-					newValues.put(item2.get("Descuento1"));
-					newValues.put(item2.get("Descuento2"));
-					newValues.put(item2.get("NORMT"));
-					newValues.put(item2.get("LABOR"));
-					newValues.put(item.get("BrandName"));
-					newValues.put(item.get("BRAND_ID_S4H"));
-					newValues.put(item2.get("DescriptionLong"));
-					newValues.put(item2.get("DescriptionLong2"));
-					newValues.put("");
-					newValues.put("");
-					newValues.put(item2.get("TypeMainBarCode"));
-					newValues.put(item2.get("Currency"));
-					log("Los VALIUS (" + asList.get(i) + "): " + newValues);
-					r.put(newValues);
-					java.util.Set<String> varIds = dr.getVariants( String.valueOf( item.get("product") ));
-					org.json.JSONArray varIdsArray = new org.json.JSONArray();
-					varIds.forEach(varIdsArray::put);
-					String r0 = dr.getArticleData(varIdsArray);
-					String r1 = dr.getArticleExtraData(varIdsArray);
-					log("\t\tArticleExtraData: " + r1);
-					if(r0 != null && r1 != null) {
-						try {
-							org.json.JSONObject jr0 = new org.json.JSONObject(r0);
-							org.json.JSONObject jr1 = new org.json.JSONObject(r1);
-							org.json.JSONArray a0 = jr0.getJSONArray("items");
-							org.json.JSONArray a1 = jr1.getJSONArray("items");
-							org.json.JSONObject i0 = null;
-							org.json.JSONObject i1 = null;
-							org.json.JSONArray newValuesVariant = null;
-							for(int j=0; j<a0.length(); j++) {
-								i0 = a0.getJSONObject(j);
-								i1 = a1.getJSONObject(j);
-								newValuesVariant = new org.json.JSONArray();
-								newValuesVariant.put("");
-//								 item.get("supplierShopId")
-//									,item.get("ProductName")
-//									,item.get("BuyerRejectionMessage")
-//									,item.get("SupplierRejectionMessage")
-//									,item.get("SkuType")
-//									,item.get("BWSCL")
-//									,item.get("TImportacion")
-//									,item.get("Negocio")
-//									,item.get("EXTWG_S4H")
-//									,item.get("MesdeEntregadeMercancIa")
-//									,item.get("Temporada")
-//									,item.get("BWVOR")
-//									,item.get("AnoEstacion")
-//									,item.get("TextoAdicional")
-//									,item.get("Evento")
-//									,item.get("CostobrutoSinIVA")
-//									,item.get("PrecioSugeridocIVA")
-//									,item.get("Descuento1")
-//									,item.get("Descuento2")
-//									,item.get("NORMT")
-//									,item.get("LABOR")
-//									,item.get("DescriptionLong")
-//									,item.get("DescriptionLong2")
-								newValuesVariant.put(i0.get("variant"));
-								newValuesVariant.put(item.get("SKU"));
-								newValuesVariant.put(item.get("SupplierID"));
-								newValuesVariant.put(item2.get("supplierShopId"));
-								newValuesVariant.put(item.get("Business"));
-								newValuesVariant.put(item.get("SAPObjectType"));
-								newValuesVariant.put(i0.get("SKU"));
-								newValuesVariant.put( deriveName( String.valueOf( item2.get("ProductName") ), String.valueOf( i0.get("TamanoUnico") ), String.valueOf( i0.get("ColoursLiverpoolAtt") ) ));
-								newValuesVariant.put(i0.get("MainBarCode"));
-								newValuesVariant.put(i0.get("MainBarCodeS4H"));
-								newValuesVariant.put(item2.get("BuyerRejectionMessage"));
-								newValuesVariant.put(item2.get("SupplierRejectionMessage"));
-								newValuesVariant.put(item.get("ItemGroup"));
-								newValuesVariant.put(item.get("Section"));
-								newValuesVariant.put(item.get("CurrentStatus"));
-								newValuesVariant.put(item2.get("SkuType"));
-								newValuesVariant.put(item2.get("BWSCL"));
-								newValuesVariant.put(item2.get("TImportacion"));
-								newValuesVariant.put(item2.get("Negocio"));
-								newValuesVariant.put(item2.get("EXTWG_S4H"));
-								newValuesVariant.put(item.get("FotoTomadaLiverpool"));
-								newValuesVariant.put(item2.get("MesdeEntregadeMercancIa"));
-								newValuesVariant.put(item2.get("Temporada"));
-								newValuesVariant.put(item2.get("BWVOR"));
-								newValuesVariant.put(item2.get("AnoEstacion"));
-								newValuesVariant.put(i0.get("SupplierPartNumber"));
-								newValuesVariant.put(item2.get("TextoAdicional"));
-								newValuesVariant.put(item2.get("Evento"));
-								newValuesVariant.put(i1.get("CostobrutoSinIVA") == null || "".equals(i1.get("CostobrutoSinIVA")) ? item2.has("CostobrutoSinIVA") && item2.get("CostobrutoSinIVA") != null && !"".equals(item2.get("CostobrutoSinIVA")) ? item2.get("CostobrutoSinIVA") : "" : i1.get("CostobrutoSinIVA"));
-								newValuesVariant.put(i1.get("PrecioSugeridocIVA") == null || "".equals(i1.get("PrecioSugeridocIVA")) ? item2.has("PrecioSugeridocIVA") && item2.get("PrecioSugeridocIVA") != null && !"".equals(item2.get("PrecioSugeridocIVA")) ? item2.get("PrecioSugeridocIVA") : "" : i1.get("PrecioSugeridocIVA"));
-								newValuesVariant.put(i1.get("Descuento1"));
-								newValuesVariant.put(i1.get("Descuento2"));
-								newValuesVariant.put(item2.get("NORMT"));
-								newValuesVariant.put(item2.get("LABOR"));
-								newValuesVariant.put(item.get("BrandName"));
-								newValuesVariant.put(item.get("BRAND_ID_S4H"));
-								newValuesVariant.put(item2.get("DescriptionLong"));
-								newValuesVariant.put(item2.get("DescriptionLong2"));
-								newValuesVariant.put(i0.get("ColoursLiverpoolAtt"));
-								newValuesVariant.put(i0.get("TamanoUnico"));
-								newValuesVariant.put(item2.get("TypeMainBarCode") == null || "".equals(item2.get("TypeMainBarCode")) ? i1.has("TypeMainBarCode") && i1.get("TypeMainBarCode") != null && !"".equals(i1.get("TypeMainBarCode")) ? i1.get("TypeMainBarCode") : "" : item2.get("TypeMainBarCode"));
-								newValuesVariant.put(item2.get("Currency"));
-								r.put(newValuesVariant);
+//		DataRequestor dr = new DataRequestor();
+		try(DBAccessDataStub dastub = new DBAccessDataStub(el)){
+//			org.json.JSONArray items0 = new org.json.JSONArray();
+//			org.json.JSONArray items = new org.json.JSONArray();
+//			org.json.JSONArray items2 = new org.json.JSONArray();
+			java.util.List<String> asList = new java.util.ArrayList<>(externalIds);
+//			asList.forEach(items::put);
+//			asList.forEach(items0::put);
+			log("Los pedidos: " + externalIds);
+//			resp = dr.getProductData(items);
+//			resp2 = dr.getProductExtraData(items);
+//			resp = dastub.getProductData(resp2)
+			java.util.Map<String, org.json.JSONObject> datas = dastub.getProductData(asList);
+			java.util.Map<String, org.json.JSONObject> datasE = dastub.getProductExtraData(asList, new String[] {
+					"supplierShopId"
+					,"ProductName"
+					,"BuyerRejectionMessage"
+					,"SupplierRejectionMessage"
+					,"SkuType"
+					,"BWSCL"
+					,"TImportacion"
+					,"Negocio"
+					,"EXTWG_S4H"
+					,"MesdeEntregadeMercancIa"
+					,"Temporada"
+					,"BWVOR"
+					,"AnoEstacion"
+					,"TextoAdicional"
+					,"Evento"
+					,"CostobrutoSinIVA"
+					,"PrecioSugeridocIVA"
+					,"Descuento1"
+					,"Descuento2"
+					,"LABOR"
+					,"NORMT"
+					,"DescriptionLong"
+					,"DescriptionLong2"
+					,"Currency"
+					,"TypeMainBarCode"
+					,"TextoAdicional"});
+			java.util.Map<String, java.util.Set<String>> sets = dastub.getProductVariants(asList);
+			log("ProductExtraDataResponse to see: " + resp2);
+//			if(resp != null && resp2 != null) {
+			if(datas != null && datasE != null) {
+				try{
+//					org.json.JSONObject jr = new org.json.JSONObject(resp);
+//					org.json.JSONObject jr2 = new org.json.JSONObject(resp2);
+//					org.json.JSONObject jr = new org.json.JSONObject(resp);
+//					org.json.JSONObject jr2 = new org.json.JSONObject(resp2);
+//					items = jr.getJSONArray("items");
+//					items2 = jr2.getJSONArray("items");
+					org.json.JSONObject item = null;
+					org.json.JSONObject item2 = null;
+					for( java.util.Map.Entry<String, org.json.JSONObject> entry : datas.entrySet() ) {
+//					for(int i=0; i<items.length(); i++) {
+						newValues = new org.json.JSONArray();
+//						log("Over: " + items0.get(i));
+//						item = items.getJSONObject(i);
+//						item2 = items2.getJSONObject(i);
+						log("Over: " + entry.getKey());
+						item = entry.getValue();
+						item2 = datasE.get(entry.getKey());
+						newValues.put(item.get("product"));
+						newValues.put("");
+						newValues.put("");
+	//					.put("Section", values[0])
+	//					.put("ItemGroup", values[1])
+	//					.put("ItemGroupS4H", values[2])
+	//					.put("BrandName", values[3])
+	//					.put("BRAND_ID_S4H", values[4])
+	//					.put("Business", values[5])
+	//					.put("SKU", values[6])
+	//					.put("SupplierID", values[7])
+	//					.put("Template", values[8])
+	//					.put("CurrentStatus", values[9])
+	//					.put("AssignTakeNoTake", values[10])
+	//					.put("SAPObjectType", values[11])
+	//					.put("FotoTomadaLiverpool", values.length > 12 ? values[12] : "")
+	//					.put("MainBarCode", values.length > 13 ? values[13] : "")
+	//					.put("MainBarCodeS4H", values.length > 14 ? values[14] : "")
+	//					.put("SupplierPartNumber", values.length > 15 ? values[15] : "")
+						newValues.put(item.get("SupplierID"));
+						newValues.put(item2.get("supplierShopId"));
+						newValues.put(item.get("Business"));
+						newValues.put(item.get("SAPObjectType"));
+						newValues.put(item.get("SKU"));
+						newValues.put(item2.get("ProductName"));
+						newValues.put(item.get("MainBarCode"));
+						newValues.put(item.get("MainBarCodeS4H"));
+						newValues.put(item2.get("BuyerRejectionMessage"));
+						newValues.put(item2.get("SupplierRejectionMessage"));
+						newValues.put(item.get("ItemGroup"));
+						newValues.put(item.get("Section"));
+						newValues.put(item.get("CurrentStatus"));
+						newValues.put(item2.get("SkuType"));
+						newValues.put(item2.get("BWSCL"));
+						newValues.put(item2.get("TImportacion"));
+						newValues.put(item2.get("Negocio"));
+						newValues.put(item2.get("EXTWG_S4H"));
+						newValues.put(item.get("FotoTomadaLiverpool"));
+						newValues.put(item2.get("MesdeEntregadeMercancIa"));
+						newValues.put(item2.get("Temporada"));
+						newValues.put(item2.get("BWVOR"));
+						newValues.put(item2.get("AnoEstacion"));
+						newValues.put(item.get("SupplierPartNumber"));
+						newValues.put(item2.get("TextoAdicional"));
+						newValues.put(item2.get("Evento"));
+						newValues.put(item2.get("CostobrutoSinIVA"));
+						newValues.put(item2.get("PrecioSugeridocIVA"));
+						newValues.put(item2.get("Descuento1"));
+						newValues.put(item2.get("Descuento2"));
+						newValues.put(item2.get("NORMT"));
+						newValues.put(item2.get("LABOR"));
+						newValues.put(item.get("BrandName"));
+						newValues.put(item.get("BRAND_ID_S4H"));
+						newValues.put(item2.get("DescriptionLong"));
+						newValues.put(item2.get("DescriptionLong2"));
+						newValues.put("");
+						newValues.put("");
+						newValues.put(item2.get("TypeMainBarCode"));
+						newValues.put(item2.get("Currency"));
+//						log("Los VALIUS (" + asList.get(i) + "): " + newValues);
+//						log("Los VALIUS (" + entry.getKey() + "): " + newValues);
+						r.put(newValues);
+//						java.util.Set<String> varIds = dr.getVariants( String.valueOf( item.get("product") ));
+						java.util.Set<String> varIds = sets.get(entry.getKey());
+						org.json.JSONArray varIdsArray = new org.json.JSONArray();
+						varIds.forEach(varIdsArray::put);
+//						String r0 = dr.getArticleData(varIdsArray);
+//						String r1 = dr.getArticleExtraData(varIdsArray);
+						java.util.Map<String, org.json.JSONObject> artData = dastub.getArticleData(varIds);
+						java.util.Map<String, org.json.JSONObject> artDataE = dastub.getArticleExtraData(varIds, new String[] {
+								 "SkuType"
+								,"CostobrutoSinIVA"
+								,"PrecioSugeridocIVA"
+								,"Descuento1"
+								,"Descuento2"
+								,"TypeMainBarCode"
+						});
+//						String r0 = dr.getArticleData(varIdsArray);
+//						String r1 = dr.getArticleExtraData(varIdsArray);
+//						log("\t\tArticleExtraData: " + r1);
+//						if(r0 != null && r1 != null) {
+//						log("\t\tArticleExtraData: " + r1);
+						if(artData != null && artDataE != null) {
+							try {
+//								org.json.JSONObject jr0 = new org.json.JSONObject(r0);
+//								org.json.JSONObject jr1 = new org.json.JSONObject(r1);
+//								org.json.JSONArray a0 = jr0.getJSONArray("items");
+//								org.json.JSONArray a1 = jr1.getJSONArray("items");
+								org.json.JSONObject i0 = null;
+								org.json.JSONObject i1 = null;
+								org.json.JSONArray newValuesVariant = null;
+								for(java.util.Map.Entry<String, org.json.JSONObject> entry0 : artData.entrySet()) {
+//								for(int j=0; j<a0.length(); j++) {
+									i0 = entry0.getValue();
+									i1 = artDataE.get(entry0.getKey());
+//									i0 = a0.getJSONObject(j);
+//									i1 = a1.getJSONObject(j);
+									newValuesVariant = new org.json.JSONArray();
+									newValuesVariant.put("");
+	//								 item.get("supplierShopId")
+	//									,item.get("ProductName")
+	//									,item.get("BuyerRejectionMessage")
+	//									,item.get("SupplierRejectionMessage")
+	//									,item.get("SkuType")
+	//									,item.get("BWSCL")
+	//									,item.get("TImportacion")
+	//									,item.get("Negocio")
+	//									,item.get("EXTWG_S4H")
+	//									,item.get("MesdeEntregadeMercancIa")
+	//									,item.get("Temporada")
+	//									,item.get("BWVOR")
+	//									,item.get("AnoEstacion")
+	//									,item.get("TextoAdicional")
+	//									,item.get("Evento")
+	//									,item.get("CostobrutoSinIVA")
+	//									,item.get("PrecioSugeridocIVA")
+	//									,item.get("Descuento1")
+	//									,item.get("Descuento2")
+	//									,item.get("NORMT")
+	//									,item.get("LABOR")
+	//									,item.get("DescriptionLong")
+	//									,item.get("DescriptionLong2")
+									newValuesVariant.put(i0.get("variant"));
+									newValuesVariant.put(item.get("SKU"));
+									newValuesVariant.put(item.get("SupplierID"));
+									newValuesVariant.put(item2.get("supplierShopId"));
+									newValuesVariant.put(item.get("Business"));
+									newValuesVariant.put(item.get("SAPObjectType"));
+									newValuesVariant.put(i0.get("SKU"));
+									newValuesVariant.put( deriveName( String.valueOf( item2.get("ProductName") ), String.valueOf( i0.get("TamanoUnico") ), String.valueOf( i0.get("ColoursLiverpoolAtt") ) ));
+									newValuesVariant.put(i0.get("MainBarCode"));
+									newValuesVariant.put(i0.get("MainBarCodeS4H"));
+									newValuesVariant.put(item2.get("BuyerRejectionMessage"));
+									newValuesVariant.put(item2.get("SupplierRejectionMessage"));
+									newValuesVariant.put(item.get("ItemGroup"));
+									newValuesVariant.put(item.get("Section"));
+									newValuesVariant.put(item.get("CurrentStatus"));
+									newValuesVariant.put(item2.get("SkuType"));
+									newValuesVariant.put(item2.get("BWSCL"));
+									newValuesVariant.put(item2.get("TImportacion"));
+									newValuesVariant.put(item2.get("Negocio"));
+									newValuesVariant.put(item2.get("EXTWG_S4H"));
+									newValuesVariant.put(item.get("FotoTomadaLiverpool"));
+									newValuesVariant.put(item2.get("MesdeEntregadeMercancIa"));
+									newValuesVariant.put(item2.get("Temporada"));
+									newValuesVariant.put(item2.get("BWVOR"));
+									newValuesVariant.put(item2.get("AnoEstacion"));
+									newValuesVariant.put(i0.get("SupplierPartNumber"));
+									newValuesVariant.put(item2.get("TextoAdicional"));
+									newValuesVariant.put(item2.get("Evento"));
+									newValuesVariant.put(i1.get("CostobrutoSinIVA") == null || "".equals(i1.get("CostobrutoSinIVA")) ? item2.has("CostobrutoSinIVA") && item2.get("CostobrutoSinIVA") != null && !"".equals(item2.get("CostobrutoSinIVA")) ? item2.get("CostobrutoSinIVA") : "" : i1.get("CostobrutoSinIVA"));
+									newValuesVariant.put(i1.get("PrecioSugeridocIVA") == null || "".equals(i1.get("PrecioSugeridocIVA")) ? item2.has("PrecioSugeridocIVA") && item2.get("PrecioSugeridocIVA") != null && !"".equals(item2.get("PrecioSugeridocIVA")) ? item2.get("PrecioSugeridocIVA") : "" : i1.get("PrecioSugeridocIVA"));
+									newValuesVariant.put(i1.get("Descuento1"));
+									newValuesVariant.put(i1.get("Descuento2"));
+									newValuesVariant.put(item2.get("NORMT"));
+									newValuesVariant.put(item2.get("LABOR"));
+									newValuesVariant.put(item.get("BrandName"));
+									newValuesVariant.put(item.get("BRAND_ID_S4H"));
+									newValuesVariant.put(item2.get("DescriptionLong"));
+									newValuesVariant.put(item2.get("DescriptionLong2"));
+									newValuesVariant.put(i0.get("ColoursLiverpoolAtt"));
+									newValuesVariant.put(i0.get("TamanoUnico"));
+									newValuesVariant.put(item2.get("TypeMainBarCode") == null || "".equals(item2.get("TypeMainBarCode")) ? i1.has("TypeMainBarCode") && i1.get("TypeMainBarCode") != null && !"".equals(i1.get("TypeMainBarCode")) ? i1.get("TypeMainBarCode") : "" : item2.get("TypeMainBarCode"));
+									newValuesVariant.put(item2.get("Currency"));
+									r.put(newValuesVariant);
+								}
+							}catch(org.json.JSONException e) {
+								logE(e);
 							}
-						}catch(org.json.JSONException e) {
-							logE(e);
 						}
 					}
+				}catch(org.json.JSONException e) {
+					logE(e);
 				}
-			}catch(org.json.JSONException e) {
-				logE(e);
 			}
 		}
+		
+//		private String getProductData() {
+			
+//		}
 //			String url = this.baseUrl + "/list/Product2G/byItems?items=" + java.net.URLEncoder.encode(items, "UTF-8") + "&fields=" + java.net.URLEncoder.encode(
 //					  "Product2G.ProductNo"
 //					+ ",SimpleProduct2GCharacteristicValueLang.Value(SupplierID,-1)"

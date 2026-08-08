@@ -18,7 +18,7 @@ public class UploadValuesDiccionarioExtensionDeMetadatosPorPlantillaALookupValue
 				.put(new org.json.JSONObject().put("identifier", "LookupValue.CreationType"))
 				.put(new org.json.JSONObject().put("identifier", "LookupValue.Property"))
 				.put(new org.json.JSONObject().put("identifier", "LookupValue.PropertyValue"))
-			, 2000, request -> rw.writeData("list", "LookupValue", null, qp, request, System.out::println) );
+			, 200, request -> rw.writeData("list", "LookupValue", null, qp, request, System.out::println) );
 		int[] times = new int[] {0};
 		SimpleDelimitedFileParser parser = new SimpleDelimitedFileParser( '"', ',', '\\', "\n", java.nio.charset.StandardCharsets.UTF_8, row -> {
 			times[0]++;
@@ -33,6 +33,7 @@ public class UploadValuesDiccionarioExtensionDeMetadatosPorPlantillaALookupValue
 //		parser.parse(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "ActualizarDiccionarioDeMetadataDePlantilla.txt"));
 //		parser.parse(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "MetadataTemplateCharacteristic20260716_020948.csv"));
 		parser.parse(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "ExtensionDeMetadatosVPPP_20260720_094838.csv"));
+//		parser.parse(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "QA", "sqlrunner_PIM_MASTER_20260806_003800.csv"));
 		rh.sendData();
 	}
 	

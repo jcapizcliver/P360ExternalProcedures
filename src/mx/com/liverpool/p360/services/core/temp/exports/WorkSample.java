@@ -1,7 +1,5 @@
 package mx.com.liverpool.p360.services.core.temp.exports;
 
-import mx.com.liverpool.p360.services.core.DBAccessDataStub;
-import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 
 public class WorkSample {
@@ -15,24 +13,24 @@ public class WorkSample {
 	private java.util.Set<String> atributosGeneralesQueSi = new java.util.TreeSet<>();
 	
 	public static void main(String[] args) {
-//		WorkSample ws = new WorkSample();
-//		java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas = ws.sample("EU4-59187635");
-//		propiedadesCaracteristicas.forEach( (k,v) -> System.out.println( k + "<::>" + v ));
-		try(DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
-			
-			@Override
-			public void logE(Exception e) {
-				e.printStackTrace();
-			}
-			
-			@Override
-			public void log(String message) {
-				System.out.println(message);
-			}
-		} )){
-			java.util.Map<String, String> kv = dastub.getLookupValueCodeNameMap("ATGAttributeGroups", 10, true);
-			System.out.println(kv);
-		}
+		WorkSample ws = new WorkSample();
+		java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas = ws.sample("EU4-59187635");
+		propiedadesCaracteristicas.forEach( (k,v) -> System.out.println( k + "<::>" + v ));
+//		try(DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+//			
+//			@Override
+//			public void logE(Exception e) {
+//				e.printStackTrace();
+//			}
+//			
+//			@Override
+//			public void log(String message) {
+//				System.out.println(message);
+//			}
+//		} )){
+//			java.util.Map<String, String> kv = dastub.getLookupValueCodeNameMap("ATGAttributeGroups", 10, true);
+//			System.out.println(kv);
+//		}
 	}
 	
 	private final java.util.Map<String, org.json.JSONObject> sample(String template) {

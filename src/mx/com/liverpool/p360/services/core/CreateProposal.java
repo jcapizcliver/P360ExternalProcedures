@@ -25,7 +25,6 @@ public class CreateProposal {
 
 	private String input = null;
 	private String response = null;
-	private String baseCacheDirectory = null;
 
 	private boolean deleteInputFile = true;
 	
@@ -55,7 +54,19 @@ public class CreateProposal {
 
 	private String nextStatusDictionaryIdentifier = "NextStatus";
 	private String externalStatusDictionaryIdentifier = "ExternalStatus";
+	private final java.util.Map<String, String> resolvedLookupCodes = new java.util.HashMap<>();
+	private String lookupValueCacheKey(
+	        String template,
+	        String characteristic,
+	        String lookup,
+	        String value) {
 
+	    return String.valueOf(template)
+	            + "\u001F" + String.valueOf(characteristic)
+	            + "\u001F" + String.valueOf(lookup)
+	            + "\u001F" + String.valueOf(value);
+	}
+	
 	private String userAction = null;
 
 	private java.util.Map<String, String> nextStatusMap = new java.util.TreeMap<>();
@@ -64,12 +75,49 @@ public class CreateProposal {
 	private java.util.Map<String, String> statusEnum = new java.util.TreeMap<>();
 	private java.util.Map<String, String> externalStatusEnum = new java.util.TreeMap<>();
 
+	private final ELog el = new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			CreateProposal.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			CreateProposal.this.log(message);
+		}
+	};
+	
+//	private java.util.Map<String, String> statusEnum = new java.util.TreeMap<>();
+//	private java.util.Map<String, String> externalStatusEnum = new java.util.TreeMap<>();
+//	private java.util.Map<String, String> nextStatusMap = new java.util.TreeMap<>();
+//	private java.util.Map<String, String> externalStatusMap = new java.util.TreeMap<>();
+//	private java.util.concurrent.ConcurrentMap<String, String[]> parties = new java.util.concurrent.ConcurrentHashMap<>();
+	
+	private long perfCharacteristicDataNanos;
+	private long perfTemplateValidValuesNanos;
+	private long perfLookupRowsNanos;
+	private long perfBuildLookupMapNanos;
+	private long perfFallbackLookupNanos;
+
+	private int perfValidValuesCalls;
+	private int perfFallbackLookupCalls;
+
+	private long perfLookupRowsRead;
+
+	private static String formatNanosAsMillis(long nanos) {
+	    return String.format(
+	            java.util.Locale.ROOT,
+	            "%.3f",
+	            nanos / 1_000_000.0d
+	    );
+	}
+	
+	private final DBAccessDataStub dastub = new DBAccessDataStub(el);
 	
 	
 //	private java.util.Map<String, String> characteristicsThatAreLookups = null;
 	private final DataRequestor dr = new DataRequestor();
-
-	private java.util.Map<String, String> templateCharacteristicFilters = new java.util.TreeMap<>();
 
 	private boolean ex = false;
 	
@@ -77,15 +125,15 @@ public class CreateProposal {
 	
 	private final long myId;
 	
-	private java.util.concurrent.ConcurrentMap<String, String[]> parties = new java.util.concurrent.ConcurrentHashMap<String, String[]>(30000);
+//	private java.util.concurrent.ConcurrentMap<String, String[]> parties = new java.util.concurrent.ConcurrentHashMap<String, String[]>(30000);
 	
-	private void loadParties() {
-		try(java.util.stream.Stream<String> lns = java.nio.file.Files.lines(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "party"))){
-			lns.parallel().map(s -> workshop.parseLine(s, "\"", ";", "\\")).forEach(arr -> parties.put(arr[0], new String[] { arr[1], arr[2], arr[3], arr[4] }));
-		}catch(java.io.IOException e) {
-			logE(e);
-		}
-	}
+//	private void loadParties() {
+//		try(java.util.stream.Stream<String> lns = java.nio.file.Files.lines(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "party"))){
+//			lns.parallel().map(s -> workshop.parseLine(s, "\"", ";", "\\")).forEach(arr -> parties.put(arr[0], new String[] { arr[1], arr[2], arr[3], arr[4] }));
+//		}catch(java.io.IOException e) {
+//			logE(e);
+//		}
+//	}
 	
 	public CreateProposal(String baseUrl, String encoded, long myId) {
 		this.baseUrl = baseUrl;
@@ -97,7 +145,6 @@ public class CreateProposal {
 		this.objectAPIArticleURL = baseUrl + "/object/Article";
 		this.listAPIArticleURL = baseUrl + "/list/Article/bySearch?query=";
 		
-		loadParties();
 	}
 	
 	private void loadStatusEnum() {
@@ -251,104 +298,118 @@ public class CreateProposal {
 		if (!externalStatusMap.isEmpty()) {
 			return;
 		}
-		java.util.Map<String, String> headers = new java.util.HashMap<>();
-		String rawResponse = null;
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONObject row = null;
-		org.json.JSONArray values = null;
-		int currentIndex = 0;
-		int totalSize = 0;
-		if(!java.nio.file.Files.exists(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "templates", "dictionaries", this.externalStatusDictionaryIdentifier))) {
-			try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "templates", "dictionaries", this.externalStatusDictionaryIdentifier).toFile()), java.nio.charset.StandardCharsets.UTF_8))) {
-				headers.put("Content-Type", "application/json");
-				headers.put("Accept", "application/json");
-				headers.put("Authorization", "Basic " + encoded);
-				do {
-					rawResponse = this.rc.getRequest("GET", baseUrl + "/list/StandardizationValue/byDictionary?dictionary="
-							+ java.net.URLEncoder.encode(this.externalStatusDictionaryIdentifier, "UTF-8")
-							+ "&fields=StandardizationValue.Value,StandardizationValue.AlternativeValue&pageSize=200&startIndex="
-							+ currentIndex, null, headers);
-					response = new org.json.JSONObject(rawResponse);
-					rows = response.getJSONArray("rows");
-					for (int i = 0; i < rows.length(); i++) {
-						row = rows.getJSONObject(i);
-						values = row.getJSONArray("values");
-						externalStatusMap.put(values.getString(0), values.getString(1));
-						pw.println( rw.getRw().serializeChunk(new Object[] { values.getString(0), values.getString(1) }) );
-					}
-					currentIndex += rows.length();
-					totalSize = response.getInt("totalSize");
-				} while (currentIndex < totalSize);
-			} catch (Exception e) {
-				log(rawResponse);
-				logE(e);
-			}
-		}else {
-			try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "templates", "dictionaries", this.externalStatusDictionaryIdentifier).toFile()), java.nio.charset.StandardCharsets.UTF_8))){
-				String line = null;
-				String[] partes = null;
-				while((line = br.readLine()) != null) {
-					partes = rw.getRw().parseLine(line, "\"", ";", "\\");
-					if(partes.length == 2)
-						externalStatusMap.put(partes[0], partes[1]);
-				}
-			}catch(java.io.IOException e) {
-				logE(e);
-			}
-		}
+
+		externalStatusMap.putAll(
+				dastub.getDictionaryValueAlternativeValueMap(
+						this.externalStatusDictionaryIdentifier));
+//		if (!externalStatusMap.isEmpty()) {
+//			return;
+//		}
+//		java.util.Map<String, String> headers = new java.util.HashMap<>();
+//		String rawResponse = null;
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		org.json.JSONObject row = null;
+//		org.json.JSONArray values = null;
+//		int currentIndex = 0;
+//		int totalSize = 0;
+//		if(!java.nio.file.Files.exists(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "templates", "dictionaries", this.externalStatusDictionaryIdentifier))) {
+//			try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "templates", "dictionaries", this.externalStatusDictionaryIdentifier).toFile()), java.nio.charset.StandardCharsets.UTF_8))) {
+//				headers.put("Content-Type", "application/json");
+//				headers.put("Accept", "application/json");
+//				headers.put("Authorization", "Basic " + encoded);
+//				do {
+//					rawResponse = this.rc.getRequest("GET", baseUrl + "/list/StandardizationValue/byDictionary?dictionary="
+//							+ java.net.URLEncoder.encode(this.externalStatusDictionaryIdentifier, "UTF-8")
+//							+ "&fields=StandardizationValue.Value,StandardizationValue.AlternativeValue&pageSize=200&startIndex="
+//							+ currentIndex, null, headers);
+//					response = new org.json.JSONObject(rawResponse);
+//					rows = response.getJSONArray("rows");
+//					for (int i = 0; i < rows.length(); i++) {
+//						row = rows.getJSONObject(i);
+//						values = row.getJSONArray("values");
+//						externalStatusMap.put(values.getString(0), values.getString(1));
+//						pw.println( rw.getRw().serializeChunk(new Object[] { values.getString(0), values.getString(1) }) );
+//					}
+//					currentIndex += rows.length();
+//					totalSize = response.getInt("totalSize");
+//				} while (currentIndex < totalSize);
+//			} catch (Exception e) {
+//				log(rawResponse);
+//				logE(e);
+//			}
+//		}else {
+//			try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "templates", "dictionaries", this.externalStatusDictionaryIdentifier).toFile()), java.nio.charset.StandardCharsets.UTF_8))){
+//				String line = null;
+//				String[] partes = null;
+//				while((line = br.readLine()) != null) {
+//					partes = rw.getRw().parseLine(line, "\"", ";", "\\");
+//					if(partes.length == 2)
+//						externalStatusMap.put(partes[0], partes[1]);
+//				}
+//			}catch(java.io.IOException e) {
+//				logE(e);
+//			}
+//		}
 	}
 
 	private void loadNextStatusDictionary() {
 		if (!nextStatusMap.isEmpty()) {
 			return;
 		}
-		java.util.Map<String, String> headers = new java.util.HashMap<>();
-		String rawResponse = null;
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONObject row = null;
-		org.json.JSONArray values = null;
-		int currentIndex = 0;
-		int totalSize = 0;
-		if(!java.nio.file.Files.exists(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "templates", "dictionaries", this.nextStatusDictionaryIdentifier))) {
-			try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "templates", "dictionaries", this.nextStatusDictionaryIdentifier).toFile()), java.nio.charset.StandardCharsets.UTF_8))) {
-				headers.put("Content-Type", "application/json");
-				headers.put("Accept", "application/json");
-				headers.put("Authorization", "Basic " + encoded);
-				do {
-					rawResponse = this.rc.getRequest("GET", baseUrl + "/list/StandardizationValue/byDictionary?dictionary="
-							+ java.net.URLEncoder.encode(this.nextStatusDictionaryIdentifier, "UTF-8")
-							+ "&fields=StandardizationValue.Value,StandardizationValue.AlternativeValue&pageSize=200&startIndex="
-							+ currentIndex, null, headers);
-					response = new org.json.JSONObject(rawResponse);
-					rows = response.getJSONArray("rows");
-					for (int i = 0; i < rows.length(); i++) {
-						row = rows.getJSONObject(i);
-						values = row.getJSONArray("values");
-						nextStatusMap.put(values.getString(0), values.getString(1));
-						pw.println( rw.getRw().serializeChunk(new Object[] { values.getString(0), values.getString(1) }) );
-					}
-					currentIndex += rows.length();
-					totalSize = response.getInt("totalSize");
-				} while (currentIndex < totalSize);
-			} catch (Exception e) {
-				log(rawResponse);
-				logE(e);
-			}
-		}else {
-			try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "templates", "dictionaries", this.nextStatusDictionaryIdentifier).toFile()), java.nio.charset.StandardCharsets.UTF_8))){
-				String line = null;
-				String[] partes = null;
-				while((line = br.readLine()) != null) {
-					partes = rw.getRw().parseLine(line, "\"", ";", "\\");
-					if(partes.length == 2)
-						nextStatusMap.put(partes[0], partes[1]);
-				}
-			}catch(java.io.IOException e) {
-				logE(e);
-			}
-		}
+
+		nextStatusMap.putAll(
+				dastub.getDictionaryValueAlternativeValueMap(
+						this.nextStatusDictionaryIdentifier));
+//		if (!nextStatusMap.isEmpty()) {
+//			return;
+//		}
+//		java.util.Map<String, String> headers = new java.util.HashMap<>();
+//		String rawResponse = null;
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		org.json.JSONObject row = null;
+//		org.json.JSONArray values = null;
+//		int currentIndex = 0;
+//		int totalSize = 0;
+//		if(!java.nio.file.Files.exists(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "templates", "dictionaries", this.nextStatusDictionaryIdentifier))) {
+//			try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "templates", "dictionaries", this.nextStatusDictionaryIdentifier).toFile()), java.nio.charset.StandardCharsets.UTF_8))) {
+//				headers.put("Content-Type", "application/json");
+//				headers.put("Accept", "application/json");
+//				headers.put("Authorization", "Basic " + encoded);
+//				do {
+//					rawResponse = this.rc.getRequest("GET", baseUrl + "/list/StandardizationValue/byDictionary?dictionary="
+//							+ java.net.URLEncoder.encode(this.nextStatusDictionaryIdentifier, "UTF-8")
+//							+ "&fields=StandardizationValue.Value,StandardizationValue.AlternativeValue&pageSize=200&startIndex="
+//							+ currentIndex, null, headers);
+//					response = new org.json.JSONObject(rawResponse);
+//					rows = response.getJSONArray("rows");
+//					for (int i = 0; i < rows.length(); i++) {
+//						row = rows.getJSONObject(i);
+//						values = row.getJSONArray("values");
+//						nextStatusMap.put(values.getString(0), values.getString(1));
+//						pw.println( rw.getRw().serializeChunk(new Object[] { values.getString(0), values.getString(1) }) );
+//					}
+//					currentIndex += rows.length();
+//					totalSize = response.getInt("totalSize");
+//				} while (currentIndex < totalSize);
+//			} catch (Exception e) {
+//				log(rawResponse);
+//				logE(e);
+//			}
+//		}else {
+//			try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "templates", "dictionaries", this.nextStatusDictionaryIdentifier).toFile()), java.nio.charset.StandardCharsets.UTF_8))){
+//				String line = null;
+//				String[] partes = null;
+//				while((line = br.readLine()) != null) {
+//					partes = rw.getRw().parseLine(line, "\"", ";", "\\");
+//					if(partes.length == 2)
+//						nextStatusMap.put(partes[0], partes[1]);
+//				}
+//			}catch(java.io.IOException e) {
+//				logE(e);
+//			}
+//		}
 		
 	}
 /*
@@ -490,7 +551,7 @@ public class CreateProposal {
 //			} catch (java.io.IOException e) {
 //				logE(e);
 //			}
-			baseCacheDirectory = args[1];
+//			baseCacheDirectory = args[1];
 			if (args.length > 2) {
 				deleteInputFile = Boolean.parseBoolean( args[2] );
 				if (args.length > 3) {
@@ -875,7 +936,7 @@ public class CreateProposal {
 					productImageURL = fetchImagesForProduct(proposalId);
 				}
 				nameAndProductName.setProductImageURL(productImageURL);
-				nameAndProductName.processData( dataMap , newCharacteristicRecords);
+				nameAndProductName.processData( dataMap , newCharacteristicRecords );
 				TituloSinMarca tituloSinMarca = new TituloSinMarca( getCharacteristicValue( characteristicsMap.get("Name") ) );
 				tituloSinMarca.processData(characteristicsMap, newCharacteristicRecords);
 			}else {
@@ -2033,7 +2094,7 @@ public class CreateProposal {
 							org.json.JSONObject item = items1.getJSONObject(0);
 							if("".equals(item.getString("SKU"))) {
 								try(ReferenceFileCheck rfc = new ReferenceFileCheck()){
-									if(rfc.exists(mainBarCode)) {
+									if(rfc.exists(mainBarCode, dastub)) {
 										variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence").put("message", "El código EAN ya existe catalogado.").put("values", new org.json.JSONArray().put( variant.has("MainBarCode") ? variant.getString("MainBarCode") : variant.has("MainBarCodeS4H") ? variant.getString("MainBarCodeS4H") : "" )).put("fields", new org.json.JSONArray().put( "MainBarCode" )));
 									}
 								}catch(java.io.IOException e) {
@@ -2046,7 +2107,7 @@ public class CreateProposal {
 					}
 				}else {
 					try(ReferenceFileCheck rfc = new ReferenceFileCheck()){
-						if(rfc.exists(mainBarCode)) {
+						if(rfc.exists(mainBarCode, dastub)) {
 							variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence").put("message", "El código EAN ya existe catalogado.").put("values", new org.json.JSONArray().put( variant.has("MainBarCode") ? variant.getString("MainBarCode") : variant.has("MainBarCodeS4H") ? variant.getString("MainBarCodeS4H") : "" )).put("fields", new org.json.JSONArray().put( "MainBarCode" )));
 						}
 					}catch(java.io.IOException e) {
@@ -2214,59 +2275,57 @@ public class CreateProposal {
 //		return template;
 //	}
 	
-	private static synchronized String keepValueToFile(String label, String lookup, long myId) {
+	private String keepValueToFile(String label, String lookup, long myId) {
 		String[] code = new String[1];
 		code[0] = null;
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("fields", "LookupValue.Code,LookupValueLang.Name(es)");
-		qp.put("query", "LookupValueLang.Name(es) = \"" + label + "\"");
-		qp.put("lookup", "'" + lookup + "'");
-		RESTWrapper rw = new RESTWrapper();
-		rw.collectData("list", "LookupValue", null, "bySearch", qp, row->{
-			code[0] = row.getJSONArray("values").getString(0);
-		}, (message)-> { try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
-				new java.io.FileOutputStream("../logs/java_active_process_proposal_create.log", true)))) {
-			pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new java.util.Date()))
-					+ "] (" + myId + ") " + message);
-		} catch (java.io.IOException e) {
-		}});
+//		java.util.Map<String, String> qp = new java.util.TreeMap<>();
+//		qp.put("fields", "LookupValue.Code,LookupValueLang.Name(es)");
+//		qp.put("query", "LookupValueLang.Name(es) = \"" + label + "\"");
+//		qp.put("lookup", "'" + lookup + "'");
+//		RESTWrapper rw = new RESTWrapper();
+//		rw.collectData("list", "LookupValue", null, "bySearch", qp, row->{
+//			code[0] = row.getJSONArray("values").getString(0);
+//		}, this::log);
+		code[0] = dastub.getLookupValueCodeByName(lookup, 10, label, true);
 		if(code[0] == null) {
-			try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
-					new java.io.FileOutputStream("../logs/java_active_process_proposal_create.log", true)))) {
-				pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new java.util.Date()))
-						+ "] (" + myId + ") Probablemente borraron el valor y se había quedado en caché. ");
-			} catch (java.io.IOException e) {
-			}
+			log("Probablemente borraron el valor y se había quedado en caché.");
+//			try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
+//					new java.io.FileOutputStream("../logs/java_active_process_proposal_create.log", true)))) {
+//				pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new java.util.Date()))
+//						+ "] (" + myId + ") Probablemente borraron el valor y se había quedado en caché. ");
+//			} catch (java.io.IOException e) {
+//			}
 		}else {
-			try(java.io.PrintWriter pw = new java.io.PrintWriter(
-					new java.io.OutputStreamWriter(
-							new java.io.FileOutputStream(java.nio.file.Paths.get(
-									PropertiesManager.get("p360.contingency.templates_cache_directory"), 
-					"global_lookups",
-					lookup).toString(), true)))){
-				String delim = "\"";
-				String sep = ";";
-				String esc = "\\";
-				pw.println( rw.getRw().serializeChunk(new String[] { code[0], label }, delim, sep, esc) );
-			}catch(java.io.IOException e) {
-				try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
-						new java.io.FileOutputStream("../logs/java_active_process_proposal_create.log", true)))) {
-					e.printStackTrace(pw);
-				} catch (java.io.IOException ex) {
-				}
-			}
-			try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
-					new java.io.FileOutputStream("../logs/java_active_process_proposal_create.log", true)))) {
-				pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new java.util.Date()))
-						+ "] (" + myId + ") Staged a missing value in caché: " + code[0] + "<::>" + label + " in " + lookup);
-			} catch (java.io.IOException e) {
-			}
+//			try(java.io.PrintWriter pw = new java.io.PrintWriter(
+//					new java.io.OutputStreamWriter(
+//							new java.io.FileOutputStream(java.nio.file.Paths.get(
+//									PropertiesManager.get("p360.contingency.templates_cache_directory"), 
+//					"global_lookups",
+//					lookup).toString(), true)))){
+//				String delim = "\"";
+//				String sep = ";";
+//				String esc = "\\";
+//				pw.println( rw.getRw().serializeChunk(new String[] { code[0], label }, delim, sep, esc) );
+//			}catch(java.io.IOException e) {
+//				try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
+//						new java.io.FileOutputStream("../logs/java_active_process_proposal_create.log", true)))) {
+//					e.printStackTrace(pw);
+//				} catch (java.io.IOException ex) {
+//				}
+//			}
+//			try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
+//					new java.io.FileOutputStream("../logs/java_active_process_proposal_create.log", true)))) {
+//				pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new java.util.Date()))
+//						+ "] (" + myId + ") Staged a missing value in caché: " + code[0] + "<::>" + label + " in " + lookup);
+//			} catch (java.io.IOException e) {
+//			}
 		}
 		return code[0];
 	}
 
 	private String run() {
 		long init = System.currentTimeMillis();
+		resetLookupPerformanceAndCaches();
 		loadNextStatusDictionary();
 		loadExternalStatusDictionary();
 		loadStatusEnum();
@@ -2314,6 +2373,7 @@ public class CreateProposal {
 		String targetRole = "";
 		String holder = null;
 		String mainBarCode = null;
+		String productName = null;
 		String longDescription = null;
 		String longDescription2 = null;
 		String embedCodeWEB = null;
@@ -2976,6 +3036,9 @@ public class CreateProposal {
 										longDescription = holder;
 										continue;
 									}
+									if("ProductName".equals(name)) {
+										productName = holder;
+									}
 									if("DescriptionLong2".equals(name)) {
 										longDescription2 = holder;
 										continue;
@@ -3000,6 +3063,31 @@ public class CreateProposal {
 									}
 									if("SupplierPartNumber".equals(name)) {
 										supplierPartNumber = holder;
+									}
+									if (name.startsWith("ProductTypeSAPTEMP")) {
+										codeValue = holder.replaceFirst(" - .*", "").trim();
+
+										if (!codeValue.isEmpty()) {
+											charBody = new org.json.JSONObject()
+													.put("_datatype", "LOOKUP")
+													.put("_qualification",
+															new org.json.JSONObject().put("characteristic",
+																	new org.json.JSONObject().put("_code", name)))
+													.put("_recordLang",
+															new org.json.JSONArray().put(
+																	new org.json.JSONObject()
+																			.put("_qualification",
+																					new org.json.JSONObject().put("language",
+																							new org.json.JSONObject().put("_code", "zxx")))
+																			.put("values",
+																					new org.json.JSONArray().put(
+																							new org.json.JSONObject()
+																									.put("_code", codeValue)
+																									.put("_label", holder)))));
+											characteristicArray.put(charBody);
+										}
+
+										continue;
 									}
 									String drr = dr.getCharacteristicData(new org.json.JSONArray().put(name));
 									characteristicLookup = drr != null ? new org.json.JSONObject(drr).getJSONArray("items").getJSONObject(0).getString("lookup") : null; // characteristicsThatAreLookups.get(name);
@@ -3029,11 +3117,29 @@ public class CreateProposal {
 											characteristicArray.put(charBody);
 										}
 									} else {
-										int s = 0;
-										validCodes = procedeACargarValoresValidos(templateId, name);
-										if (validCodes.isEmpty()) {
-											validCodes = procedeACargarValoresLookup(characteristicLookup);
-											s = 1;
+//										int s = 0;
+										if ("BrandName".equals(name)) {
+											codeValue = resolveLookupCode(
+													templateId,
+													name,
+													characteristicLookup,
+													holder
+											);
+											validCodes = new java.util.HashMap<>(1);
+											validCodes.put(holder, codeValue);
+										} else {
+										    validCodes = procedeACargarValoresValidos(
+										            templateId,
+										            name
+										    );
+
+										    if (validCodes.isEmpty()) {
+										        validCodes = procedeACargarValoresLookup(
+										                characteristicLookup
+										        );
+										    }
+
+										    codeValue = validCodes.get(holder);
 										}
 										if("Currency".equals(name)) {
 											log("Values for currency: " + validCodes);
@@ -3067,12 +3173,7 @@ public class CreateProposal {
 												characteristicArray.put(charBody);
 												tellme = true;
 											}else {
-												if (name.startsWith("ProductTypeSAPTEMP")) {
-													codeValue = cosos.getJSONObject(j).getString(name).replaceAll(" - .*", "");
-													log("Got: " + codeValue);
-												}else {
-													codeValue = validCodes.get(cosos.getJSONObject(j).getString(name).replaceAll(" {2,}", " ").trim());
-												}
+												codeValue = validCodes.get(cosos.getJSONObject(j).getString(name).replaceAll(" {2,}", " ").trim());
 												if (codeValue != null) {
 													if("BrandName".equals(name)) {
 														brandName = codeValue;
@@ -3108,7 +3209,7 @@ public class CreateProposal {
 																				))));
 														characteristicArray.put(charBody);
 													}else {
-														log("%%%%%%%%%%%%%%% Maylov %%%%%%%%%%%%%%%% \n\t" + s + "\n\t" + validCodes + "\n\t" + new JSONObject().put("fields", new org.json.JSONArray().put( name ))
+														log("%%%%%%%%%%%%%%% Maylov %%%%%%%%%%%%%%%% \n\t\n\t" + validCodes + "\n\t" + new JSONObject().put("fields", new org.json.JSONArray().put( name ))
 															.put("values", new org.json.JSONArray().put( holder ))
 															.put("message",
 																	"Problem identifying current value within valid lookup value list")
@@ -3509,7 +3610,7 @@ public class CreateProposal {
 										, supplier
 										, typeMainBarCodeA
 									);
-								variantes.getJSONObject(n).put("SAPObjectType", variantes.length() > 1 ? "Variante" : "Artículo individual" );
+								variantes.getJSONObject(n).put("SAPObjectType", variantes.length() > 1 ? "02" : "00" );
 								String mb = variantes.getJSONObject(n).has("MainBarCode") ? variantes.getJSONObject(n).getString("MainBarCode") : variantes.getJSONObject(n).has("MainBarCodeS4H") ? variantes.getJSONObject(n).getString("MainBarCodeS4H") : null;
 								if(mb != null && !"".equals(mb)) {
 									if(!variantes.getJSONObject(n).has("variantId") && (variantes.getJSONObject(n).has("MainBarCode") || variantes.getJSONObject(n).has("MainBarCodeS4H"))) {
@@ -3586,17 +3687,26 @@ public class CreateProposal {
 							}
 							if(nextStatus == null) {
 								log("No valid key found: " + previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole + ": " + nextStatus);
-								responses.put(new org.json.JSONObject().put("faultCode", 400).put("message", "Problema técnico de incompatibilidad de estatus, acción y rol de destino, el valor de la llave \"userAction\": " + userAction + ", en conjunto con el valor de la llave \"targetRole\": " + targetRole + ", para el estatus actual de la propuesta: \"" + statusEnum.get(internalStatus) + "\" y estado previo de la propuesta: \"" + statusEnum.get(previousStatus) + "\", es desconocido, favor de reportarlo con el equipo de soporte."));
-								continue;
+								org.json.JSONObject responseObject = new org.json.JSONObject().put("faultCode", 400).put("message", "Problema técnico de incompatibilidad de estatus, acción y rol de destino, el valor de la llave \"userAction\": " + userAction + ", en conjunto con el valor de la llave \"targetRole\": " + targetRole + ", para el estatus actual de la propuesta: \"" + statusEnum.get(internalStatus) + "\" y estado previo de la propuesta: \"" + statusEnum.get(previousStatus) + "\", es desconocido, favor de reportarlo con el equipo de soporte.");
+								log("Incompatibilidad de estados. " + responseObject);
+								nextStatus = this.nextStatusMap
+										.get( "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole);
+								if(nextStatus == null) {
+								
+									responses.put(responseObject);
+									continue;
+								}
 							}
-							log("For: " + previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole + ": " + nextStatus);
+							log(" 1 For: " + previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole + ": " + nextStatus);
 							internalStatus = internalStatus == null || "".equals(internalStatus) ? "10031" : internalStatus;
 							previousStatus = nextStatus != null && !"".equals(nextStatus) ? internalStatus : previousStatus;
 							internalStatus = nextStatus != null && !"".equals(nextStatus) ? nextStatus : internalStatus;
 							externalStatus = this.externalStatusMap.get(internalStatus);
 							externalStatus = externalStatus == null ? "Borrador" : externalStatus;
 						}else{
-							log("For: " + previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole + ": " + nextStatus);
+							nextStatus = this.nextStatusMap
+									.get(previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole);
+							log(" 2 For: " + previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole + ": " + nextStatus);
 							internalStatus = internalStatus == null || "".equals(internalStatus) ? "10031" : internalStatus;
 							externalStatus = this.externalStatusMap.get(internalStatus);
 							externalStatus = externalStatus == null ? "Borrador" : externalStatus;
@@ -3696,13 +3806,34 @@ public class CreateProposal {
 									}
 								}
 							}
+						}else {
+							if(pn == null || "".equals(pn)) {
+								for(int idx=0; idx<characteristicArray.length(); idx++) {
+									if("ProductName".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
+										pn = characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+									}
+								}
+							}
+						}
+						
+						if(productName != null) {
+							pn = productName;
 						}
 						if(longDescription != null) {
-							reqObj.put("lang", new org.json.JSONArray().put(
-									new org.json.JSONObject()
-										.put("descriptionLong", longDescription)
-										.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))))
-								);
+							if(reqObj.has("lang")) {
+								org.json.JSONArray lang = reqObj.getJSONArray("lang");
+								lang.put(
+										new org.json.JSONObject()
+											.put("descriptionLong", longDescription)
+											.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))))
+									;
+							}else {
+								reqObj.put("lang", new org.json.JSONArray().put(
+										new org.json.JSONObject()
+											.put("descriptionLong", longDescription)
+											.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))))
+									);
+							}
 						}
 						if(longDescription2 != null) {
 							if(reqObj.has("lang")) {
@@ -3890,10 +4021,10 @@ public class CreateProposal {
 						/** If there are any errors, should report them back **/
 						if(new org.json.JSONObject(rawResp).getJSONObject("_protocol").getInt("errorCounter") == 0) {
 							if("1021".equals(internalStatus))
-								ingresaWorkflow(externalProductId, "23543", "IGIAStewardship", "Item Group Review");
+								ingresaWorkflow("'" + externalProductId + "'@1", "23543", "IGIAStewardship", "Item Group Review");
 							log("Bout to do");
-							if(!sample) {
-								log("Array ?" + (characteristicArray == null ? "x.x" : characteristicArray.length()));
+							if(!sample) { /*
+								log("Array ? " + (characteristicArray == null ? "x.x" : characteristicArray.length()));
 								if(characteristicArray != null) {
 									String ig = null;
 									String igs = null;
@@ -3985,7 +4116,7 @@ public class CreateProposal {
 									}catch(org.json.JSONException | NullPointerException e) {
 										logE(e);
 									}
-								}
+								} */
 							}else {
 								log("Yerk.");
 							}
@@ -4125,6 +4256,8 @@ public class CreateProposal {
 			}
 		}catch (ServiceUnavailableException e) {
 			logE(e);
+			logLookupPerformanceSummary();
+			clearLookupCaches();
 			log("Elapsed time response: " + workshop.formatTime(System.currentTimeMillis() - init));
 			throw e;
 		}catch (Exception e) {
@@ -4148,7 +4281,10 @@ public class CreateProposal {
 		externalStatusMap.clear();
 		if(deleteInputFile) {
 		}
+		logLookupPerformanceSummary();
+		clearLookupCaches();
 		log("Elapsed time response: " + workshop.formatTime(System.currentTimeMillis() - init));
+		dastub.close();
 		return response;
 	}
 
@@ -4299,8 +4435,14 @@ public class CreateProposal {
 						.get(previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole);
 				if(nextStatus == null) {
 					log("No valid key found: " + previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole + ": " + nextStatus);
-					variantResponsesArray.put(new org.json.JSONObject().put("faultCode", 400).put("message", "Problema técnico de incompatibilidad de estatus, acción y rol de destino, el valor de la llave \"userAction\": " + userAction + ", en conjunto con el valor de la llave \"targetRole\": " + targetRole + ", para el estatus actual de la propuesta: \"" + statusEnum.get(internalStatus) + "\" y estado previo de la propuesta: \"" + statusEnum.get(previousStatus) + "\", es desconocido, favor de reportarlo con el equipo de soporte."));
-					return;
+					org.json.JSONObject responseObject = new org.json.JSONObject().put("faultCode", 400).put("message", "Problema técnico de incompatibilidad de estatus, acción y rol de destino, el valor de la llave \"userAction\": " + userAction + ", en conjunto con el valor de la llave \"targetRole\": " + targetRole + ", para el estatus actual de la propuesta: \"" + statusEnum.get(internalStatus) + "\" y estado previo de la propuesta: \"" + statusEnum.get(previousStatus) + "\", es desconocido, favor de reportarlo con el equipo de soporte.");
+					log("Incompatibilidad de estados V. " + responseObject);
+					nextStatus = this.nextStatusMap
+							.get( "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole);
+					if(nextStatus == null) {
+						variantResponsesArray.put(responseObject);
+						return;
+					}
 				}
 				log("For: " + previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole + ": " + nextStatus);
 				internalStatus = internalStatus == null || "".equals(internalStatus) ? "10031" : internalStatus;
@@ -4370,6 +4512,31 @@ public class CreateProposal {
 							if("SAPObjectType".equals(name)) {
 								sapObjectType = holder;
 								sapObjectTypeLabel = "00".equals(sapObjectType) ? "Artículo Individual" : "02".equals(sapObjectType) ? "Variante" : null;
+							}
+							if (name.startsWith("ProductTypeSAPTEMP")) {
+								codeValue = holder.replaceFirst(" - .*", "").trim();
+
+								if (!codeValue.isEmpty()) {
+									charBody = new org.json.JSONObject()
+											.put("_datatype", "LOOKUP")
+											.put("_qualification",
+													new org.json.JSONObject().put("characteristic",
+															new org.json.JSONObject().put("_code", name)))
+											.put("_recordLang",
+													new org.json.JSONArray().put(
+															new org.json.JSONObject()
+															.put("_qualification",
+																	new org.json.JSONObject().put("language",
+																			new org.json.JSONObject().put("_code", "zxx")))
+															.put("values",
+																	new org.json.JSONArray().put(
+																			new org.json.JSONObject()
+																					.put("_code", codeValue)
+																					.put("_label", holder)))));
+									characteristicArray.put(charBody);
+								}
+
+								continue;
 							}
 //							if (characteristicsThatAreLookups == null) {
 //								characteristicsThatAreLookups = getCharacteristicsThatAreLookups();
@@ -4739,21 +4906,21 @@ public class CreateProposal {
 			reqObj.put("externalStatus", new org.json.JSONObject().put("_code", externalStatus));
 			log("Cocqiutus: " + proposalStatus + ", business: " + business);
 			if(("Liverpool".equals(business) || "Suburbia".equals(business)) && ("1020".equals(proposalStatus) || "1008".equals(proposalStatus))) {
-				String[] supplierData = parties.get(supplier);
-				if(supplierData != null) {
-					log("Parties: " + rw.getRw().serializeChunk(supplierData));
-					String supplierType = supplierData[2];
+				String supplierType = dastub.getPartySupplierType(supplier);
+				if (supplierType != null && !supplierType.isBlank()) {
+				    log("Party supplierType: " + supplierType);
 					java.time.LocalDate ld = java.time.LocalDate.now();
 					java.time.LocalDate cd = ld;
 					int added = 0;
 					int toAdd = 2;
 					java.time.DayOfWeek dow = null;
-					while(added < toAdd) {
-						cd.plusDays(1);
-						dow = cd.getDayOfWeek();
-						if(dow != java.time.DayOfWeek.SATURDAY && dow != java.time.DayOfWeek.SUNDAY) {
-							added++;
-						}
+					while (added < toAdd) {
+					    cd = cd.plusDays(1);
+					    dow = cd.getDayOfWeek();
+					    if (dow != java.time.DayOfWeek.SATURDAY
+					            && dow != java.time.DayOfWeek.SUNDAY) {
+					        added++;
+					    }
 					}
 					String dtv = cd.format( java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd") );
 					if("PNA".equals(supplierType)) {
@@ -4830,7 +4997,7 @@ public class CreateProposal {
 					log("From PUT (" + variant + "): " + rawResp + "");
 					resp = new JSONObject(rawResp);
 					/** If there are any errors, should report them back **/
-					if(resp.getJSONObject("_protocol").getInt("errorCounter") == 0 && externalItemId != null && objectId != null && !"".equals(objectId)) {
+				/*	if(resp.getJSONObject("_protocol").getInt("errorCounter") == 0 && externalItemId != null && objectId != null && !"".equals(objectId)) {
 						String r = dr.getArticleData(new org.json.JSONArray().put(externalItemId));
 						if(r != null) {
 							try{
@@ -4863,7 +5030,7 @@ public class CreateProposal {
 						}else {
 							log("(VAR) fue null");
 						}
-					}
+					} */
 				}else {
 					log("was a sample.");
 					resp = null;
@@ -4938,6 +5105,10 @@ public class CreateProposal {
 					if("".equals(holder)) {
 						continue;
 					}
+					if(name.startsWith("ProductTypeSAPTEMP")) {
+						log("Skipping ProductTypeSAPTEMP validation: " + holder);
+						continue;
+					}
 					log("El drr neim ---------> " + name);
 					String drr = dr.getCharacteristicData(new org.json.JSONArray().put(name));
 					log("El drr ---------> " + drr);
@@ -4993,43 +5164,27 @@ public class CreateProposal {
 						}
 						validCodes = procedeACargarValoresValidos(template, name);
 						if (validCodes.isEmpty()) {
-							validCodes = procedeACargarValoresLookup(lookup);
-						} else {
+						    validCodes = procedeACargarValoresLookup(lookup);
 						}
+
 						if (!validCodes.isEmpty()) {
-							codeValue = validCodes.get(cosos.getJSONObject(j).get(name));
-							if (codeValue != null) {
-								log("Within checking variants, name: " + name + ", business: " + business);
-								if("Suburbia".equals(business) && "ColoursLiverpoolAtt".equals(name)) {
-									String color = (String) cosos.getJSONObject(j).get(name);
-									String colorCammelCase = queryColor(color, "ExtensionDeMetadatos_RelacionColoresLiverpoolSuburbia");
-									if(colorCammelCase != null) {
-										String colorId = queryLkpBack(colorCammelCase, "SB_COLORESLOV");
-										if(colorId != null) {
-											variant.put("SB_COLORES", colorCammelCase);
-										}
-										log("Color LVP: " + color + ", cammelCase: " + colorCammelCase + ", colorId: " + colorId);
-									}else {
-										log("Problema con los colores, no hay cammel case de: " + color);
-									}
-								}
-							} else {
-//								variantFieldErrors.put(
-//										new JSONObject()
-//										.put("values", new org.json.JSONArray().put( cosos.getJSONObject(j).get(name) ))
-//										.put("message",
-//												"Problem identifying current value within valid lookup value list")
-//										.put("characteristic", name)
-//										.put("fields", new org.json.JSONArray().put(name))
-//										);
-							}
-						} else {
-//							variantFieldErrors.put(
-//									new JSONObject()
-//									.put("values", new org.json.JSONArray().put( cosos.getJSONObject(j).get(name) ))
-//									.put("message", "Problem identifying current lookup values")
-//									.put("fields", new org.json.JSONArray().put(name))
-//									.put("characteristic", name));
+						    codeValue = validCodes.get(holder);
+						    if (codeValue != null) {
+						        log("Within checking variants, name: " + name + ", business: " + business);
+						        if("Suburbia".equals(business) && "ColoursLiverpoolAtt".equals(name)) {
+						            String color = (String) cosos.getJSONObject(j).get(name);
+						            String colorCammelCase = queryColor(color, "ExtensionDeMetadatos_RelacionColoresLiverpoolSuburbia");
+						            if(colorCammelCase != null) {
+						                String colorId = queryLkpBack(colorCammelCase, "SB_COLORESLOV");
+						                if(colorId != null) {
+						                    variant.put("SB_COLORES", colorCammelCase);
+						                }
+						                log("Color LVP: " + color + ", cammelCase: " + colorCammelCase + ", colorId: " + colorId);
+						            }else {
+						                log("Problema con los colores, no hay cammel case de: " + color);
+						            }
+						        }
+						    }
 						}
 					}
 				}
@@ -5065,50 +5220,234 @@ public class CreateProposal {
 //		return set;
 //	}
 
-	private java.util.Map<String, java.util.Map<String, String>> globalLookupValues = new java.util.TreeMap<>();
-	private java.util.Map<String, java.util.Map<String, String>> specificLookupValues = new java.util.TreeMap<>();
+	/*
+	 * Cachés válidos únicamente durante una ejecución de run().
+	 *
+	 * specificLookupValues:
+	 *   template + characteristic -> valores válidos filtrados (nombre -> código).
+	 *
+	 * globalLookupValues:
+	 *   lookup -> todos sus valores (nombre -> código), usado cuando la plantilla no
+	 *   define una lista acotada.
+	 *
+	 * Se almacenan también mapas vacíos. Por eso las lecturas usan containsKey();
+	 * un mapa vacío en caché significa "ya se consultó y no hubo valores".
+	 */
+	private final java.util.Map<String, java.util.Map<String, String>> globalLookupValues =
+			new java.util.HashMap<>();
+	private final java.util.Map<String, java.util.Map<String, String>> specificLookupValues =
+			new java.util.HashMap<>();
+
+	private int perfSpecificLookupCacheHits;
+	private int perfSpecificLookupCacheMisses;
+	private int perfGlobalLookupCacheHits;
+	private int perfGlobalLookupCacheMisses;
 
 	private java.util.Map<String, String> getLkpValues(String lkp) throws ServiceUnavailableException{
-		java.util.Map<String, String> data = new java.util.TreeMap<>();
-		RESTWorkshop rw  = new RESTWorkshop();
-		rw.setBaseUrl(baseUrl);
-		rw.addHeader("Authorization", this.workshop.getRc().getHeader().get("Authorization"));
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		int currentIndex = 0;
-		int totalSize = 0;
-		rw.putParameter("lookup", "'" + lkp + "'");
-		rw.putParameter("fields", "LookupValue.Code,LookupValueLang.Name(es)");
-		rw.putParameter("pageSize", "1200");
-		do {
-			rw.putParameter("startIndex", String.valueOf(currentIndex));
-			response = rw.makeRequest("GET", "/list/LookupValue/byLookup");
-			if(response != null) {
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for(int i = 0; i<rows.length(); i++) {
-					values = rows.getJSONObject(i).getJSONArray("values");
-					data.put(values.getString(0), values.getString(1));
-				}
-				currentIndex += response.getInt("pageSize");
-			}else {
-				System.out.println("ERROR: " + rw.getRawResponse());
-			}
-		}while(currentIndex < totalSize);
-		currentIndex = 0;
-		
-		return data;
+		return dastub.getLookupValueCodeNameMap(lkp, 10, false);
+	}
+	
+//	private java.util.Map<String, String> getLkpValues(String lkp) throws ServiceUnavailableException{
+//		java.util.Map<String, String> data = new java.util.TreeMap<>();
+//		RESTWorkshop rw  = new RESTWorkshop();
+//		rw.setBaseUrl(baseUrl);
+//		rw.addHeader("Authorization", this.workshop.getRc().getHeader().get("Authorization"));
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		org.json.JSONArray values = null;
+//		int currentIndex = 0;
+//		int totalSize = 0;
+//		rw.putParameter("lookup", "'" + lkp + "'");
+//		rw.putParameter("fields", "LookupValue.Code,LookupValueLang.Name(es)");
+//		rw.putParameter("pageSize", "1200");
+//		do {
+//			rw.putParameter("startIndex", String.valueOf(currentIndex));
+//			response = rw.makeRequest("GET", "/list/LookupValue/byLookup");
+//			if(response != null) {
+//				totalSize = response.getInt("totalSize");
+//				rows = response.getJSONArray("rows");
+//				for(int i = 0; i<rows.length(); i++) {
+//					values = rows.getJSONObject(i).getJSONArray("values");
+//					data.put(values.getString(0), values.getString(1));
+//				}
+//				currentIndex += response.getInt("pageSize");
+//			}else {
+//				System.out.println("ERROR: " + rw.getRawResponse());
+//			}
+//		}while(currentIndex < totalSize);
+//		currentIndex = 0;
+//		
+//		return data;
+//	}
+	
+	private java.util.Map<String, String> procedeACargarValoresLookup(
+	        String lookup) throws ServiceUnavailableException {
+
+	    String cacheKey = trimToNull(lookup);
+	    if (cacheKey == null) {
+	        return java.util.Collections.emptyMap();
+	    }
+
+	    if (globalLookupValues.containsKey(cacheKey)) {
+	        perfGlobalLookupCacheHits++;
+	        java.util.Map<String, String> cached = globalLookupValues.get(cacheKey);
+	        log(
+	                "PERF procedeACargarValoresLookup"
+	                + " lookup=" + lookup
+	                + " cache=HIT"
+	                + " resultValues=" + cached.size()
+	        );
+	        return cached;
+	    }
+
+	    perfGlobalLookupCacheMisses++;
+	    long start = System.nanoTime();
+	    int resultCount = -1;
+
+	    try {
+	        java.util.Map<String, String> loadedValues =
+	                dastub.getLookupValueCodeNameMap(
+	                        cacheKey,
+	                        10,
+	                        true
+	                );
+
+	        java.util.Map<String, String> immutableValues = immutableMapCopy(loadedValues);
+	        globalLookupValues.put(cacheKey, immutableValues);
+	        resultCount = immutableValues.size();
+
+	        return immutableValues;
+	    } finally {
+	        long elapsed = System.nanoTime() - start;
+
+	        perfFallbackLookupCalls++;
+	        perfFallbackLookupNanos += elapsed;
+
+	        log(
+	                "PERF procedeACargarValoresLookup"
+	                + " lookup=" + lookup
+	                + " cache=MISS"
+	                + " elapsedMs="
+	                + formatNanosAsMillis(elapsed)
+	                + " resultValues=" + resultCount
+	        );
+	    }
 	}
 
+	private void logLookupPerformanceSummary() {
+	    log(
+	            "PERF LOOKUP SUMMARY"
+	            + " validValuesCalls=" + perfValidValuesCalls
+	            + " characteristicDataMs="
+	            + formatNanosAsMillis(perfCharacteristicDataNanos)
+	            + " templateValidValuesMs="
+	            + formatNanosAsMillis(perfTemplateValidValuesNanos)
+	            + " lookupRowsMs="
+	            + formatNanosAsMillis(perfLookupRowsNanos)
+	            + " buildMapMs="
+	            + formatNanosAsMillis(perfBuildLookupMapNanos)
+	            + " lookupRowsRead=" + perfLookupRowsRead
+	            + " specificCacheHits=" + perfSpecificLookupCacheHits
+	            + " specificCacheMisses=" + perfSpecificLookupCacheMisses
+	            + " globalCacheHits=" + perfGlobalLookupCacheHits
+	            + " globalCacheMisses=" + perfGlobalLookupCacheMisses
+	            + " fallbackCalls=" + perfFallbackLookupCalls
+	            + " fallbackMs="
+	            + formatNanosAsMillis(perfFallbackLookupNanos)
+	    );
+	}
+
+	private java.util.Map<String, String> immutableMapCopy(java.util.Map<String, String> values) {
+		if (values == null || values.isEmpty()) {
+			return java.util.Collections.emptyMap();
+		}
+		return java.util.Collections.unmodifiableMap(new java.util.HashMap<>(values));
+	}
+
+	private String specificLookupCacheKey(String templateId, String characteristic) {
+		return String.valueOf(templateId) + "\u001F" + String.valueOf(characteristic);
+	}
+
+	private void resetLookupPerformanceAndCaches() {
+		clearLookupCaches();
+		perfCharacteristicDataNanos = 0L;
+		perfTemplateValidValuesNanos = 0L;
+		perfLookupRowsNanos = 0L;
+		perfBuildLookupMapNanos = 0L;
+		perfFallbackLookupNanos = 0L;
+		perfValidValuesCalls = 0;
+		perfFallbackLookupCalls = 0;
+		perfLookupRowsRead = 0L;
+		perfSpecificLookupCacheHits = 0;
+		perfSpecificLookupCacheMisses = 0;
+		perfGlobalLookupCacheHits = 0;
+		perfGlobalLookupCacheMisses = 0;
+	}
+
+	private void clearLookupCaches() {
+		specificLookupValues.clear();
+		globalLookupValues.clear();
+		resolvedLookupCodes.clear();
+	}
+	
+	private String resolveLookupCode(
+	        String template,
+	        String characteristic,
+	        String lookup,
+	        String rawValue) {
+
+	    String value = trimToNull(
+	            rawValue == null
+	                    ? null
+	                    : rawValue.replaceAll(" {2,}", " ").trim()
+	    );
+
+	    if (value == null || lookup == null) {
+	        return null;
+	    }
+
+	    String cacheKey = lookupValueCacheKey(
+	            template,
+	            characteristic,
+	            lookup,
+	            value
+	    );
+
+	    if (resolvedLookupCodes.containsKey(cacheKey)) {
+	        return resolvedLookupCodes.get(cacheKey);
+	    }
+
+	    String rawValidValues =
+	            getValidValues(dastub, template, characteristic);
+
+	    java.util.Set<String> allowedCodes =
+	            parseValidValues(rawValidValues);
+
+	    String candidate =
+	            dastub.getLookupValueCodeByName(
+	                    lookup,
+	                    10,
+	                    value,
+	                    true
+	            );
+
+	    String resolvedCode =
+	            candidate != null
+	                    && (allowedCodes == null
+	                            || allowedCodes.contains(candidate))
+	                    ? candidate
+	                    : null;
+
+	    resolvedLookupCodes.put(cacheKey, resolvedCode);
+
+	    return resolvedCode;
+	}
+
+	/*
 	private java.util.Map<String, String> procedeACargarValoresLookup(String lookup) throws ServiceUnavailableException {
 
-//		java.util.Map<String, String> validValues = globalLookupValues.get(lookup);
-//		if (validValues != null) {
-//			return validValues;
-//		}
-		java.util.Map<String, String> validValues = new java.util.TreeMap<>(); // getLkpValues(lookup);
-//		globalLookupValues.put(lookup, validValues);
+		java.util.Map<String, String> validValues = null;
+		validValues = dastub.getLookupValueCodeNameMap(lookup, 10, true);
 		Yep yep = new Yep();
 		final String delim = "\"";
 		final String sep = ";";
@@ -5122,296 +5461,291 @@ public class CreateProposal {
 				pieces = yep.parseLine(line, delim, sep, esc);
 				validValues.put(pieces[1], pieces[0]);
 			}
-//			globalLookupValues.put(lookup, validValues);
 		} catch (IOException | ArrayIndexOutOfBoundsException | IllegalStateException e) {
 			logE(e);
 			log(line);
 			log("(rep) Going to correct a value staged for lookup " + lookup);
-//			log("(Lasis) Going to correct a value staged for lookup " + lookup);
-
-			String url = null;
-			String rawResponse = null;
-			org.json.JSONObject response = null;
-			org.json.JSONArray rows = null;
-			org.json.JSONArray values = null;
-			int currentIndex = 0;
-			int totalSize = 0;
-			String[] pieces = new String[2];
-			RESTWorkshop w = new RESTWorkshop();
-			validValues = new java.util.TreeMap<>();
-			try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.nio.file.Paths
-					.get(baseCacheDirectory, "global_lookups", lookup.replaceAll("/", "<::>")).toString())))){
-				do {
-					url = baseUrl + "/list/LookupValue/bySearch?lookup=" + java.net.URLEncoder.encode("'" + lookup + "'", "UTF-8") + "&fields=LookupValue.Code,LookupValueLang.Name(es)&metaData=true&pageSize=600&startIndex=" + currentIndex;
-					rawResponse = rc.getRequest("GET", url, null);
-					response = new org.json.JSONObject(rawResponse);
-					rows = response.getJSONArray("rows");
-					for(int i=0; i<rows.length(); i++) {
-						currentIndex++;
-						values = rows.getJSONObject(i).getJSONArray("values");
-						for(int j=0; j<pieces.length; j++) {
-							pieces[j] = values.getString(j);
-						}
-						validValues.put(pieces[1], pieces[0]);
-						pw.println( w.serializeChunk(pieces, delim, sep, esc));
-						if(currentIndex % 100 == 0) {
-							log(".");
-							if(currentIndex % 1000 == 0) {
-								log("\n" + currentIndex);
-							}
-						}
-					}
-				}while(currentIndex < totalSize);
-				currentIndex = 0;
-				log("Loaded: " + validValues.size() + " for " + lookup);
-				globalLookupValues.put(lookup, validValues);
-			}catch(org.json.JSONException ex) {
-				log(rawResponse);
-				logE(ex);
-			}catch (UnsupportedEncodingException e1) {
-				logE(e1);
-			} catch (IOException e1) {
-				logE(e1);
-			}
-
-//			log("Malformed value: " + line + ". characteristic: " + lookup + ", file: " + baseCacheDirectory
-//					+ java.io.File.separator + "global" + java.io.File.separator + lookup);
-//
-//			throw new IllegalStateException("Malformed value: " + line + ". characteristic: " + lookup + ", file: "
-//					+ baseCacheDirectory + java.io.File.separator + "global" + java.io.File.separator + lookup);
 		}
-		return validValues;
+		return validValues == null ? new java.util.HashMap<>() : validValues;
 	}
+		 */
+	
+	
+	private String getValidValues(DBAccessDataStub dastub, String template, String characteristic) {
+    	String validValues = null;
+    	if (template != null) {
+    		java.util.Map<String, org.json.JSONObject> templateProperties = dastub.getTemplateCharacteristicProperties(template);
+    		org.json.JSONObject characteristicProperties = templateProperties.get(characteristic);
+    		validValues = getNonBlankProperty(characteristicProperties, "listofValuesValidValues");
+    		if(validValues == null || "".equals(validValues)) {
+    			validValues = getNonBlankProperty(characteristicProperties,"ListOfValuesFilter");
+    		}
+    	}
+    	if (validValues == null) {
+    		org.json.JSONObject globalMetadata = dastub.getGlobalMetadata("CreateProposal");
+    		validValues = getNonBlankProperty(globalMetadata.optJSONObject(characteristic), "listofValuesValidValues");
+    		if(validValues == null || "".equals(validValues)) {
+    			validValues = getNonBlankProperty(globalMetadata, "ListOfValuesFilter");
+    		}
+    	}
+    	return validValues;
+    }
 
+    private String getNonBlankProperty( org.json.JSONObject properties, String property) {
+    	if (properties == null || property == null || !properties.has(property) || properties.isNull(property)) {
+    		return null;
+    	}
+    	return trimToNull( properties.optString( property, null));
+    }
+
+    private java.util.Set<String> parseValidValues(String validValues) {
+    	if (validValues == null || validValues.isBlank()) {
+    		return null;
+    	}
+    	java.util.Set<String> values = new java.util.LinkedHashSet<>();
+    	for (String piece : validValues.split(",")) {
+    		String value = trimToNull(piece);
+    		if (value != null) {
+    			values.add(value);
+    		}
+    	}
+    	return values.isEmpty() ? null : values;
+    }
+
+    private String trimToNull(String value) {
+    	if (value == null) {
+    		return null;
+    	}
+    	String trimmed = value.trim();
+    	return trimmed.isEmpty() ? null : trimmed;
+    }
+	
+
+    private java.util.Map<String, String> procedeACargarValoresValidos(
+            String templateId,
+            String characteristic) {
+
+        perfValidValuesCalls++;
+
+        String cacheKey = specificLookupCacheKey(templateId, characteristic);
+        if (specificLookupValues.containsKey(cacheKey)) {
+            perfSpecificLookupCacheHits++;
+            java.util.Map<String, String> cached = specificLookupValues.get(cacheKey);
+            log(
+                    "PERF procedeACargarValoresValidos"
+                    + " template=" + templateId
+                    + " characteristic=" + characteristic
+                    + " cache=HIT"
+                    + " resultValues=" + cached.size()
+            );
+            return cached;
+        }
+
+        perfSpecificLookupCacheMisses++;
+        long totalStart = System.nanoTime();
+
+        long characteristicDataNanos = 0L;
+        long templateValidValuesNanos = 0L;
+        long lookupRowsNanos = 0L;
+        long buildMapNanos = 0L;
+
+        int lookupRowsCount = 0;
+        int allowedCodesCount = -1;
+        int resultCount = 0;
+
+        String lookup = null;
+
+        java.util.Map<String, String> validValues =
+                new java.util.HashMap<>();
+
+        try {
+            long stepStart = System.nanoTime();
+
+            org.json.JSONObject characteristicData =
+                    dastub.getCharacteristicData(characteristic);
+
+            characteristicDataNanos =
+                    System.nanoTime() - stepStart;
+
+            lookup = trimToNull(
+                    characteristicData.optString("lookup", "")
+            );
+
+            stepStart = System.nanoTime();
+
+            String rawValidValues =
+                    getValidValues(dastub, templateId, characteristic);
+
+            java.util.Set<String> allowedCodes =
+                    parseValidValues(rawValidValues);
+
+            templateValidValuesNanos =
+                    System.nanoTime() - stepStart;
+
+            if (allowedCodes != null) {
+                allowedCodesCount = allowedCodes.size();
+            }
+
+            stepStart = System.nanoTime();
+
+            java.util.List<org.json.JSONObject> lookupRows =
+                    dastub.getLookupValueCodeNameExternalCodeRows(
+                            lookup,
+                            10,
+                            "ATG",
+                            true
+                    );
+
+            lookupRowsNanos =
+                    System.nanoTime() - stepStart;
+
+            lookupRowsCount =
+                    lookupRows == null ? 0 : lookupRows.size();
+
+            stepStart = System.nanoTime();
+
+            if (lookupRows != null) {
+                for (org.json.JSONObject lookupRow : lookupRows) {
+                    String code =
+                            lookupRow.optString("code", "");
+
+                    if (allowedCodes != null
+                            && !allowedCodes.contains(code)) {
+                        continue;
+                    }
+
+                    String name =
+                            lookupRow.optString("name", "");
+
+                    if (name != null && !"".equals(name)) {
+                        validValues.put(name, code);
+                    }
+                }
+            }
+
+            buildMapNanos =
+                    System.nanoTime() - stepStart;
+
+            java.util.Map<String, String> immutableValues = immutableMapCopy(validValues);
+            specificLookupValues.put(cacheKey, immutableValues);
+            resultCount = immutableValues.size();
+
+            return immutableValues;
+        } finally {
+            long totalNanos =
+                    System.nanoTime() - totalStart;
+
+            perfCharacteristicDataNanos += characteristicDataNanos;
+            perfTemplateValidValuesNanos += templateValidValuesNanos;
+            perfLookupRowsNanos += lookupRowsNanos;
+            perfBuildLookupMapNanos += buildMapNanos;
+            perfLookupRowsRead += lookupRowsCount;
+
+            log(
+                    "PERF procedeACargarValoresValidos"
+                    + " template=" + templateId
+                    + " characteristic=" + characteristic
+                    + " lookup=" + lookup
+                    + " cache=MISS"
+                    + " characteristicDataMs="
+                    + formatNanosAsMillis(characteristicDataNanos)
+                    + " templateValidValuesMs="
+                    + formatNanosAsMillis(templateValidValuesNanos)
+                    + " lookupRowsMs="
+                    + formatNanosAsMillis(lookupRowsNanos)
+                    + " buildMapMs="
+                    + formatNanosAsMillis(buildMapNanos)
+                    + " totalMs="
+                    + formatNanosAsMillis(totalNanos)
+                    + " allowedCodes=" + allowedCodesCount
+                    + " lookupRows=" + lookupRowsCount
+                    + " resultValues=" + resultCount
+            );
+        }
+    }
+    
+    /*
 	private java.util.Map<String, String> procedeACargarValoresValidos(String templateId, String characteristic) {
-		java.util.Map<String, String> validValues = specificLookupValues.get(templateId + "<::>" + characteristic);
-		if (validValues != null) {
-			return validValues;
-		}
-		Yep yep = new Yep();
-		final String delim = "\"";
-		final String sep = ";";
-		final String esc = "\\";
-		if(templateCharacteristicFilters.isEmpty()) {
-			try(java.io.BufferedReader br = new java.io.BufferedReader(
-					new java.io.InputStreamReader(
-							new java.io.FileInputStream(java.nio.file.Paths.get(baseCacheDirectory, "template_characteristic_lookup_filter").toString())))){
-				String line = br.readLine();
-				String[] pieces = null;
-				String[] miniSplit = null;
-				while((line = br.readLine()) != null) {
-					pieces = yep.parseLine(line, delim, sep, esc);
-					miniSplit = pieces[1].split("_");
-					if(miniSplit.length < 2) {
-						log("PICES: " + line);
-					}else {
-						templateCharacteristicFilters.put(miniSplit[0] + "<::>" + miniSplit[1], pieces[2] + "<::>" + pieces[3]);
-					}
-				}
-			}catch(java.io.IOException e) {
-				logE(e);
+//		java.util.Map<String, String> validValues = specificLookupValues.get(templateId + "<::>" + characteristic);
+//		if (validValues != null) {
+//			return validValues;
+//		}
+		java.util.Map<String, String> validValues = new java.util.HashMap<>();
+		org.json.JSONObject characteristicData = dastub.getCharacteristicData(characteristic);
+		String lookup = trimToNull(characteristicData.optString("lookup",""));
+		String vvs = getValidValues(dastub, templateId, characteristic);
+		java.util.Set<String> allowedCodes = parseValidValues(vvs);
+		java.util.List<org.json.JSONObject> lookupRows = dastub.getLookupValueCodeNameExternalCodeRows(lookup, 10, "ATG", true);
+		for (org.json.JSONObject lookupRow : lookupRows) {
+			String code = lookupRow.optString("code", "");
+			if (allowedCodes != null && !allowedCodes.contains(code)) {
+				continue;
+			}
+			String name = lookupRow.optString("name", "");
+			if(name != null && !"".equals(name)) {
+				validValues.put(name, code);
 			}
 		}
-		String cachedFilter = templateCharacteristicFilters.get(templateId + "<::>" + characteristic);
-		String[] pedazos = null;
-		String[] ei = null;
-		validValues = new java.util.TreeMap<>();
-		java.util.Set<String> codes = new java.util.TreeSet<>();
-		if(cachedFilter != null) {
-			StringBuilder sb = new StringBuilder();
-			ei = cachedFilter.split("<::>");
-			pedazos = ei[1].split(",");
-			for(int i=0; i<pedazos.length; i++) {
-				sb.append(i == 0 ? "" : ",");
-				sb.append("\"");
-				sb.append(pedazos[i].replaceAll("\"", "\\\\\""));
-				sb.append("\"");
-				codes.add(pedazos[i]);
-			}
-			String line = null;
-			try (java.io.BufferedReader br = new java.io.BufferedReader(
-					new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths
-							.get(baseCacheDirectory, "global_lookups", ei[0].replaceAll("/", "<::>")).toString())))) {
-				String[] pieces = null;
-				while ((line = br.readLine()) != null) {
-					pieces = yep.parseLine(line, delim, sep, esc);
-					if(codes.contains(pieces[0])) {
-						validValues.put(pieces[1], pieces[0]);
-					}
-				}
-//				log("Encountered: " +
-//						 validValues);
-				globalLookupValues.put(ei[0], validValues);
-			} catch (IOException | ArrayIndexOutOfBoundsException | IllegalStateException e) {
-				
-			}
-			/*
-			try {
-				String url = null;
-				String rawResponse = null;
-				org.json.JSONObject response = null;
-				org.json.JSONArray rows = null;
-				org.json.JSONArray values = null;
-				int currentIndex = 0;
-				int totalSize = 0;
-				do {
-					url = baseUrl + "/list/LookupValue/bySearch"
-							+ "?lookup=" + java.net.URLEncoder.encode("'" + ei[0] + "'", "UTF-8")
-							+ "&query=" + java.net.URLEncoder.encode("LookupValue.IsActive = true and LookupValue.Code in (" + sb.toString() + ")", "UTF-8")
-							+ "&fields=LookupValue.Code,LookupValueLang.Name(es)"
-							+ "&metaData=true"
-							+ "&pageSize=900"
-							+ "&startIndex=" + currentIndex;
-					log("Querying: " + url);
-					rawResponse = rc.getRequest("GET", url, null);
-					log("--->" + rawResponse);
-					response = new org.json.JSONObject(rawResponse);
-					totalSize = response.getInt("totalSize");
-					log("TZ: " + totalSize);
-					rows = response.getJSONArray("rows");
-					for(int i=0; i<rows.length(); i++) {
-						currentIndex++;
-						values = rows.getJSONObject(i).getJSONArray("values");
-						label = values.getString(1);
-						code = validValues.get(label);
-						if(code != null) {
-							if(code.length() < values.getString(0).length()) {
-								validValues.put(label, code);
-							}
-						} else {
-							validValues.put(values.getString(1), values.getString(0));
-						}
-					}
-				}while(currentIndex < totalSize);
-				currentIndex = 0;
-			}catch(java.io.IOException | KeyManagementException | NoSuchAlgorithmException | URISyntaxException e) {
-				logE(e);
-			}
-				*/
-		}else {
-//			log("No filter found for: " + templateId + "<::>" + characteristic);
-		}
+//		Yep yep = new Yep();
+//		final String delim = "\"";
+//		final String sep = ";";
+//		final String esc = "\\";
+//		if(templateCharacteristicFilters.isEmpty()) {
+//			try(java.io.BufferedReader br = new java.io.BufferedReader(
+//					new java.io.InputStreamReader(
+//							new java.io.FileInputStream(java.nio.file.Paths.get(baseCacheDirectory, "template_characteristic_lookup_filter").toString())))){
+//				String line = br.readLine();
+//				String[] pieces = null;
+//				String[] miniSplit = null;
+//				while((line = br.readLine()) != null) {
+//					pieces = yep.parseLine(line, delim, sep, esc);
+//					miniSplit = pieces[1].split("_");
+//					if(miniSplit.length < 2) {
+//						log("PICES: " + line);
+//					}else {
+//						templateCharacteristicFilters.put(miniSplit[0] + "<::>" + miniSplit[1], pieces[2] + "<::>" + pieces[3]);
+//					}
+//				}
+//			}catch(java.io.IOException e) {
+//				logE(e);
+//			}
+//		}
+//		String cachedFilter = templateCharacteristicFilters.get(templateId + "<::>" + characteristic);
+//		String[] pedazos = null;
+//		String[] ei = null;
+//		validValues = new java.util.TreeMap<>();
+//		java.util.Set<String> codes = new java.util.TreeSet<>();
+//		if(cachedFilter != null) {
+//			StringBuilder sb = new StringBuilder();
+//			ei = cachedFilter.split("<::>");
+//			pedazos = ei[1].split(",");
+//			for(int i=0; i<pedazos.length; i++) {
+//				sb.append(i == 0 ? "" : ",");
+//				sb.append("\"");
+//				sb.append(pedazos[i].replaceAll("\"", "\\\\\""));
+//				sb.append("\"");
+//				codes.add(pedazos[i]);
+//			}
+//			String line = null;
+//			try (java.io.BufferedReader br = new java.io.BufferedReader(
+//					new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths
+//							.get(baseCacheDirectory, "global_lookups", ei[0].replaceAll("/", "<::>")).toString())))) {
+//				String[] pieces = null;
+//				while ((line = br.readLine()) != null) {
+//					pieces = yep.parseLine(line, delim, sep, esc);
+//					if(codes.contains(pieces[0])) {
+//						validValues.put(pieces[1], pieces[0]);
+//					}
+//				}
+//				globalLookupValues.put(ei[0], validValues);
+//			} catch (IOException | ArrayIndexOutOfBoundsException | IllegalStateException e) {
+//				
+//			}
+//		}else {
+//		}
 		return validValues;
-		/*
-		String line = null;
-		try (java.io.BufferedReader br = new java.io.BufferedReader(
-				new java.io.InputStreamReader(new java.io.FileInputStream(
-						java.nio.file.Paths.get(baseCacheDirectory, "global", templateId + "_" + characteristic).toString())))) {
-			String[] pieces = null;
-			while ((line = br.readLine()) != null) {
-				pieces = yep.parseLine(line, delim, sep, esc);
-				validValues.put(pieces[1], pieces[0]);
-			}
-			specificLookupValues.put(templateId + "<::>" + characteristic, validValues);
-		} catch (java.io.IOException | ArrayIndexOutOfBoundsException | IllegalStateException e) {
-
-			log("Going to correct a value staged for template " + templateId + ", characteristic " + characteristic);
-
-			String url = null;
-			String rawResponse = null;
-			org.json.JSONObject response = null;
-			org.json.JSONArray rows = null;
-			org.json.JSONArray values = null;
-			int currentIndex = 0;
-			int totalSize = 0;
-			String[] pieces = new String[2];
-			RESTWorkshop w = new RESTWorkshop();
-			validValues = new java.util.TreeMap<>();
-			String lookup = null;
-			String elements = null;
-			try {
-				url = baseUrl + "/list/StandardizationValue/bySearch"
-						+ "?dictionaryProxy=" + java.net.URLEncoder.encode("'ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla'", "UTF-8")
-						+ "&query=" + java.net.URLEncoder.encode(
-								  "StandardizationValue.Dictionary->StandardizationDictionary.Identifier equals \"ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla\" and "
-								+ "StandardizationValue.StructureGroup->LookupValue.Code equals \"" + templateId + "\" and "
-								+ "StandardizationValue.Characteristic->Characteristic.Identifier equals \"" + characteristic + "\" and "
-								+ "StandardizationValue.CreationType equals CreateProposal and "
-								+ "StandardizationValue.Property equals ListOfValuesFilter"
-							, "UTF-8")
-						+ "&fields=" + java.net.URLEncoder.encode(
-								  "StandardizationValue.Characteristic->Characteristic.Lookup->Lookup.Identifier,"
-								+ "StandardizationValue.PropertyValue", "UTF-8")
-						+ "&metaData=true"
-						+ "&pageSize=6"
-						+ "&startIndex=" + currentIndex;
-				rawResponse = rc.getRequest("GET", url, null);
-			}catch(java.io.IOException | KeyManagementException | NoSuchAlgorithmException | URISyntaxException ex) {
-				logE(ex);
-			}
-			try {
-				response = new org.json.JSONObject(rawResponse);
-				rows = response.getJSONArray("rows");
-
-					if(rows.length() > 0) {
-						values = rows.getJSONObject(0).getJSONArray("values");
-						lookup = values.getString(0);
-						elements = values.getString(1);
-						String[] pcs = elements.split(",");
-						StringBuilder sb = new StringBuilder();
-						for(int i=0; i<pcs.length; i++) {
-							sb.append(i == 0 ? "" : ",").append("\"").append(pcs[i].trim()).append("\"");
-						}
-						log("Found list: " + sb.toString() + ".");
-						try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.nio.file.Paths.get(baseCacheDirectory, "global", templateId + "_" + characteristic).toString())))){
-							do {
-							url = baseUrl + "/list/LookupValue/bySearch"
-									+ "?lookup=" + java.net.URLEncoder.encode(lookup, "UTF-8")
-									+ "&query=" + java.net.URLEncoder.encode("LookupValue.IsActive = true and LookupValue.Code in (" + sb.toString() + ")", "UTF-8")
-									+ "&fields=LookupValue.Code,LookupValueLang.Name(es)"
-									+ "&metaData=true"
-									+ "&pageSize=900"
-									+ "&startIndex=" + currentIndex;
-							rawResponse = rc.getRequest("GET", url, null);
-							response = new org.json.JSONObject(rawResponse);
-							rows = response.getJSONArray("rows");
-							for(int i=0; i<rows.length(); i++) {
-								currentIndex++;
-								values = rows.getJSONObject(i).getJSONArray("values");
-								for(int j=0; j<pieces.length; j++) {
-									pieces[j] = values.getString(j);
-								}
-								validValues.put(pieces[1], pieces[0]);
-								pw.println( w.serializeChunk(pieces, delim, sep, esc));
-								if(currentIndex % 100 == 0) {
-									log(".");
-									if(currentIndex % 1000 == 0) {
-										log("\n" + currentIndex);
-									}
-								}
-							}
-						}while(currentIndex < totalSize);
-						currentIndex = 0;
-
-						}catch(org.json.JSONException ex) {
-							log(rawResponse);
-							logE(ex);
-						}catch (UnsupportedEncodingException e1) {
-							logE(e1);
-						} catch (KeyManagementException e1) {
-							logE(e1);
-						} catch (NoSuchAlgorithmException e1) {
-							logE(e1);
-						} catch (URISyntaxException e1) {
-							logE(e1);
-						} catch (IOException e1) {
-							logE(e1);
-						}
-					}
-					log("Loaded: " + validValues.size() + " for " + lookup + " and template " + templateId + ", characteristic " + characteristic);
-					specificLookupValues.put(templateId + "<::>" + characteristic, validValues);
-			}catch(org.json.JSONException ex) {
-				log("Perhaps filter not found... leave it. (" + rawResponse + ")");
-
-			}
-//			log("Malformed value: " + line + ". characteristic: " + characteristic + ", file: " + baseCacheDirectory
-//					+ java.io.File.separator + "global" + java.io.File.separator + characteristic);
-//			throw new IllegalStateException("Malformed value: " + ". characteristic: " + characteristic + ", file: "
-//					+ baseCacheDirectory + java.io.File.separator + "global" + java.io.File.separator + characteristic);
-		}
-		return validValues;
-		*/
 	}
+	*/
 
 	private String[] createArticle(org.json.JSONObject product, java.util.Map<String, String> headers,
 			String externalProductId, boolean isProduct, String objectId, String templateId, boolean sample) throws ServiceUnavailableException {
@@ -6595,6 +6929,100 @@ public class CreateProposal {
 	}
 
 	
+	
+	private static final java.util.logging.Logger LOGGER =
+	        java.util.logging.Logger.getLogger(CreateProposal.class.getName());
+
+	private static final java.time.format.DateTimeFormatter LOG_TIMESTAMP =
+	        java.time.format.DateTimeFormatter
+	                .ofPattern("yyyy-MM-dd HH:mm:ss.SSS")
+	                .withZone(java.time.ZoneId.systemDefault());
+
+	private static final class FlushingFileHandler extends java.util.logging.FileHandler {
+
+	    private FlushingFileHandler(String pattern, boolean append) throws java.io.IOException {
+	        super(pattern, append);
+	    }
+
+	    @Override
+	    public synchronized void publish(java.util.logging.LogRecord record) {
+	        if (!isLoggable(record)) {
+	            return;
+	        }
+
+	        super.publish(record);
+
+	        flush();
+	    }
+	}
+
+	static {
+	    try {
+	        LOGGER.setUseParentHandlers(false);
+	        LOGGER.setLevel(java.util.logging.Level.ALL);
+
+	        for (java.util.logging.Handler handler : LOGGER.getHandlers()) {
+	            LOGGER.removeHandler(handler);
+	            handler.close();
+	        }
+
+	        FlushingFileHandler fileHandler = new FlushingFileHandler(
+	                "../logs/java_active_process_proposal_create.log",
+	                true
+	        );
+
+	        fileHandler.setEncoding(java.nio.charset.StandardCharsets.UTF_8.name());
+	        fileHandler.setLevel(java.util.logging.Level.ALL);
+
+	        fileHandler.setFormatter(new java.util.logging.Formatter() {
+	            @Override
+	            public String format(java.util.logging.LogRecord record) {
+	                
+	            	if (record.getThrown() != null) {
+	                    java.io.StringWriter sw = new java.io.StringWriter();
+	                    try (java.io.PrintWriter pw = new java.io.PrintWriter(sw)) {
+	                        record.getThrown().printStackTrace(pw);
+	                    }
+	                    return sw.toString();
+	                }
+
+	                String timestamp = LOG_TIMESTAMP.format(
+	                        java.time.Instant.ofEpochMilli(record.getMillis())
+	                );
+
+	                return "["
+	                        + timestamp
+	                        + "] "
+	                        + record.getMessage()
+	                        + System.lineSeparator();
+	            }
+	        });
+
+	        LOGGER.addHandler(fileHandler);
+	    } catch (java.io.IOException | SecurityException e) {
+	        throw new ExceptionInInitializerError(e);
+	    }
+	}
+
+	private void log(String message) {
+	    LOGGER.log(
+	            java.util.logging.Level.INFO,
+	            "(" + myId + ") " + String.valueOf(message)
+	    );
+	}
+
+	private void logE(Exception ex) {
+	    java.util.logging.LogRecord record =
+	            new java.util.logging.LogRecord(java.util.logging.Level.SEVERE, "");
+
+	    record.setLoggerName(LOGGER.getName());
+	    record.setThrown(ex);
+
+	    LOGGER.log(record);
+	}
+	
+	
+	/*
 //	private static final Logger LOGGER = Logger.getLogger(CreateProposal.class.getName());
 //	private static java.io.PrintWriter pw;
 	
@@ -6602,7 +7030,7 @@ public class CreateProposal {
 //        try {
 //            LOGGER.setUseParentHandlers(false);
 
-//            FileHandler fileHandler = new FileHandler("../logs/java_active_process_proposal_create.log" /*, 15 * 1024 * 1024, 10 */, true);
+//            FileHandler fileHandler = new FileHandler("../logs/java_active_process_proposal_create.log" , true);
 //            fileHandler.setEncoding(StandardCharsets.UTF_8.name());
 //            fileHandler.setLevel(Level.ALL);
 //
@@ -6653,5 +7081,7 @@ public class CreateProposal {
 		} catch (java.io.IOException e) {
 		}
 	}
+	
+	*/
 
 }

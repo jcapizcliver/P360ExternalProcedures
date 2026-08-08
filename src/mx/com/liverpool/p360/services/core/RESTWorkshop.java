@@ -13,7 +13,7 @@ public class RESTWorkshop {
 	private final RestClient rc;
 	private final Yep yep = new Yep();
 
-	private String baseUrl = "https://webctep360dev.liverpool.com.mx/rest/V2.0";
+	private String baseUrl = "";
 
 	private String delimiter = "\"";
 	private String separator = ",";

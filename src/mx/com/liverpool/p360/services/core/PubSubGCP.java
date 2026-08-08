@@ -172,7 +172,7 @@ public class PubSubGCP {
 
                 ApiFuture<String> a = publisher.publish(pubsubMessage);
                 log(myTag = a.get());
-                log("Published message: " + message.substring(0,100) + "... Topic: " + TOPIC_ID + ", project: " + PROJECT_ID);
+                log("Published message: " + message.substring(0, Integer.min(message.length(), 100)) + "... Topic: " + TOPIC_ID + ", project: " + PROJECT_ID);
                 return myTag;
 
             } catch (InterruptedException e) {

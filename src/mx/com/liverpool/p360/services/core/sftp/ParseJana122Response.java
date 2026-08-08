@@ -2428,7 +2428,7 @@ public class ParseJana122Response implements SimpleLog {
 		}
 		qp.put("includeObjectsInProtocol", "false");
 		log("Las imágenes...");
-		if("MKP".equals(business) || ( "Corregido".equals(fotosTomaLiverpool) || (("N".equals(fotosTomaLiverpool) || "".equals(fotosTomaLiverpool)) && lacuenta > 0 ) )) {
+		if("MKP".equals(business) || lacuenta > 0 || ( "Corregido".equals(fotosTomaLiverpool) || (("N".equals(fotosTomaLiverpool) || "".equals(fotosTomaLiverpool)) && lacuenta > 0 ) )) {
 			log("1 " + productId);
 			reqCurrentStatus.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1")).put("values", new org.json.JSONArray().put(1022)));
 			reqPrevStatus.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1")).put("values", new org.json.JSONArray().put(1020)));

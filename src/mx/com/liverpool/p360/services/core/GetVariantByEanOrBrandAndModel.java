@@ -18,10 +18,6 @@ public class GetVariantByEanOrBrandAndModel {
 
 	public static void main(String[] args) {
 
-		GetVariantByEanOrBrandAndModel gv = new GetVariantByEanOrBrandAndModel("http://172.18.237.162:1512/rest/V2.0");
-		gv.loadInput(args[0]);
-		gv.processFile("cmVzdDpoZWlsZXI=");
-
 	}
 
 	public void loadInput(String inputFileData) {

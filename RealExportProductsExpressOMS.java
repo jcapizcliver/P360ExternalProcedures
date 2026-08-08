@@ -24,9 +24,7 @@ import javax.xml.transform.stream.StreamResult;
 
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
-import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
-import org.w3c.dom.NodeList;
 
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
@@ -1864,7 +1862,6 @@ public class RealExportProductsExpressOMS {
 			}
 
 			TransformerFactory transformerFactory = TransformerFactory.newInstance();
-			removeInvalidXml10ControlCharacters(doc);
 			Transformer transformer = transformerFactory.newTransformer();
 			transformer.setOutputProperty("{http://xml.apache.org/xslt}indent-amount", "4");
 			transformer.setOutputProperty(OutputKeys.INDENT, "yes");
@@ -1960,66 +1957,6 @@ public class RealExportProductsExpressOMS {
 			logE(e);
 		}
         return null;
-	}
-	
-	private static void removeInvalidXml10ControlCharacters(Node node) {
-	    if (node == null) {
-	        return;
-	    }
-
-	    NamedNodeMap attributes = node.getAttributes();
-
-	    if (attributes != null) {
-	        for (int i = 0; i < attributes.getLength(); i++) {
-	            Node attribute = attributes.item(i);
-	            attribute.setNodeValue(
-	                    removeInvalidXml10ControlCharacters(attribute.getNodeValue())
-	            );
-	        }
-	    }
-
-	    switch (node.getNodeType()) {
-	        case Node.TEXT_NODE:
-	        case Node.CDATA_SECTION_NODE:
-	        case Node.COMMENT_NODE:
-	        case Node.PROCESSING_INSTRUCTION_NODE:
-	            node.setNodeValue(
-	                    removeInvalidXml10ControlCharacters(node.getNodeValue())
-	            );
-	            break;
-
-	        default:
-	            break;
-	    }
-
-	    NodeList children = node.getChildNodes();
-
-	    for (int i = 0; i < children.getLength(); i++) {
-	        removeInvalidXml10ControlCharacters(children.item(i));
-	    }
-	}
-
-	private static String removeInvalidXml10ControlCharacters(String value) {
-	    if (value == null || value.isEmpty()) {
-	        return value;
-	    }
-
-	    StringBuilder result = new StringBuilder(value.length());
-
-	    for (int offset = 0; offset < value.length();) {
-	        int codePoint = value.codePointAt(offset);
-
-	        if (codePoint >= 0x20
-	                || codePoint == '\t'
-	                || codePoint == '\n'
-	                || codePoint == '\r') {
-	            result.appendCodePoint(codePoint);
-	        }
-
-	        offset += Character.charCount(codePoint);
-	    }
-
-	    return result.toString();
 	}
 	
 	public static String stackTraceToString(Throwable t) {
@@ -2608,9 +2545,7 @@ public class RealExportProductsExpressOMS {
 
 	private void logE(Exception ex){
 		try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream( java.nio.file.Paths.get("..","logs","real_export_products_oms.log").toString(), true)))){
-			pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())) + "] BEGIN EXCEPT ");
-			ex.printStackTrace(pw);
-			pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())) + "] END EXCEPT. ");
+		  ex.printStackTrace(pw);
 		}catch(java.io.IOException e){}
 	}
 

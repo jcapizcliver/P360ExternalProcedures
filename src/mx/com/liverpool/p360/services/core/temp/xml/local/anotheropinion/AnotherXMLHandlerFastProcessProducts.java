@@ -436,7 +436,7 @@ public class AnotherXMLHandlerFastProcessProducts {
     	long init = System.currentTimeMillis();
     	AnotherXMLHandlerFastProcessProducts an = new AnotherXMLHandlerFastProcessProducts();
     	an.qp.put("includeObjectsInProtocol", "false");
-    	an.rw.getRw().setBaseUrl("https://172.18.251.3:1512/rest/V2.0");
+//    	an.rw.getRw().setBaseUrl("https://172.18.251.3:1512/rest/V2.0");
     	if(args.length < 1) {
     		System.out.println("Need to pass as first argument a directory that contains xml files to send.");
     	}else {

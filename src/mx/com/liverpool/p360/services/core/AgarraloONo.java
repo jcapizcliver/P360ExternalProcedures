@@ -100,7 +100,7 @@ public class AgarraloONo {
 				if (collectVariants(externalId, itemGroup, brand, business, stylistWorld, tipoDeToma, template, baseUrl, losesos)) {
 					addCharacteristicRecord("AssignTakeNoTakeReason", takeNoTakeReason = "", false, productCrs);  
 					take = "TOMAR"; 
-					log("°°°°°°°°°°°" + externalId + "°°°°°°°°°°°°");  
+					log("°°°°°TOMAR°°°°°°" + externalId + "°°°°°°°TOMAR°°°°°");  
 				} else {
 					addCharacteristicRecord("AssignTakeNoTakeReason", takeNoTakeReason = "Talla no configurada", false, productCrs);
 				}
@@ -346,97 +346,130 @@ public class AgarraloONo {
 					java.util.Collections.sort(entries, (o1, o2) -> o1.getValue() == null ? 1
 							: o2.getValue() == null ? -1 : o1.getValue().compareTo(o2.getValue()));
 					java.util.Map.Entry<String, Integer> winner = entries.removeFirst();
-					new java.util.LinkedList<>();
-					if (winner.getValue() == null) {
-						entries.addFirst(winner);
-						for (String varianteDelMismoColor : variantesDelMismoColor) {
-							if(!losTomar.contains(varianteDelMismoColor)){
-								atLeast = true;
-							}
-							if(toWrite.contains(varianteDelMismoColor)) {
-								crs = mapaCar.get(varianteDelMismoColor);
-								addCharacteristicRecord("AssignTakeNoTake", losTomar.contains(varianteDelMismoColor) ? "TOMADO" : "NO TOMAR", false, crs);  
-								addCharacteristicRecord("AdmissionDate", admissionDate, false, crs); 
-								addCharacteristicRecord("StylistWorld", stylistWorld, false, crs); 
-								addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs); 
-								addCharacteristicRecord("AssignTakeNoTakeReason",
-											losSinConfiguracion.contains(varianteDelMismoColor) ? "Talla no configurada"
-													: losNoMeLosPidieron.contains(varianteDelMismoColor) ? "Otra talla del mismo color es tomar"
-															: losTeLoGanaron.contains(varianteDelMismoColor) ? "Otra talla del mismo color es tomar"
-																	: losTomar.contains(varianteDelMismoColor) ? "Recibido previamente o en proceso"
-																			: losConImagen.contains(varianteDelMismoColor) ? "Tiene imagen principal" 
-																					: "Otra talla del mismo color es tomar"
-										, false, crs);  
-								response = rw.getRw().makeRequest("PUT", "/object/Article/'" + varianteDelMismoColor + "'@'MASTER'",   
-										qp, new org.json.JSONObject().put("_characteristicRecords", crs) 
-												.toString());
-								log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
-										: "Variant affected (" + colorEntry.getKey() + "): " + response + "<::>"   
-												+ crs);
-							}else {
-								crs = mapaCar.get(varianteDelMismoColor);
-								addCharacteristicRecord("AssignTakeNoTake", losTomar.contains(varianteDelMismoColor) ? "TOMADO" : "NO TOMAR", false, crs);  
-								addCharacteristicRecord("AdmissionDate", admissionDate, false, crs); 
-								addCharacteristicRecord("StylistWorld", stylistWorld, false, crs); 
-								addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs); 
-								addCharacteristicRecord("AssignTakeNoTakeReason",
-											losSinConfiguracion.contains(varianteDelMismoColor) ? "Talla no configurada"
-													: losTomar.contains(varianteDelMismoColor) ? "Recibido previamente o en proceso"
-														: losConImagen.contains(varianteDelMismoColor) ? "Tiene imagen principal" 
-															: losNoMeLosPidieron.contains(varianteDelMismoColor) ? "Otra talla del mismo color es tomar"
-																	: losTeLoGanaron.contains(varianteDelMismoColor) ? "Otra talla del mismo color es tomar"
+					log("Gonna do... " + externalId + " ### " + entries);
+					try( DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+						
+						@Override
+						public void logE(Exception e) {
+							AgarraloONo.this.logE(e);
+						}
+						
+						@Override
+						public void log(String message) {
+							AgarraloONo.this.log(message);
+						}
+					} ) ){
+						if (winner.getValue() == null) {
+							entries.addFirst(winner);
+							for (String varianteDelMismoColor : variantesDelMismoColor) {
+								if(!losTomar.contains(varianteDelMismoColor)){
+	//								atLeast = true;
+									log("Oroch: this would be TOMAR, but... ok " + winner.getKey());
+								}
+								Integer cs = dastub.getProductCurrentStatusByArticleIdentifier(varianteDelMismoColor);
+								log("Status is: " + cs);
+								if(toWrite.contains(varianteDelMismoColor)) {
+									crs = mapaCar.get(varianteDelMismoColor);
+									addCharacteristicRecord("AssignTakeNoTake", losTomar.contains(varianteDelMismoColor) ? "TOMADO" : "NO TOMAR", false, crs);  
+									addCharacteristicRecord("AdmissionDate", admissionDate, false, crs); 
+									addCharacteristicRecord("StylistWorld", stylistWorld, false, crs); 
+									addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs); 
+									addCharacteristicRecord("AssignTakeNoTakeReason",
+											cs != null && cs.equals(1007) ? "Aprobado" :
+												losSinConfiguracion.contains(varianteDelMismoColor) ? "Talla no configurada"
+														: losNoMeLosPidieron.contains(varianteDelMismoColor) ? "Otra talla del mismo color es tomar"
+																: losTeLoGanaron.contains(varianteDelMismoColor) ? "Otra talla del mismo color es tomar"
+																		: losTomar.contains(varianteDelMismoColor) ? "Recibido previamente o en proceso"
+																				: losConImagen.contains(varianteDelMismoColor) ? "Tiene imagen principal" 
 																						: "Otra talla del mismo color es tomar"
-										, false, crs);  
-								response = rw.getRw().makeRequest("PUT", "/object/Article/'" + varianteDelMismoColor + "'@'MASTER'",   
-										qp, new org.json.JSONObject().put("_characteristicRecords", crs) 
-												.toString());
-								log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
-										: "Variant affected (" + colorEntry.getKey() + "): " + response + "<::>"   
-												+ crs);
-//								log("Ignorando variante porque ya había sido calculada.");
+											, false, crs);  
+									response = rw.getRw().makeRequest("PUT", "/object/Article/'" + varianteDelMismoColor + "'@'MASTER'",   
+											qp, new org.json.JSONObject().put("_characteristicRecords", crs) 
+													.toString());
+									log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
+											: "Variant affected (" + colorEntry.getKey() + "): " + response + "<::>"   
+													+ crs);
+								}else {
+									crs = mapaCar.get(varianteDelMismoColor);
+									addCharacteristicRecord("AssignTakeNoTake", losTomar.contains(varianteDelMismoColor) ? "TOMADO" : "NO TOMAR", false, crs);  
+									addCharacteristicRecord("AdmissionDate", admissionDate, false, crs); 
+									addCharacteristicRecord("StylistWorld", stylistWorld, false, crs); 
+									addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs); 
+									addCharacteristicRecord("AssignTakeNoTakeReason",
+											cs != null && cs.equals(1007) ? "Aprobado" :
+												losSinConfiguracion.contains(varianteDelMismoColor) ? "Talla no configurada"
+														: losTomar.contains(varianteDelMismoColor) ? "Recibido previamente o en proceso"
+															: losConImagen.contains(varianteDelMismoColor) ? "Tiene imagen principal" 
+																: losNoMeLosPidieron.contains(varianteDelMismoColor) ? "Otra talla del mismo color es tomar"
+																		: losTeLoGanaron.contains(varianteDelMismoColor) ? "Otra talla del mismo color es tomar"
+																							: "Otra talla del mismo color es tomar"
+											, false, crs);  
+									response = rw.getRw().makeRequest("PUT", "/object/Article/'" + varianteDelMismoColor + "'@'MASTER'",   
+											qp, new org.json.JSONObject().put("_characteristicRecords", crs) 
+													.toString());
+									log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
+											: "Variant affected (" + colorEntry.getKey() + "): " + response + "<::>"   
+													+ crs);
+								}
 							}
-//							}else {
-//								
-//							}
-						}
-					} else {
-						if(toWrite.contains(winner.getKey())) {
-							atLeast = true;
-							crs = mapaCar.get(winner.getKey());
-							addCharacteristicRecord("AssignTakeNoTake", "TOMAR", false, crs);  
-							addCharacteristicRecord("AdmissionDate", admissionDate, false, crs);
-							addCharacteristicRecord("StylistWorld", stylistWorld, false, crs); 
-							addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs); 
-							addCharacteristicRecord("AssignTakeNoTakeVideo", a, false, crs); 
-							addCharacteristicRecord("AssignTakeNoTakeReason", "", false, crs);  
-							addCharacteristicRecord("PrioridadDeTalla", winner.getValue(), false, crs); 
-							response = rw.getRw().makeRequest("PUT", "/object/Article/'" + winner.getKey() + "'@'MASTER'", qp,   
-									new org.json.JSONObject().put("_characteristicRecords", crs) 
-											.toString());
-							log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
-									: "Winner variant affected (" + colorEntry.getKey() + "): " + response + "<;;>" + crs);  
-						}else {
-							log("Ya había sido calculado el que salió winner: " + winner.getKey());
-						}
-						for (java.util.Map.Entry<String, Integer> varianteDelMismoColor : entries) {
-							if(toWrite.contains(varianteDelMismoColor.getKey())) {
-								log("setting NO TOMAR to " + varianteDelMismoColor); 
-								crs = mapaCar.get(varianteDelMismoColor.getKey());
-								addCharacteristicRecord("AssignTakeNoTake", "NO TOMAR", false, crs);  
-								addCharacteristicRecord("AssignTakeNoTakeReason", "Otra talla del mismo color es tomar", false, crs);  
-								addCharacteristicRecord("AdmissionDate", admissionDate, false, crs);
-								addCharacteristicRecord("StylistWorld", stylistWorld, false, crs);
-								addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs);
-								addCharacteristicRecord("AssignTakeNoTakeVideo", a, false, crs); 
-								addCharacteristicRecord("PrioridadDeTalla", varianteDelMismoColor.getValue(), false, crs); 
-								response = rw.getRw().makeRequest("PUT", 
-										"/object/Article/'" + varianteDelMismoColor.getKey() + "'@'MASTER'", qp,  
-										new org.json.JSONObject().put("_characteristicRecords", crs) 
-												.toString());
-								log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
-										: "e.e Variant affected (" + colorEntry.getKey() + "): " + response + "<ÑÑ>" + crs);
+						} else {
+							if(toWrite.contains(winner.getKey())) {
+								Integer cs = dastub.getProductCurrentStatusByArticleIdentifier(winner.getKey());
+								log("Status is: " + cs);
+								log("Befor the winter... " + cs + " w " + winner.getKey());
+								if(cs != null && cs.equals(1007) ) {
+									addCharacteristicRecord("AssignTakeNoTake", "NO TOMAR", false, crs);  
+									addCharacteristicRecord("AdmissionDate", admissionDate, false, crs); 
+									addCharacteristicRecord("StylistWorld", stylistWorld, false, crs); 
+									addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs); 
+									addCharacteristicRecord("AssignTakeNoTakeReason", "Aprobado"
+											, false, crs);  
+									response = rw.getRw().makeRequest("PUT", "/object/Article/'" + winner.getKey() + "'@'MASTER'",   
+											qp, new org.json.JSONObject().put("_characteristicRecords", crs) 
+													.toString());
+									log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
+											: "Variant affected (" + colorEntry.getKey() + "): " + response + "<::>"   
+													+ crs);
+								}else {
+									atLeast = true;
+									log("Oroch: this is being said TOMAR " + winner.getKey());
+									crs = mapaCar.get(winner.getKey());
+									addCharacteristicRecord("AssignTakeNoTake", "TOMAR", false, crs);  
+									addCharacteristicRecord("AdmissionDate", admissionDate, false, crs);
+									addCharacteristicRecord("StylistWorld", stylistWorld, false, crs); 
+									addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs); 
+									addCharacteristicRecord("AssignTakeNoTakeVideo", a, false, crs); 
+									addCharacteristicRecord("AssignTakeNoTakeReason", "", false, crs);  
+									addCharacteristicRecord("PrioridadDeTalla", winner.getValue(), false, crs); 
+									response = rw.getRw().makeRequest("PUT", "/object/Article/'" + winner.getKey() + "'@'MASTER'", qp,   
+											new org.json.JSONObject().put("_characteristicRecords", crs) 
+													.toString());
+									log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
+											: "Winner variant affected (" + colorEntry.getKey() + "): " + response + "<;;>" + crs);  
+								}
 							}else {
-								log("Ya se había calculado para: " + varianteDelMismoColor);
+								log("Ya había sido calculado el que salió winner: " + winner.getKey());
+							}
+							for (java.util.Map.Entry<String, Integer> varianteDelMismoColor : entries) {
+								if(toWrite.contains(varianteDelMismoColor.getKey())) {
+									log("setting NO TOMAR to " + varianteDelMismoColor); 
+									crs = mapaCar.get(varianteDelMismoColor.getKey());
+									addCharacteristicRecord("AssignTakeNoTake", "NO TOMAR", false, crs);  
+									addCharacteristicRecord("AssignTakeNoTakeReason", "Otra talla del mismo color es tomar", false, crs);  
+									addCharacteristicRecord("AdmissionDate", admissionDate, false, crs);
+									addCharacteristicRecord("StylistWorld", stylistWorld, false, crs);
+									addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs);
+									addCharacteristicRecord("AssignTakeNoTakeVideo", a, false, crs); 
+									addCharacteristicRecord("PrioridadDeTalla", varianteDelMismoColor.getValue(), false, crs); 
+									response = rw.getRw().makeRequest("PUT", 
+											"/object/Article/'" + varianteDelMismoColor.getKey() + "'@'MASTER'", qp,  
+											new org.json.JSONObject().put("_characteristicRecords", crs) 
+													.toString());
+									log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
+											: "e.e Variant affected (" + colorEntry.getKey() + "): " + response + "<ÑÑ>" + crs);
+								}else {
+									log("Ya se había calculado para: " + varianteDelMismoColor);
+								}
 							}
 						}
 					}

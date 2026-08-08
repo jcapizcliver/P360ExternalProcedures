@@ -2,9 +2,6 @@ package mx.com.liverpool.p360.services.core.temp.exports;
 
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
-import java.net.URISyntaxException;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
 
 import javax.naming.ServiceUnavailableException;
 import javax.xml.parsers.DocumentBuilder;
@@ -36,10 +33,11 @@ public class HierarchySitiosWeb4 {
 
     public static void main(String[] args) throws ServiceUnavailableException {
         HierarchySitiosWeb4 h = new HierarchySitiosWeb4();
-        h.createHierarchyFile( new String[] {"cat5800034"} );
+        h.createHierarchyFile( args );
+//        h.createHierarchyFile( new String[] {"catst81951117"} );
     }
 
-    private void createHierarchyFile(String[] ofInterest) throws ServiceUnavailableException {
+    public String createHierarchyFile(String[] ofInterest) throws ServiceUnavailableException {
         long init = System.currentTimeMillis();
         if(!java.nio.file.Files.exists(baseDirPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
             try {
@@ -151,8 +149,19 @@ public class HierarchySitiosWeb4 {
                     .replace("&lt;CRLF&gt;", "&#13;&#10;")
                     .replace("<CRLF>", "&#13;&#10;");
 
+            RestClient batchClient = new RestClient("Content-Type: application/xml", "Accept: application/xml");
+            String atgResponse;
+			try {
+				atgResponse = batchClient.getRequest("POST", PropertiesManager.get("p360.contingency.out.url_atg"), xmlOutput);
+				log("[" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())
+						+ "] (Ecomm) request sent: " + atgResponse);
+			} catch (mx.com.liverpool.p360.services.core.ServiceUnavailableException | IOException e) {
+				e.printStackTrace();
+			}
             try {
                 java.nio.file.Files.writeString(java.nio.file.Paths.get(outputXmlFile), xmlOutput, java.nio.charset.StandardCharsets.UTF_8);
+                log("Done. " + new RESTWorkshop().formatTime(System.currentTimeMillis() - init));
+                return outputXmlFile;
             } catch (IOException e) {
                 e.printStackTrace();
             }
@@ -162,6 +171,7 @@ public class HierarchySitiosWeb4 {
             e.printStackTrace();
         }
         log("Done. " + new RESTWorkshop().formatTime(System.currentTimeMillis() - init));
+        return null;
     }
 
     private void appendMisHijos(org.json.JSONObject entry, Element entryElement, java.util.Map<String, Element> tableroDeControl, java.util.Map<String, org.json.JSONObject> multisitios, Document doc) {
@@ -499,48 +509,32 @@ public class HierarchySitiosWeb4 {
 
     private java.util.Map<String, org.json.JSONArray> prestameLosGoupFeatures(){
         java.util.Map<String, org.json.JSONArray> losesos = new java.util.TreeMap<>();
-        org.json.JSONArray arr = new org.json.JSONArray();
-        java.util.Map<String, String> qp = new java.util.TreeMap<>();
-        qp.put("structure", "Sitios Web");
-        qp.put("fields", "StructureAttribute.Identifier,StructureGroupAttributeValue.Value(es,DEFAULT)");
-        qp.put("pageSize", "5000");
-        org.json.JSONObject response = null;
-        org.json.JSONArray rows = null;
-        org.json.JSONArray values = null;
-        org.json.JSONObject row = null;
-        String objectId = null;
-        int currentIndex = 0;
-        int totalSize = 0;
-        qp.put("items", "237955@42000");
-        response = rw.getRw().makeRequest("GET", "/list/StructureGroup/StructureGroupAttribute/byItems", qp, null);
-        do {
-            qp.put("startIndex", String.valueOf(currentIndex));
-            response = rw.getRw().makeRequest("GET", "/list/StructureGroup/StructureGroupAttribute/byStructure", qp, null);
-            if(response != null) {
-                totalSize = response.getInt("totalSize");
-                rows = response.getJSONArray("rows");
-                for(int i=0; i<rows.length(); i++) {
-                    row = rows.getJSONObject(i);
-                    values = row.getJSONArray("values");
-                    objectId = row.getJSONObject("object").getString("id");
-                    arr = losesos.get(objectId);
-                    if(arr == null) {
-                        arr = new org.json.JSONArray();
-                        losesos.put(objectId, arr);
-                    }
-                    if("categoryStartDate".equals(values.getString(0)) || "categoryEndDate".equals(values.getString(0))) {
-                        arr.put(new org.json.JSONObject().put("featureKey", values.getString(0)).put("featureValue", fixDateFormat( values.getString(1) ) + " 00:00:00") );
-                    } else {
-                        arr.put(new org.json.JSONObject().put("featureKey", values.getString(0)).put("featureValue", values.getString(1)) );
-                    }
-                }
-                currentIndex += response.getInt("pageSize");
-                log(currentIndex + "/" + totalSize + ", " + rows.length());
-                response.remove("rows");
-            } else {
-                log("ERROR: " + rw.getRw().getRawResponse());
-            }
-        } while(currentIndex < totalSize);
+        RESTWrapper rw = new RESTWrapper();
+        java.util.Map<String, String> qp0 = new java.util.HashMap<>();
+        qp0.put("structure", "Sitios Web");
+        qp0.put("fields", 
+        		   "StructureAttribute.Identifier"
+        		+ ",StructureGroupAttributeValue.Value"
+        		+ ",StructureGroupAttributeValue.Identifier"
+        		+ ",StructureGroupAttributeValue.LanguageID"
+        	);
+        qp0.put("pageSize", "5000");
+        rw.collectData("list", "StructureGroup", "StructureGroupAttribute", "byStructure", qp0, row_ -> {
+        	org.json.JSONArray values_ = row_.getJSONArray("values");
+        	if("DEFAULT".equals(values_.getString(2)) && "10".equals(values_.getString(3))) {
+	        	String objectId = row_.getJSONObject("object").getString("id");
+	        	org.json.JSONArray arr = losesos.get(objectId);
+	            if(arr == null) {
+	                arr = new org.json.JSONArray();
+	                losesos.put(objectId, arr);
+	            }
+	            if("categoryStartDate".equals(values_.getString(0)) || "categoryEndDate".equals(values_.getString(0))) {
+	                arr.put(new org.json.JSONObject().put("featureKey", values_.getString(0)).put("featureValue", fixDateFormat( values_.getString(1) ) + " 00:00:00") );
+	            } else {
+	                arr.put(new org.json.JSONObject().put("featureKey", values_.getString(0)).put("featureValue", values_.getString(1)) );
+	            }
+        	}
+        });
         return losesos;
     }
 
