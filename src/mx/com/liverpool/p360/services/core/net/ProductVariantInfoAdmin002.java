@@ -19,6 +19,7 @@ public class ProductVariantInfoAdmin002 extends Thread {
 
 	private static final RESTWrapper wrapper = new RESTWrapper();
 	private static final RESTWorkshop rw = wrapper.getRw();
+	private static final String DEFAULT_CREATION_TYPE = "CreateProposal";
 	
 	private static final java.nio.file.Path skuProductNoPath = java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.sku_to_productno_file"));
 	private static final java.nio.file.Path skuSupplierAIDPath = java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.sku_to_supplieraid_file"));
@@ -42,12 +43,10 @@ public class ProductVariantInfoAdmin002 extends Thread {
 	private static final java.util.concurrent.ConcurrentHashMap<String, java.util.Set< String >> productNoAndVariants = new java.util.concurrent.ConcurrentHashMap<>();
 	private static final java.util.concurrent.ConcurrentHashMap<String, String> eanSupplierAID = new java.util.concurrent.ConcurrentHashMap<>();
 	private static final java.util.concurrent.ConcurrentHashMap<String, String> eanProductNo = new java.util.concurrent.ConcurrentHashMap<>();
-	private static final java.util.concurrent.ConcurrentHashMap<String, String> brandModelSupplierAID = new java.util.concurrent.ConcurrentHashMap<>();
-	private static final java.util.concurrent.ConcurrentHashMap<String, String> brandModelProductNo = new java.util.concurrent.ConcurrentHashMap<>();
 	private static final java.util.concurrent.ConcurrentHashMap<String, String[]> productExtraData = new java.util.concurrent.ConcurrentHashMap<>();
 	private static final java.util.concurrent.ConcurrentHashMap<String, String[]> articleExtraData = new java.util.concurrent.ConcurrentHashMap<>();
 	private static final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> globalMetaData = new java.util.concurrent.ConcurrentHashMap<>();
-	private static final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>>> templateCharacteristicMetaData = new java.util.concurrent.ConcurrentHashMap<>();
+	private static final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>>>> templateCharacteristicMetaData = new java.util.concurrent.ConcurrentHashMap<>();
 	private static final java.util.concurrent.ConcurrentHashMap<String, String> templateNames = new java.util.concurrent.ConcurrentHashMap<>();
 	private static final java.util.concurrent.ConcurrentHashMap<String, String[]> characteristicData = new java.util.concurrent.ConcurrentHashMap<>();
 	private static final java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String[]>> contenidoDeDiccionario = new java.util.concurrent.ConcurrentHashMap<>();
@@ -60,6 +59,82 @@ public class ProductVariantInfoAdmin002 extends Thread {
 		ProductVariantInfoAdmin002 admin = new ProductVariantInfoAdmin002();
 		Runtime.getRuntime().addShutdownHook(admin);
 		admin.startListener();
+	}
+
+	private static String normalizeCreationType(String creationType) {
+		return creationType == null || "".equals(creationType) ? DEFAULT_CREATION_TYPE : creationType;
+	}
+
+	private static String getCreationTypeFromIdValor(String idValor, boolean templateMetadata) {
+		if(idValor == null) {
+			return DEFAULT_CREATION_TYPE;
+		}
+		String cleanedIdValor = cleanIdValor(idValor);
+		String[] parts = cleanedIdValor.split("<::>", -1);
+		int index = templateMetadata ? 2 : 1;
+		int minParts = templateMetadata ? 4 : 3;
+		if(parts.length >= minParts && !"".equals(parts[index])) {
+			return parts[index];
+		}
+		parts = cleanedIdValor.split("_", -1);
+		if(parts.length >= minParts && !"".equals(parts[index])) {
+			return parts[index];
+		}
+		return DEFAULT_CREATION_TYPE;
+	}
+
+	private static String cleanIdValor(String idValor) {
+		String cleanedIdValor = idValor;
+		int at = cleanedIdValor.indexOf("'@'");
+		if(at >= 0) {
+			cleanedIdValor = cleanedIdValor.substring(0, at);
+		}
+		if(cleanedIdValor.startsWith("'")) {
+			cleanedIdValor = cleanedIdValor.substring(1);
+		}
+		if(cleanedIdValor.endsWith("'")) {
+			cleanedIdValor = cleanedIdValor.substring(0, cleanedIdValor.length() - 1);
+		}
+		return cleanedIdValor;
+	}
+
+	private static java.util.concurrent.ConcurrentHashMap<String, String> getTemplateCharacteristicProperties(String template, String characteristic, String creationType) {
+		java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>>> templateMap = templateCharacteristicMetaData.get(template);
+		if(templateMap == null) {
+			return null;
+		}
+		java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> characteristicMap = templateMap.get(characteristic);
+		if(characteristicMap == null) {
+			return null;
+		}
+		java.util.concurrent.ConcurrentHashMap<String, String> properties = characteristicMap.get(normalizeCreationType(creationType));
+		if(properties == null && creationType == null) {
+			properties = characteristicMap.get(DEFAULT_CREATION_TYPE);
+			if(properties == null && characteristicMap.size() == 1) {
+				properties = characteristicMap.values().iterator().next();
+			}
+		}
+		return properties;
+	}
+
+	private static java.util.concurrent.ConcurrentHashMap<String, String> getOrCreateTemplateCharacteristicProperties(String template, String characteristic, String creationType) {
+		java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>>> templateMap = templateCharacteristicMetaData.get(template);
+		if(templateMap == null) {
+			templateMap = new java.util.concurrent.ConcurrentHashMap<>();
+			templateCharacteristicMetaData.put(template, templateMap);
+		}
+		java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> characteristicMap = templateMap.get(characteristic);
+		if(characteristicMap == null) {
+			characteristicMap = new java.util.concurrent.ConcurrentHashMap<>();
+			templateMap.put(characteristic, characteristicMap);
+		}
+		String resolvedCreationType = normalizeCreationType(creationType);
+		java.util.concurrent.ConcurrentHashMap<String, String> properties = characteristicMap.get(resolvedCreationType);
+		if(properties == null) {
+			properties = new java.util.concurrent.ConcurrentHashMap<>();
+			characteristicMap.put(resolvedCreationType, properties);
+		}
+		return properties;
 	}
 	
 	public ProductVariantInfoAdmin002() {
@@ -140,17 +215,11 @@ public class ProductVariantInfoAdmin002 extends Thread {
 		}
 		if(java.nio.file.Files.exists( templateCharacteristicMetaDataPath )) {
 			SimpleDelimitedFileParser fileParser = new SimpleDelimitedFileParser('"',',','\\',"\n", java.nio.charset.StandardCharsets.UTF_8, arr -> {
-				java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> characteristicMap = templateCharacteristicMetaData.get(arr[0]);
-				if(characteristicMap == null) {
-					characteristicMap = new java.util.concurrent.ConcurrentHashMap<>();
-					templateCharacteristicMetaData.put(arr[0], characteristicMap);
+				if(arr.length >= 5) {
+					getOrCreateTemplateCharacteristicProperties(arr[0], arr[1], arr[2]).put(arr[3], arr[4]);
+				}else if(arr.length >= 4) {
+					getOrCreateTemplateCharacteristicProperties(arr[0], arr[1], DEFAULT_CREATION_TYPE).put(arr[2], arr[3]);
 				}
-				java.util.concurrent.ConcurrentHashMap<String, String> properties = characteristicMap.get(arr[1]);
-				if(properties == null) {
-					properties = new java.util.concurrent.ConcurrentHashMap<>();
-					characteristicMap.put(arr[1], properties);
-				}
-				properties.put(arr[2], arr.length > 3 ? arr[3] : "");
 			} );
 			fileParser.parse(templateCharacteristicMetaDataPath);
 			log("Loaded: " + templateCharacteristicMetaData.size() + " templateCharacteristicMetaData");
@@ -278,7 +347,9 @@ public class ProductVariantInfoAdmin002 extends Thread {
 			templateCharacteristicMetaData.forEach((k,v)-> {
 				v.forEach((k1,v1) -> {
 					v1.forEach((k2,v2) -> {
-						pw.println( rw.serializeChunk( new Object[] { k, k1, k2, v2 } ) );
+						v2.forEach((k3,v3) -> {
+							pw.println( rw.serializeChunk( new Object[] { k, k1, k2, k3, v3 } ) );
+						});
 					});
 				});
 			});
@@ -1064,23 +1135,16 @@ public class ProductVariantInfoAdmin002 extends Thread {
 								String characteristic = null;
 								String property = null;
 								String propertyValue = null;
+								String creationType = null;
 								for(int i=0; i<items.length(); i++) {
 									item = items.getJSONObject(i);
 									template 			= !item.has("template") 		? null : item.getString("template");
 									characteristic 		= !item.has("characteristic") 	? null : item.getString("characteristic");
 									property 			= !item.has("property") 		? null : item.getString("property");
 									propertyValue 		= !item.has("propertyValue") 	? null : item.getString("propertyValue");
+									creationType 		= !item.has("creationType") 	? null : item.getString("creationType");
 									if(template != null && characteristic != null && property != null && propertyValue != null && !"".equals(template) && !"".equals(characteristic) && !"".equals(property)) {
-										java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> characteristicMap = templateCharacteristicMetaData.get(template);
-										if(characteristicMap == null) {
-											characteristicMap = new java.util.concurrent.ConcurrentHashMap<>();
-											templateCharacteristicMetaData.put(template, characteristicMap);
-										}
-										java.util.concurrent.ConcurrentHashMap<String, String> properties = characteristicMap.get(characteristic);
-										if(properties == null) {
-											properties = new java.util.concurrent.ConcurrentHashMap<>();
-											characteristicMap.put(characteristic, properties);
-										}
+										java.util.concurrent.ConcurrentHashMap<String, String> properties = getOrCreateTemplateCharacteristicProperties(template, characteristic, creationType);
 										properties.put(property, propertyValue);
 									}
 								}
@@ -1091,7 +1155,7 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							if(request.has("items")) {
 								try {
 									items = request.getJSONArray("items");
-									java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> templateMap = null;
+									java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>>> templateMap = null;
 									for(int i=0; i<items.length(); i++) {
 										if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
 											itemsResponse = dastub.getTemplateCharacteristicPropertyValue(items.getString(i), "CreateProposal");
@@ -1100,11 +1164,14 @@ public class ProductVariantInfoAdmin002 extends Thread {
 											itemsResponse.put(ir);
 											templateMap = templateCharacteristicMetaData.get(items.getString(i));
 											if(templateMap != null) {
-												for(java.util.Map.Entry<String, java.util.concurrent.ConcurrentHashMap<String, String>> entry : templateMap.entrySet()) {
+												for(java.util.Map.Entry<String, java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>>> entry : templateMap.entrySet()) {
+													java.util.concurrent.ConcurrentHashMap<String, String> characteristicProperties = getTemplateCharacteristicProperties(items.getString(i), entry.getKey(), null);
 													org.json.JSONObject properties = new org.json.JSONObject();
 													ir.put(entry.getKey(), properties);
-													for(java.util.Map.Entry<String, String> entry0 : entry.getValue().entrySet()) {
-														properties.put(entry0.getKey(), entry0.getValue());
+													if(characteristicProperties != null) {
+														for(java.util.Map.Entry<String, String> entry0 : characteristicProperties.entrySet()) {
+															properties.put(entry0.getKey(), entry0.getValue());
+														}
 													}
 												}
 											}
@@ -1120,26 +1187,23 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							if(request.has("items")) {
 								try {
 									items = request.getJSONArray("items");
-									java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> templateMap = null;
 									for(int i=0; i<items.length(); i++) {
 										item = items.getJSONObject(i);
+										String creationType = item.has("creationType") ? item.getString("creationType") : DEFAULT_CREATION_TYPE;
 										if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
 											if(item.has("template") && item.has("characteristic")) {
-												itemsResponse = dastub.getTemplateCharacteristicPropertyValue(item.getString("template"), item.getString("characteristic"), "CreateProposal");
+												itemsResponse = dastub.getTemplateCharacteristicPropertyValue(item.getString("template"), item.getString("characteristic"), creationType);
 											}
 										}else {
 											org.json.JSONObject ir = new org.json.JSONObject();
 											itemsResponse.put(ir);
 											if(item.has("template") && !"".equals(item.getString("template")) && item.has("characteristic") && !"".equals(item.getString("characteristic"))) {
-												templateMap = templateCharacteristicMetaData.get(item.getString("template"));
-												if(templateMap != null) {
-													java.util.concurrent.ConcurrentHashMap<String, String> characteristicProperties = templateMap.get(item.getString("characteristic"));
-													if(characteristicProperties != null) {
-														org.json.JSONObject properties = new org.json.JSONObject();
-														ir.put(item.getString("characteristic"), properties);
-														for(java.util.Map.Entry<String, String> entry : characteristicProperties.entrySet()) {
-															properties.put(entry.getKey(), entry.getValue());
-														}
+												java.util.concurrent.ConcurrentHashMap<String, String> characteristicProperties = getTemplateCharacteristicProperties(item.getString("template"), item.getString("characteristic"), creationType);
+												if(characteristicProperties != null) {
+													org.json.JSONObject properties = new org.json.JSONObject();
+													ir.put(item.getString("characteristic"), properties);
+													for(java.util.Map.Entry<String, String> entry : characteristicProperties.entrySet()) {
+														properties.put(entry.getKey(), entry.getValue());
 													}
 												}
 											}
@@ -1155,27 +1219,24 @@ public class ProductVariantInfoAdmin002 extends Thread {
 							if(request.has("items")) {
 								try {
 									items = request.getJSONArray("items");
-									java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> templateMap = null;
 									for(int i=0; i<items.length(); i++) {
 										item = items.getJSONObject(i);
+										String creationType = item.has("creationType") ? item.getString("creationType") : DEFAULT_CREATION_TYPE;
 										if( Boolean.parseBoolean(PropertiesManager.get("p360.contingency.usedb")) ) {
 											if(item.has("template") && item.has("characteristic") && item.has("property")) {
-												itemsResponse = dastub.getTemplateCharacteristicPropertyValue(item.getString("template"), item.getString("characteristic"), "CreateProposal", item.getString("property"));
+												itemsResponse = dastub.getTemplateCharacteristicPropertyValue(item.getString("template"), item.getString("characteristic"), creationType, item.getString("property"));
 											}
 										}else {
 											org.json.JSONObject ir = new org.json.JSONObject();
 											itemsResponse.put(ir);
 											if(item.has("template") && !"".equals(item.getString("template")) && item.has("characteristic") && !"".equals(item.getString("characteristic")) && item.has("property") && !"".equals(item.getString("property"))) {
-												templateMap = templateCharacteristicMetaData.get(item.getString("template"));
-												if(templateMap != null) {
-													java.util.concurrent.ConcurrentHashMap<String, String> characteristicProperties = templateMap.get(item.getString("characteristic"));
-													if(characteristicProperties != null) {
-														org.json.JSONObject properties = new org.json.JSONObject();
-														ir.put(item.getString("characteristic"), properties);
-														String propertyValue = characteristicProperties.get(item.getString("property"));
-														if(propertyValue != null) {
-															properties.put(item.getString("property"), propertyValue);
-														}
+												java.util.concurrent.ConcurrentHashMap<String, String> characteristicProperties = getTemplateCharacteristicProperties(item.getString("template"), item.getString("characteristic"), creationType);
+												if(characteristicProperties != null) {
+													org.json.JSONObject properties = new org.json.JSONObject();
+													ir.put(item.getString("characteristic"), properties);
+													String propertyValue = characteristicProperties.get(item.getString("property"));
+													if(propertyValue != null) {
+														properties.put(item.getString("property"), propertyValue);
 													}
 												}
 											}
@@ -1222,7 +1283,7 @@ public class ProductVariantInfoAdmin002 extends Thread {
 								for(int i=0; i<items.length(); i++) {
 									item = items.getJSONObject(i);
 									if(item.has("template") && item.has("characteristic")) {
-										java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> characteristics = templateCharacteristicMetaData.get(item.getString("template"));
+										java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>>> characteristics = templateCharacteristicMetaData.get(item.getString("template"));
 										if(characteristics != null) {
 											characteristics.remove(item.getString("characteristic"));
 										}
@@ -1236,11 +1297,19 @@ public class ProductVariantInfoAdmin002 extends Thread {
 								for(int i=0; i<items.length(); i++) {
 									item = items.getJSONObject(i);
 									if(item.has("template") && item.has("characteristic") && item.has("property")) {
-										java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> characteristics = templateCharacteristicMetaData.get(item.getString("template"));
+										String propertyName = item.getString("property");
+										java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>>> characteristics = templateCharacteristicMetaData.get(item.getString("template"));
 										if(characteristics != null) {
-											java.util.concurrent.ConcurrentHashMap<String, String> properties = characteristics.get(item.getString("characteristic"));
-											if(properties != null) {
-												properties.remove(item.getString("property"));
+											java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> creationTypes = characteristics.get(item.getString("characteristic"));
+											if(creationTypes != null) {
+												if(item.has("creationType") && !"".equals(item.getString("creationType"))) {
+													java.util.concurrent.ConcurrentHashMap<String, String> properties = creationTypes.get(item.getString("creationType"));
+													if(properties != null) {
+														properties.remove(propertyName);
+													}
+												}else {
+													creationTypes.forEach((creationType, properties) -> properties.remove(propertyName));
+												}
 											}
 										}
 									}
@@ -1340,16 +1409,8 @@ public class ProductVariantInfoAdmin002 extends Thread {
 											gbmd.put(vals[4], vals[3]);
 										}else if("ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla".equals(item.getString("diccionario"))) {
 //											log("Its template metadata: " + java.util.Arrays.asList(vals));
-											java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> templateData = templateCharacteristicMetaData.get(vals[0]);
-											if(templateData == null) {
-												templateData = new java.util.concurrent.ConcurrentHashMap<>();
-												templateCharacteristicMetaData.put(vals[0], templateData);
-											}
-											java.util.concurrent.ConcurrentHashMap<String, String> gbmd = templateData.get(vals[1]);
-											if(gbmd == null) {
-												gbmd = new java.util.concurrent.ConcurrentHashMap<>();
-												templateData.put(vals[1], gbmd);
-											}
+											String creationType = item.has("creationType") ? item.getString("creationType") : getCreationTypeFromIdValor(idValor, true);
+											java.util.concurrent.ConcurrentHashMap<String, String> gbmd = getOrCreateTemplateCharacteristicProperties(vals[0], vals[1], creationType);
 											gbmd.put(vals[4], vals[3]);
 										}else {
 //											log("It is another dictionary: " + item.getString("diccionario"));
@@ -1399,12 +1460,9 @@ public class ProductVariantInfoAdmin002 extends Thread {
 													gbmd.remove(tupla[4]);
 												}
 											}else if("ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla".equals(item.getString("diccionario"))) {
-												java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, String>> templateData = templateCharacteristicMetaData.get(tupla[0]);
-												if(templateData != null) {
-													java.util.concurrent.ConcurrentHashMap<String, String> gbmd = templateData.get(tupla[1]);
-													if(gbmd != null) {
-														gbmd.remove(tupla[4]);
-													}
+												java.util.concurrent.ConcurrentHashMap<String, String> gbmd = getTemplateCharacteristicProperties(tupla[0], tupla[1], getCreationTypeFromIdValor(item.getString("idValor"), true));
+												if(gbmd != null) {
+													gbmd.remove(tupla[4]);
 												}
 											}
 										}

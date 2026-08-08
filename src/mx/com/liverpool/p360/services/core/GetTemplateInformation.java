@@ -51,6 +51,10 @@ public class GetTemplateInformation implements Closeable {
 			String encoded) throws ServiceUnavailableException {
 
 		long init = System.currentTimeMillis();
+		if (creationType == null)
+	    {
+	        creationType = this.creationType;
+	    }
 		try {
 			java.util.Map<String, org.json.JSONObject> atributos =
 					new java.util.TreeMap<>();
