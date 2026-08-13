@@ -7,10 +7,16 @@ public class PlaceholderStatusUpdate {
 
     private final String placeholderId;
     private final String status;
+    private final String comment;
 
     public PlaceholderStatusUpdate(String placeholderId, String status) {
+        this(placeholderId, status, null);
+    }
+
+    public PlaceholderStatusUpdate(String placeholderId, String status, String comment) {
         this.placeholderId = placeholderId;
         this.status = status;
+        this.comment = comment;
     }
 
     public String getPlaceholderId() {
@@ -19,5 +25,13 @@ public class PlaceholderStatusUpdate {
 
     public String getStatus() {
         return status;
+    }
+
+    public String getComment() {
+        return comment;
+    }
+
+    public boolean hasComment() {
+        return comment != null && comment.trim().length() > 0;
     }
 }

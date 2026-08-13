@@ -2,6 +2,9 @@ package mx.com.liverpool.p360.services.core.gcp.placeholder;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.logging.Logger;
 
 import mx.com.liverpool.p360.services.core.PropertiesManager;
@@ -16,6 +19,8 @@ public class PlaceholderStatusBucketFileImporter {
     private static final String CONFIG_BUCKET = "p360.contingency.gcp.placeholder_status.bucket";
     private static final String CONFIG_OBJECT = "p360.contingency.gcp.placeholder_status.object";
     private static final String CONFIG_IMPERSONATE_SERVICE_ACCOUNT = "p360.contingency.gcp.placeholder_status.impersonate_service_account";
+    private static final ZoneId MEXICO_CITY_ZONE = ZoneId.of("America/Mexico_City");
+    private static final DateTimeFormatter OBJECT_DATE_FORMATTER = DateTimeFormatter.ofPattern("ddMMyyyy");
     private static final Logger LOGGER = GcpBucketLogger.getLogger();
 
     private final PlaceholderStatusFileStorage storage;
@@ -31,7 +36,11 @@ public class PlaceholderStatusBucketFileImporter {
     }
 
     public PlaceholderStatusStoredFile importFile() throws Exception {
-        Config config = Config.load();
+        return importFile(null);
+    }
+
+    public PlaceholderStatusStoredFile importFile(String bucketFileName) throws Exception {
+        Config config = Config.load(bucketFileName);
         GcpStorageClient storageClient = new GcpStorageClient(config.serviceAccount);
 
         logger.info("Importing placeholder status file from bucket. bucket=" + config.bucket
@@ -71,10 +80,11 @@ public class PlaceholderStatusBucketFileImporter {
             this.serviceAccount = serviceAccount;
         }
 
-        private static Config load() {
+        private static Config load(String bucketFileName) {
+            String configuredObject = required(CONFIG_OBJECT);
             return new Config(
                     required(CONFIG_BUCKET),
-                    required(CONFIG_OBJECT),
+                    resolveObjectName(configuredObject, bucketFileName),
                     optionalServiceAccount());
         }
 
@@ -106,6 +116,58 @@ public class PlaceholderStatusBucketFileImporter {
 
     private static String optionalServiceAccount() {
         return  normalize(PropertiesManager.get(CONFIG_IMPERSONATE_SERVICE_ACCOUNT));
+    }
+
+    private static String resolveObjectName(String configuredObject, String bucketFileName) {
+        String parentPrefix = getParentPrefix(configuredObject);
+        String normalizedBucketFileName = normalizeFileName(bucketFileName);
+        if (normalizedBucketFileName != null) {
+            return parentPrefix + normalizedBucketFileName;
+        }
+        return parentPrefix + resolveConfiguredFileNameForToday(configuredObject);
+    }
+
+    private static String resolveConfiguredFileNameForToday(String configuredObject) {
+        String fileName = getFileName(configuredObject);
+        String today = LocalDate.now(MEXICO_CITY_ZONE).format(OBJECT_DATE_FORMATTER);
+        int dot = fileName.lastIndexOf('.');
+        String name = dot < 0 ? fileName : fileName.substring(0, dot);
+        String extension = dot < 0 ? "" : fileName.substring(dot);
+        name = name.replaceFirst("\\d+$", "");
+        return name + today + extension;
+    }
+
+    private static String getParentPrefix(String objectName) {
+        int slash = objectName.lastIndexOf('/');
+        if (slash < 0) {
+            return "";
+        }
+        return objectName.substring(0, slash + 1);
+    }
+
+    private static String getFileName(String objectName) {
+        int slash = objectName.lastIndexOf('/');
+        if (slash < 0) {
+            return objectName;
+        }
+        return objectName.substring(slash + 1);
+    }
+
+    private static String normalizeFileName(String value) {
+        value = normalize(value);
+        if (value == null) {
+            return null;
+        }
+        value = value.replace('\\', '/');
+        int slash = value.lastIndexOf('/');
+        if (slash >= 0) {
+            value = value.substring(slash + 1);
+        }
+        value = normalize(value);
+        if (value == null || ".".equals(value) || "..".equals(value)) {
+            throw new IllegalArgumentException("Invalid bucket file name: " + value);
+        }
+        return value;
     }
 
     private static String normalize(String value) {

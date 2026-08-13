@@ -13,10 +13,10 @@ public class PlaceholderStatusDictionary {
     private final Map<String, String> values = new HashMap<>();
 
     public PlaceholderStatusDictionary() {
-        values.put(normalize("aprobado"), "Creación de SKU");
-        values.put(normalize("aprobado con cambios"), "Creación de SKU");
-        values.put(normalize("rechazado"), "Revisión QA");
-        values.put(normalize("rechazado para modificación"), "Revisión QA");
+        values.put(normalize("aprobado"), "Por enriquecer");
+        values.put(normalize("aprobado con cambios"), "Por enriquecer");
+        values.put(normalize("rechazado"), "Cancelada");
+        values.put(normalize("rechazado para modificación"), "Rechazada");
     }
 
     public String resolve(String fileStatus) {

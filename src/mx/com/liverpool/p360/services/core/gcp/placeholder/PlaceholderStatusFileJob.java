@@ -25,8 +25,7 @@ public class PlaceholderStatusFileJob {
     }
 
     public PlaceholderStatusFileJob(Logger logger) {
-        this.processor = new PlaceholderStatusFileProcessor(new PlaceholderStatusRestUpdater(),
-                new SkuProductNoPlaceholderIdResolver(logger), logger);
+        this.processor = new PlaceholderStatusFileProcessor(new PlaceholderStatusRestUpdater(), logger);
         this.logger = logger;
     }
 

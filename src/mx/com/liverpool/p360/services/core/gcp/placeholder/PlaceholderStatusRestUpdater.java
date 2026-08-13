@@ -1,7 +1,10 @@
 package mx.com.liverpool.p360.services.core.gcp.placeholder;
 
+import java.util.logging.Logger;
+
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
+import mx.com.liverpool.p360.services.core.gcp.storage.GcpBucketLogger;
 
 /**
  * Placeholder status updater backed by Product2G list update.
@@ -12,6 +15,17 @@ public class PlaceholderStatusRestUpdater implements PlaceholderStatusUpdater {
     private static final String DEFAULT_ENDPOINT = "/list/Product2G/";
 
     private final RESTWrapper rw = new RESTWrapper();
+    private final Product2GUserRemarksUpdater userRemarksUpdater;
+    private final Logger logger;
+
+    public PlaceholderStatusRestUpdater() {
+        this(GcpBucketLogger.getLogger());
+    }
+
+    public PlaceholderStatusRestUpdater(Logger logger) {
+        this.logger = logger;
+        this.userRemarksUpdater = new Product2GUserRemarksUpdater(rw, logger);
+    }
 
     @Override
     public void update(java.util.List<PlaceholderStatusUpdate> updates) {
@@ -45,6 +59,9 @@ public class PlaceholderStatusRestUpdater implements PlaceholderStatusUpdater {
         if (response != null && (response.has("error") || response.has("Error"))) {
             throw new IllegalStateException(rawResponse);
         }
+
+        logger.info("Product2G status update batch finished. rows=" + updates.size());
+        userRemarksUpdater.updateRemarks(updates);
     }
 
     private static String toProduct2GObjectId(String placeholderId) {

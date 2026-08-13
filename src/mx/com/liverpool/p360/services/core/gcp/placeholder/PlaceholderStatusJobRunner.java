@@ -23,10 +23,14 @@ public class PlaceholderStatusJobRunner {
     }
 
     public PlaceholderStatusProcessResult run(String sourceFilePath) throws Exception {
+        return run(sourceFilePath, null);
+    }
+
+    public PlaceholderStatusProcessResult run(String sourceFilePath, String bucketFileName) throws Exception {
         if (sourceFilePath != null && sourceFilePath.trim().length() > 0) {
             return runFromLocalFile(sourceFilePath.trim());
         }
-        return runFromBucket();
+        return runFromBucket(bucketFileName);
     }
 
     public PlaceholderStatusProcessResult runFromLocalFile(String sourceFilePath) throws Exception {
@@ -35,7 +39,11 @@ public class PlaceholderStatusJobRunner {
     }
 
     public PlaceholderStatusProcessResult runFromBucket() throws Exception {
-        PlaceholderStatusStoredFile storedFile = bucketFileImporter.importFile();
+        return runFromBucket(null);
+    }
+
+    public PlaceholderStatusProcessResult runFromBucket(String bucketFileName) throws Exception {
+        PlaceholderStatusStoredFile storedFile = bucketFileImporter.importFile(bucketFileName);
         return fileJob.process(storedFile);
     }
 }

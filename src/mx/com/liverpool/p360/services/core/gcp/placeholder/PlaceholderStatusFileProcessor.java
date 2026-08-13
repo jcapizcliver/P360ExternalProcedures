@@ -17,17 +17,15 @@ public class PlaceholderStatusFileProcessor {
 
     public static final String ID_COLUMN = "id_placeholder";
     public static final String STATUS_COLUMN = "status_of_the_placeholder";
+    public static final String COMMENTS_COLUMN = "comments";
     public static final String ERRORS_COLUMN = "errors";
 
     private final PlaceholderStatusUpdater updater;
-    private final PlaceholderIdResolver placeholderIdResolver;
     private final PlaceholderStatusDictionary statusDictionary;
     private final Logger logger;
 
-    public PlaceholderStatusFileProcessor(PlaceholderStatusUpdater updater, PlaceholderIdResolver placeholderIdResolver,
-            Logger logger) {
+    public PlaceholderStatusFileProcessor(PlaceholderStatusUpdater updater, Logger logger) {
         this.updater = updater;
-        this.placeholderIdResolver = placeholderIdResolver;
         this.statusDictionary = new PlaceholderStatusDictionary();
         this.logger = logger;
     }
@@ -36,6 +34,7 @@ public class PlaceholderStatusFileProcessor {
         List<String> errorLines = new ArrayList<>();
         int idIndex = -1;
         int statusIndex = -1;
+        int commentsIndex = -1;
         int rowsRead = 0;
         int processed = 0;
         int success = 0;
@@ -53,8 +52,10 @@ public class PlaceholderStatusFileProcessor {
                 if (lineNumber == 1) {
                     idIndex = indexOf(values, ID_COLUMN);
                     statusIndex = indexOf(values, STATUS_COLUMN);
-                    if (idIndex < 0 || statusIndex < 0) {
-                        throw new IllegalArgumentException("Required columns not found: " + ID_COLUMN + ", " + STATUS_COLUMN);
+                    commentsIndex = indexOf(values, COMMENTS_COLUMN);
+                    if (idIndex < 0 || statusIndex < 0 || commentsIndex < 0) {
+                        throw new IllegalArgumentException("Required columns not found: " + ID_COLUMN + ", "
+                                + STATUS_COLUMN + ", " + COMMENTS_COLUMN);
                     }
                     errorLines.add(toCsvLineWithError(values, ERRORS_COLUMN));
                     continue;
@@ -64,6 +65,7 @@ public class PlaceholderStatusFileProcessor {
                 String error = "";
                 String rawPlaceholderCode = getValue(values, idIndex);
                 String status = getValue(values, statusIndex);
+                String comments = getValue(values, commentsIndex);
 
                 if (!isUsableValue(rawPlaceholderCode) || !isUsableValue(status)) {
                     ignored++;
@@ -72,32 +74,29 @@ public class PlaceholderStatusFileProcessor {
                     continue;
                 }
 
-                String sku = extractSku(rawPlaceholderCode);
-                if (sku.length() == 0) {
-                    ignored++;
-                    logger.info("Ignoring placeholder row because id_placeholder format is invalid. id_placeholder="
+                if (requiresComments(status) && !isUsableValue(comments)) {
+                    error = "El campo comments es requerido para el estatus: " + status;
+                    errors++;
+                    errorLines.add(toCsvLineWithError(values, error));
+                    logger.warning("Skipping placeholder row because comments is required. id_placeholder="
                             + rawPlaceholderCode + ", status=" + status);
-                } else {
-                    processed++;
-                    try {
-                        String p360Status = statusDictionary.resolve(status);
-                        if (p360Status == null || p360Status.trim().length() == 0) {
-                            throw new IllegalStateException("Status value not found in dictionary: " + status);
-                        }
-                        String placeholderId = placeholderIdResolver.resolve(sku);
-                        if (placeholderId == null || placeholderId.trim().length() == 0) {
-                            throw new IllegalStateException("Placeholder identifier not found for SKU: " + sku);
-                        }
-                        placeholderId = placeholderId.trim();
-                        logger.info("Prepared placeholder update: " + placeholderId + " sku=" + sku + " source="
-                                + rawPlaceholderCode + " fileStatus=" + status + " p360Status=" + p360Status);
-                        preparedUpdates.add(new PreparedUpdate(values,
-                                new PlaceholderStatusUpdate(placeholderId, p360Status)));
-                    } catch (Exception e) {
-                        error = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
-                        logger.warning("Error processing placeholder source=" + rawPlaceholderCode + " sku=" + sku
-                                + " error=" + error);
+                    continue;
+                }
+
+                processed++;
+                try {
+                    String p360Status = statusDictionary.resolve(status);
+                    if (p360Status == null || p360Status.trim().length() == 0) {
+                        throw new IllegalStateException("Status value not found in dictionary: " + status);
                     }
+                    String placeholderId = rawPlaceholderCode.trim();
+                    logger.info("Prepared placeholder update: " + placeholderId + " fileStatus=" + status
+                            + " p360Status=" + p360Status);
+                    preparedUpdates.add(new PreparedUpdate(values,
+                            new PlaceholderStatusUpdate(placeholderId, p360Status, comments)));
+                } catch (Exception e) {
+                    error = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
+                    logger.warning("Error processing placeholder source=" + rawPlaceholderCode + " error=" + error);
                 }
 
                 if (error.length() > 0) {
@@ -148,16 +147,13 @@ public class PlaceholderStatusFileProcessor {
                 && !"N/A".equals(normalized);
     }
 
-    private static String extractSku(String rawPlaceholderCode) {
-        if (rawPlaceholderCode == null) {
-            return "";
+    private static boolean requiresComments(String status) {
+        if (status == null) {
+            return false;
         }
-        String value = rawPlaceholderCode.trim();
-        String[] parts = value.split("-", -1);
-        if (parts.length == 3 && parts[1].trim().length() > 0) {
-            return parts[1].trim();
-        }
-        return "";
+        String normalized = status.trim().toLowerCase(java.util.Locale.ROOT);
+        return "rechazado".equals(normalized)
+                || "rechazado para modificación".equals(normalized);
     }
 
     private static String getValue(List<String> values, int index) {
