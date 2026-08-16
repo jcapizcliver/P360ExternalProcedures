@@ -1,15 +1,10 @@
 package mx.com.liverpool.p360.services.core;
 
-import java.net.URISyntaxException;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
-
 import org.json.JSONObject;
 
 public class CheckMissingSections {
 
 	private static final String encoded = "cmVzdDpoZWlsZXI=";
-	private static final String baseUrl = "http://172.18.237.162:1512/rest/V2.0";
 	private static final RestClient rc = new RestClient("Accept: application/json", "Content-Type: application/json", "Authorization: Basic " + encoded);
 
 	public static void main(String[] args) {

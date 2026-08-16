@@ -293,12 +293,21 @@ public class LoadProductDataRemainingFields {
     	
         private final java.util.LinkedList<Product> productStack = new java.util.LinkedList<>();
         private final java.util.List<Product> finished = new ArrayList<>();
+        private final java.util.function.Consumer<Product> rootProductConsumer;
         
         private final java.util.Map<String, Asset> assetMap = new java.util.TreeMap<>();
         private final java.util.LinkedList<Asset> assetStack = new java.util.LinkedList<>();
     	private Integer productsCounter = 0;
     	private boolean assetName = false;
     	private boolean gettingName = false;
+
+        public Handler() {
+            this(null);
+        }
+
+        public Handler(java.util.function.Consumer<Product> rootProductConsumer) {
+            this.rootProductConsumer = rootProductConsumer;
+        }
 
         @Override
         public void startElement(String uri, String localName, String qName, Attributes attributes) {
@@ -403,7 +412,9 @@ public class LoadProductDataRemainingFields {
                 	productsCounter++;
                 	if(!productStack.isEmpty()) {
                 		productStack.getLast().addProduct(product);
-                	}else {
+                	}else if(rootProductConsumer != null) {
+                        rootProductConsumer.accept(product);
+                    }else {
                 		finished.add(product);
                 	}
                 }
@@ -434,23 +445,29 @@ public class LoadProductDataRemainingFields {
     }
     
     public static void processContent(String content) throws SAXException, IOException, ParserConfigurationException {
-    	long init = System.currentTimeMillis();
-    	LoadProductDataRemainingFields an = new LoadProductDataRemainingFields();
-        SAXParserFactory factory = SAXParserFactory.newInstance();
-        factory.setNamespaceAware(true);
-        try {
-            factory.setFeature("http://xml.org/sax/features/external-general-entities",          false);
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities",        false);
-            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-        } catch (Exception ignored) {}
-        SAXParser parser = factory.newSAXParser();
+        long init = System.currentTimeMillis();
+        LoadProductDataRemainingFields an = new LoadProductDataRemainingFields();
+        SAXParser parser = an.createSafeSaxParserFactory().newSAXParser();
         an.qp.put("includeObjectsInProtocol", "false");
         an.collectActiveCharacteristics();
         an.procesaContenido(content, parser);
         an.processRemaining();
         an.log("Total products found: " + an.lacuenta);
         an.log("Total vars found: " + an.lacuentaVars);
-        an.log("Done. " + an.rw.getRw().formatTime(System.currentTimeMillis() - init) );
+        an.log("Done. " + an.rw.getRw().formatTime(System.currentTimeMillis() - init));
+    }
+
+    public static void processPath(java.nio.file.Path path) throws SAXException, IOException, ParserConfigurationException {
+        long init = System.currentTimeMillis();
+        LoadProductDataRemainingFields an = new LoadProductDataRemainingFields();
+        SAXParser parser = an.createSafeSaxParserFactory().newSAXParser();
+        an.qp.put("includeObjectsInProtocol", "false");
+        an.collectActiveCharacteristics();
+        an.procesaContenido(path, parser);
+        an.processRemaining();
+        an.log("Total products found: " + an.lacuenta);
+        an.log("Total vars found: " + an.lacuentaVars);
+        an.log("Done. " + an.rw.getRw().formatTime(System.currentTimeMillis() - init));
     }
     
     public static void main(String[] args) throws Exception {
@@ -482,22 +499,32 @@ public class LoadProductDataRemainingFields {
     private Integer procesaContenido(String content, SAXParser parser) throws SAXException, java.io.IOException {
         Integer refProductsCount = 0;
         long in = System.currentTimeMillis();
-        java.util.List<Product> finished = null;
-        Handler handler = new Handler();
+        Handler handler = new Handler(this::processProduct);
         try {
-        	parser.parse(new java.io.ByteArrayInputStream(content.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)), handler);
-        	finished = handler.getFinished();
-	        refProductsCount += handler.getPrductsCounter();
-	        for(Product p : finished) {
-	        	processProduct(p);
-	        }
-        }catch(org.xml.sax.SAXParseException e) {
-        	log("Problem processing content");
+            parser.parse(new java.io.ByteArrayInputStream(
+                    content.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)), handler);
+            refProductsCount += handler.getPrductsCounter();
+        } catch (org.xml.sax.SAXParseException e) {
+            log("Problem processing content");
         }
         log("Parsing content took: " + rw.getRw().formatTime(System.currentTimeMillis() - in));
         return refProductsCount;
     }
-    
+
+    private Integer procesaContenido(java.nio.file.Path path, SAXParser parser) throws SAXException, java.io.IOException {
+        Integer refProductsCount = 0;
+        long in = System.currentTimeMillis();
+        Handler handler = new Handler(this::processProduct);
+        try {
+            parser.parse(path.toFile(), handler);
+            refProductsCount += handler.getPrductsCounter();
+        } catch (org.xml.sax.SAXParseException e) {
+            log("Problem processing following file: " + path);
+        }
+        log("Parsing content took: " + rw.getRw().formatTime(System.currentTimeMillis() - in));
+        return refProductsCount;
+    }
+
     private Integer procesaDirectorio(String dir, SAXParser parser) throws SAXException, java.io.IOException {
     	if("oldSTEP".equals(dir) || dir.contains("oldSTEP")) {
     		return 0;
@@ -511,14 +538,10 @@ public class LoadProductDataRemainingFields {
         	if(input.isDirectory()) {
         		refProductsCount += procesaDirectorio(input.getAbsolutePath(), parser);
         	}else {
-		        Handler handler = new Handler();
+		        Handler handler = new Handler(this::processProduct);
 		        try {
 		        	parser.parse(input, handler);
-		        	finished = handler.getFinished();
 			        refProductsCount += handler.getPrductsCounter();
-			        for(Product p : finished) {
-			        	processProduct(p);
-			        }
 		        }catch(org.xml.sax.SAXParseException e) {
 		        	log("Problem processing following file: " + input.getAbsolutePath());
 		        }
@@ -528,6 +551,18 @@ public class LoadProductDataRemainingFields {
         return refProductsCount;
     }
     
+    private SAXParserFactory createSafeSaxParserFactory() {
+        SAXParserFactory factory = SAXParserFactory.newInstance();
+        factory.setNamespaceAware(true);
+        try {
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        } catch (Exception ignored) {
+        }
+        return factory;
+    }
+
     private int lacuenta = 0;
     private int lacuentaVars = 0;
     

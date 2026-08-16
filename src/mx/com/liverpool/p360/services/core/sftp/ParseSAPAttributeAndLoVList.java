@@ -33,7 +33,6 @@ import org.xml.sax.SAXException;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.ServiceUnavailableException;
-import mx.com.liverpool.p360.services.core.temp.source.ProcessECCHierarchyFile;
 import mx.com.liverpool.p360.services.xmlutils.XMLMisc;
 
 public class ParseSAPAttributeAndLoVList {

@@ -17,11 +17,10 @@ public class ManualResendToSKUCreation {
 				   + ",Product2GCharacteristicValue.LookupValue('Business',root,\"0000.0000.RK\",'Business',-1)->LookupValue.Code"
 				   + ",Product2GCharacteristicValueLang.Value('SKU',root,\"0000.0000.RK\",'SKU',-1)"
 			);
-		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get("").toFile()), java.nio.charset.StandardCharsets.UTF_8))){
+		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get("").toFile()), java.nio.charset.StandardCharsets.UTF_8)); CrearArchivosParaSKU ca = new CrearArchivosParaSKU()){
 			String line = null;
 			StringBuilder sb = new StringBuilder();
 			int cn = 0;
-			CrearArchivosParaSKU ca = new CrearArchivosParaSKU();
 			while((line = br.readLine()) != null) {
 				sb.append(sb.length() == 0 ? "" : ",");
 				sb.append("'");

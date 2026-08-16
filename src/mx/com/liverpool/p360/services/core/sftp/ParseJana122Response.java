@@ -36,6 +36,8 @@ import org.apache.sshd.sftp.client.SftpClient.DirEntry;
 import org.apache.sshd.sftp.client.SftpClientFactory;
 import org.xml.sax.SAXException;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.PubSubGCP;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
@@ -50,6 +52,20 @@ import mx.com.liverpool.p360.services.core.sftp.xml.Jana122Handler.Value;
 import mx.com.liverpool.p360.services.core.temp.exports.RealExportProductsExpressOMS;
 
 public class ParseJana122Response implements SimpleLog {
+
+	private final DBAccessDataStub dastub = new DBAccessDataStub(new ELog() {
+		@Override
+		public void logE(Exception e) {
+			ParseJana122Response.this.logE(e);
+		}
+
+		@Override
+		public void log(String message) {
+			ParseJana122Response.this.log(message);
+		}
+	});
+
+	private final DataRequestor dr = new DataRequestor(dastub);
 
 	private static final RESTWrapper rw = new RESTWrapper();
 	private static final RESTWorkshop workshop = rw.getRw();
@@ -347,7 +363,7 @@ public class ParseJana122Response implements SimpleLog {
 		pids.clear();
 	}
 
-	private final ParsersTools tools = new ParsersTools(this);
+	private final ParsersTools tools = new ParsersTools(this, dr);
 
 	private boolean running = true;
 
@@ -501,18 +517,18 @@ public class ParseJana122Response implements SimpleLog {
 								Path localCopy = LOCAL_PROCESSED_DIR.resolve(name);
 								java.nio.file.Files.write(localCopy, out.toByteArray());
 
-								processedState.setProperty(name, String.valueOf(remoteModified));
-								if (USE_CACHE) {
-									try (java.io.OutputStream stateOut = java.nio.file.Files
-											.newOutputStream(STATE_FILE)) {
-										processedState.store(stateOut, null);
-									}
-								}
-
 								if (!name.startsWith("GenericXMLproducts")) {
 									log("Skipping " + name);
+									processedState.setProperty(name, String.valueOf(remoteModified));
+									if (USE_CACHE) {
+										try (java.io.OutputStream stateOut = java.nio.file.Files.newOutputStream(STATE_FILE)) {
+											processedState.store(stateOut, null);
+										}
+									}
 									continue;
 								}
+
+								boolean processedOk = false;
 								try {
 									if(ft) {
 										cargaLasCosas();
@@ -520,8 +536,19 @@ public class ParseJana122Response implements SimpleLog {
 									}
 									processFile(null, out, sftp);
 									sftp.remove(filePath);
+									processedOk = true;
 								} catch (ParserConfigurationException | SAXException | IOException e) {
-									e.printStackTrace();
+									log("No se marca como procesado; se reintentará: " + name);
+									logE(e);
+								}
+
+								if (processedOk) {
+									processedState.setProperty(name, String.valueOf(remoteModified));
+									if (USE_CACHE) {
+										try (java.io.OutputStream stateOut = java.nio.file.Files.newOutputStream(STATE_FILE)) {
+											processedState.store(stateOut, null);
+										}
+									}
 								}
 								if (!running)
 									break;
@@ -529,13 +556,7 @@ public class ParseJana122Response implements SimpleLog {
 								log("Problem reading file: " + filePath);
 								logE(e);
 
-								processedState.setProperty(name, String.valueOf(remoteModified));
-								if (USE_CACHE) {
-									try (java.io.OutputStream stateOut = java.nio.file.Files
-											.newOutputStream(STATE_FILE)) {
-										processedState.store(stateOut, null);
-									}
-								}
+								log("El archivo queda pendiente para reintento: " + name);
 								if (!running)
 									break;
 							}
@@ -662,7 +683,6 @@ public class ParseJana122Response implements SimpleLog {
 				String maktx = attributeValues.get("MAKTX"); // description short
 				String ean = attributeValues.get("EAN11"); // EAN
 				String mtart = attributeValues.get("MTART");
-				DataRequestor dr = new DataRequestor();
 
 				lifnr = lifnr == null ? "" : lifnr;
 				brandId = brandId == null ? "" : brandId;
@@ -684,8 +704,8 @@ public class ParseJana122Response implements SimpleLog {
 						znprst = "1" + znprst;
 					}
 					if (znprst != null && sku != null && !"".equals(sku)) {
-						articleSupplierAIDToSKU.put(sku, znprst);
-						skuToArticleSupplierAID.put(znprst, sku);
+						articleSupplierAIDToSKU.put(znprst, sku);
+						skuToArticleSupplierAID.put(sku, znprst);
 					}
 					externalId = znprst;
 					skuIds.put(sku, znprst);
@@ -1012,7 +1032,6 @@ public class ParseJana122Response implements SimpleLog {
 			}
 			log("HLPs: " + articleHigherLevelProduct);
 			String parentId = null;
-			DataRequestor dr = new DataRequestor();
 			for (java.util.Map.Entry<String, String> entry : articleHigherLevelProductNotReadyYet.entrySet()) {
 				parentId = skuToArticleSupplierAID.get(entry.getValue());
 				if (parentId == null) {
@@ -1050,50 +1069,6 @@ public class ParseJana122Response implements SimpleLog {
 			return null;
 		}
 
-		if (satnr == null || "".equals(satnr)) {
-			log("No se puede conciliar padre de variante porque SATNR viene vacío. articleId=" + articleId + ", sku="
-					+ sku);
-			return null;
-		}
-
-		String targetParentId = null;
-		log("Entramos a ver por " + articleId + ", con su satnr: " + satnr);
-		targetParentId = resolveProductIdBySku(satnr, dr);
-		;
-		log("Resolvió a: " + targetParentId);
-
-		if (targetParentId == null || "".equals(targetParentId)) {
-			log("No pude con el targetParentId, preguntando por SKU");
-			String response = dr.productBySKU(new org.json.JSONArray().put(satnr));
-			log("Resultado: " + response);
-			if (response != null) {
-				try {
-					org.json.JSONObject jr = new org.json.JSONObject(response);
-					org.json.JSONArray items = jr.getJSONArray("items");
-					if (items.length() > 0 && !"".equals(items.getString(0))) {
-						targetParentId = items.getString(0);
-					}
-				} catch (org.json.JSONException e) {
-					logE(e);
-				}
-			}
-		}
-
-		if (targetParentId == null || "".equals(targetParentId)) {
-			String[] p360Parent = tools.checkProductBySKUOnP360(satnr);
-			log("Preguntando a P360...");
-			if (p360Parent != null) {
-				targetParentId = p360Parent[0];
-			}
-			log("Obtuvimos: " + targetParentId);
-		}
-
-		if (targetParentId == null || "".equals(targetParentId)) {
-			articleHigherLevelProductNotReadyYet.put(articleId, satnr);
-			log("Padre pendiente. articleId=" + articleId + ", sku=" + sku + ", satnr=" + satnr);
-			return null;
-		}
-
 		if (currentParentId == null || "".equals(currentParentId) || "null".equals(currentParentId)) {
 			String response = dr.getProductByVariant(new org.json.JSONArray().put(articleId));
 			if (response != null) {
@@ -1109,26 +1084,44 @@ public class ParseJana122Response implements SimpleLog {
 			}
 		}
 
-		if (currentParentId != null && !"".equals(currentParentId) && !"null".equals(currentParentId)
-				&& !targetParentId.equals(currentParentId)) {
-			java.util.Map<String, String> qp = new java.util.HashMap<>();
-			log("Now deleting current article relationship to current parent (" + articleId + " || " + currentParentId
-					+ " || " + targetParentId + ")");
-			qp.put("items", "'" + articleId + "'@1");
-			rw.deleteData("list", "Article", "ProductReference", "byItems", qp, this::log);
-			log("Se quitó relación anterior de Article. articleId=" + articleId + ", oldParent=" + currentParentId
-					+ ", newParent=" + targetParentId);
+		/* Si ya tenía padre, ese padre manda. SATNR no re-parenta. */
+		if (currentParentId != null && !"".equals(currentParentId) && !"null".equals(currentParentId)) {
+			if (satnr != null && !"".equals(satnr)) {
+				String targetFromSatnr = resolveProductIdBySku(satnr, dr);
+				if (targetFromSatnr != null && !currentParentId.equals(targetFromSatnr)) {
+					log("Se conserva relación existente. articleId=" + articleId + ", sku=" + sku
+							+ ", currentParent=" + currentParentId + ", SATNR resolvería a=" + targetFromSatnr);
+				}
+			}
+			articleHigherLevelProduct.put(articleId, currentParentId);
+			registerArticleParentInAdmin(articleId, sku, currentParentId, dr);
+			return currentParentId;
+		}
+
+		if (satnr == null || "".equals(satnr)) {
+			log("Artículo sin padre y sin SATNR. articleId=" + articleId + ", sku=" + sku);
+			return null;
+		}
+
+		String targetParentId = resolveProductIdBySku(satnr, dr);
+		if (targetParentId == null || "".equals(targetParentId)) {
+			articleHigherLevelProductNotReadyYet.put(articleId, satnr);
+			log("Padre pendiente. articleId=" + articleId + ", sku=" + sku + ", satnr=" + satnr);
+			return null;
 		}
 
 		articleHigherLevelProduct.put(articleId, targetParentId);
-
-		org.json.JSONArray items = new org.json.JSONArray();
-		items.put(new org.json.JSONObject().put("supplierAID", articleId).put("sku", sku).put("productNo",
-				targetParentId));
-
-		log("From conciliación: " + dr.putSkuSupplierAID(items));
-
+		registerArticleParentInAdmin(articleId, sku, targetParentId, dr);
 		return targetParentId;
+	}
+
+	private void registerArticleParentInAdmin(String articleId, String sku, String productNo, DataRequestor dr) {
+		org.json.JSONArray items = new org.json.JSONArray();
+		items.put(new org.json.JSONObject()
+				.put("supplierAID", articleId)
+				.put("sku", sku)
+				.put("productNo", productNo));
+		log("From conciliación conservadora: " + dr.putSkuSupplierAID(items));
 	}
 
 	private boolean excluyeAtributo(Value v) {
@@ -1169,89 +1162,12 @@ public class ParseJana122Response implements SimpleLog {
 	private String conciliaRelacionArticuloProducto(String articleId, String sku, String currentParentId, String satnr,
 			java.util.Map<String, String> articleHigherLevelProduct,
 			java.util.Map<String, String> articleHigherLevelProductNotReadyYet, DataRequestor dr) {
-		if (articleId == null || "".equals(articleId) || "null".equals(articleId)) {
-			return null;
+		String parentId = conciliaRelacionArticuloProducto(
+				articleId, sku, currentParentId, satnr, articleHigherLevelProductNotReadyYet, dr);
+		if (parentId != null && articleHigherLevelProduct != null) {
+			articleHigherLevelProduct.put(articleId, parentId);
 		}
-
-		if (satnr == null || "".equals(satnr)) {
-			log("No se puede conciliar padre de variante porque SATNR viene vacío. articleId=" + articleId + ", sku="
-					+ sku);
-			return null;
-		}
-
-		String targetParentId = null;
-		log("Entramos a ver por " + articleId + ", con su satnr: " + satnr);
-		targetParentId = resolveProductIdBySku(satnr, dr);
-		;
-		log("Resolvió a: " + targetParentId);
-
-		if (targetParentId == null || "".equals(targetParentId)) {
-			log("No pude con el targetParentId, preguntando por SKU");
-			String response = dr.productBySKU(new org.json.JSONArray().put(satnr));
-			log("Resultado: " + response);
-			if (response != null) {
-				try {
-					org.json.JSONObject jr = new org.json.JSONObject(response);
-					org.json.JSONArray items = jr.getJSONArray("items");
-					if (items.length() > 0 && !"".equals(items.getString(0))) {
-						targetParentId = items.getString(0);
-					}
-				} catch (org.json.JSONException e) {
-					logE(e);
-				}
-			}
-		}
-
-		if (targetParentId == null || "".equals(targetParentId)) {
-			String[] p360Parent = tools.checkProductBySKUOnP360(satnr);
-			log("Preguntando a P360...");
-			if (p360Parent != null) {
-				targetParentId = p360Parent[0];
-			}
-			log("Obtuvimos: " + targetParentId);
-		}
-
-		if (targetParentId == null || "".equals(targetParentId)) {
-			articleHigherLevelProductNotReadyYet.put(articleId, satnr);
-			log("Padre pendiente. articleId=" + articleId + ", sku=" + sku + ", satnr=" + satnr);
-			return null;
-		}
-
-		if (currentParentId == null || "".equals(currentParentId) || "null".equals(currentParentId)) {
-			String response = dr.getProductByVariant(new org.json.JSONArray().put(articleId));
-			if (response != null) {
-				try {
-					org.json.JSONObject jr = new org.json.JSONObject(response);
-					org.json.JSONArray items = jr.getJSONArray("items");
-					if (items.length() > 0 && !"".equals(items.getString(0))) {
-						currentParentId = items.getString(0);
-					}
-				} catch (org.json.JSONException e) {
-					logE(e);
-				}
-			}
-		}
-
-		if (currentParentId != null && !"".equals(currentParentId) && !"null".equals(currentParentId)
-				&& !targetParentId.equals(currentParentId)) {
-			java.util.Map<String, String> qp = new java.util.HashMap<>();
-			log("Now deleting current article relationship to current parent (" + articleId + " || " + currentParentId
-					+ " || " + targetParentId + ")");
-			qp.put("items", "'" + articleId + "'@1");
-			rw.deleteData("list", "Article", "ProductReference", "byItems", qp, this::log);
-			log("Se quitó relación anterior de Article. articleId=" + articleId + ", oldParent=" + currentParentId
-					+ ", newParent=" + targetParentId);
-		}
-
-		articleHigherLevelProduct.put(articleId, targetParentId);
-
-		org.json.JSONArray items = new org.json.JSONArray();
-		items.put(new org.json.JSONObject().put("supplierAID", articleId).put("sku", sku).put("productNo",
-				targetParentId));
-
-		log("From conciliación: " + dr.putSkuSupplierAID(items));
-
-		return targetParentId;
+		return parentId;
 	}
 
 	private String resolveProductIdBySku(String sku, DataRequestor dr) {
@@ -2070,18 +1986,12 @@ public class ParseJana122Response implements SimpleLog {
 	}
 
 	private void resolveVariantParent(String znprst, String pid, String satnr) {
-		String[] pinf = tools.checkProductBySKU(satnr);
-		if (pinf != null && pid != null && !pid.equals(pinf[0])) {
-			if ("00".equals(pinf[1])) {
-				java.util.Map<String, String> qp = new java.util.HashMap<>();
-				qp.put("items", "'" + znprst + "'@1");
-				rw.deleteData("list", "Article", "ProductReference", "byItems", qp, this::log);
-			}
-		} else {
-			java.util.Map<String, String> qp = new java.util.HashMap<>();
-			qp.put("items", "'" + znprst + "'@1");
-			rw.deleteData("list", "Article", "ProductReference", "byItems", qp, this::log);
-		}
+		/*
+		 * No se borra ProductReference aquí. La conciliación conservadora posterior
+		 * conserva el padre actual y sólo usa SATNR cuando el Article está huérfano.
+		 */
+		log("resolveVariantParent conservador: no se elimina relación existente. articleId="
+				+ znprst + ", currentParent=" + pid + ", satnr=" + satnr);
 	}
 
 	private String chooseProperProductZNPRST(String sku, String znprst) {
@@ -2151,8 +2061,8 @@ public class ParseJana122Response implements SimpleLog {
 			return decision;
 		}
 
-		decision.shouldMerge = true;
-		decision.reason = "Merge allowed. winner=" + winner + ", loser=" + loser;
+		decision.shouldMerge = false;
+		decision.reason = "Logical unification only; destructive merge disabled. winner=" + winner + ", loser=" + loser;
 
 		return decision;
 	}
@@ -2161,15 +2071,12 @@ public class ParseJana122Response implements SimpleLog {
 		int currentRank = originRank(currentId);
 		int existingRank = originRank(existingId);
 
-		if (existingRank > currentRank) {
-			return existingId;
-		}
-
 		if (currentRank > existingRank) {
 			return currentId;
 		}
 
-		return currentId;
+		/* En empate o si el incoming es peor, conserva el ID que ya tenía el MATNR. */
+		return existingId;
 	}
 
 	private int originRank(String id) {
@@ -2181,12 +2088,12 @@ public class ParseJana122Response implements SimpleLog {
 			return 3; // P360
 		}
 
-		if (id.startsWith("S")) {
-			return 2; // STEP
+		if (id.startsWith("LVP") || id.startsWith("SBB")) {
+			return 1; // prototipo/local fallback
 		}
 
-		if (id.startsWith("SBB")) {
-			return 1; // SAP/local fallback
+		if (id.startsWith("S")) {
+			return 2; // STEP
 		}
 
 		return 0;
@@ -2405,7 +2312,6 @@ public class ParseJana122Response implements SimpleLog {
 
 	private void collectNumberOfImages(String productId, String fotosTomaLiverpool) {
 		int lacuenta = 0;
-		DataRequestor dr = new DataRequestor();
 		String rsp = dr.getProductData( new org.json.JSONArray().put( productId ));
 		org.json.JSONObject jr = new org.json.JSONObject(rsp);
 		org.json.JSONArray items = jr.getJSONArray("items");

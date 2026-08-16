@@ -56,30 +56,31 @@ public class ReplayECC122FromIndex {
             return;
         }
 
-        ParseECC122Response parser = new ParseECC122Response();
+        try(ParseECC122Response parser = new ParseECC122Response()){
 
-        System.out.println("Preparando caches/material ECC...");
-        parser.prepareLocalReplay();
-
-        int processedFiles = 0;
-
-        for (Map.Entry<Path, Set<String>> entry : skusByFile.entrySet()) {
-            Path xmlPath = entry.getKey();
-
-            System.out.println("Procesando archivo: " + xmlPath + " | SKUs solicitados en este archivo: " + entry.getValue().size());
-
-            try {
-                parser.processFile(xmlPath, null, null);
-                processedFiles++;
-            } catch (ParserConfigurationException | SAXException | IOException e) {
-                System.out.println("Error procesando archivo: " + xmlPath);
-                e.printStackTrace();
-            }
+	        System.out.println("Preparando caches/material ECC...");
+	        parser.prepareLocalReplay();
+	
+	        int processedFiles = 0;
+	
+	        for (Map.Entry<Path, Set<String>> entry : skusByFile.entrySet()) {
+	            Path xmlPath = entry.getKey();
+	
+	            System.out.println("Procesando archivo: " + xmlPath + " | SKUs solicitados en este archivo: " + entry.getValue().size());
+	
+	            try {
+	                parser.processFile(xmlPath, null, null);
+	                processedFiles++;
+	            } catch (ParserConfigurationException | SAXException | IOException e) {
+	                System.out.println("Error procesando archivo: " + xmlPath);
+	                e.printStackTrace();
+	            }
+	        }
+	
+	        parser.flushPendingWrites();
+	
+	        System.out.println("Terminé. Archivos procesados: " + processedFiles);
         }
-
-        parser.flushPendingWrites();
-
-        System.out.println("Terminé. Archivos procesados: " + processedFiles);
     }
 
     private Map<Path, Set<String>> resolveFilesStreaming(

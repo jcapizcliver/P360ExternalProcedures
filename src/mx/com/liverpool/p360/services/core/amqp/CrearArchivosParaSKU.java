@@ -1,5 +1,6 @@
 package mx.com.liverpool.p360.services.core.amqp;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -41,6 +42,8 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.xml.sax.SAXException;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
@@ -48,12 +51,27 @@ import mx.com.liverpool.p360.services.core.ServiceUnavailableException;
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 import mx.com.liverpool.p360.services.xmlutils.XMLMisc;
 
-public class CrearArchivosParaSKU {
+public class CrearArchivosParaSKU implements Closeable {
 
 	private final RESTWrapper rw = new RESTWrapper();
 	private final RESTWorkshop workshop = rw.getRw();
 	private final XMLMisc xmm = workshop.getXmm();
 	private final java.util.Map<String, java.util.LinkedList< org.json.JSONObject >> characteristicsMap = new java.util.TreeMap<>();
+	
+	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			CrearArchivosParaSKU.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			CrearArchivosParaSKU.this.log(message);
+		}
+	} );
+	
+	private final DataRequestor dr = new DataRequestor(dastub);
 
     private static final String HOST = PropertiesManager.get( "p360.contingency.ecc.host" ); 
     private static final String HOST_SBB = PropertiesManager.get( "p360.contingency.s4h.host" );
@@ -1183,39 +1201,84 @@ public class CrearArchivosParaSKU {
 				;
 	}
 
-	private java.util.Map<String, String> seleccionaLasDesas(String business){
-		java.util.Map<String, String> lasdesas = new java.util.TreeMap<>();
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("lookup", "'Characteristics'");
-		qp.put("query", "LookupValueReference.LookupValues('AttributeGroup')->LookupValue.Code in (\"" + ("SBB".equals(business) ? "CategorySpecificAttributesS4H" : "CategorySpecificAttributesSAP") + "\")");
-		qp.put("fields", "LookupValue.Code,LookupValueIdentifier.Code(" + ("SBB".equals(business) ? "S4HANA" : "ECC") + ")");
-		qp.put("pageSize", "250");
+	private java.util.Map<String, String> seleccionaLasDesas(String business) {
 
-		int currentIndex = 0;
-		int totalSize = 0;
-		try {
-			do {
-				qp.put("startIndex", String.valueOf(currentIndex));
-				response = workshop.makeRequest("GET", "/list/LookupValue/bySearch", qp, null);
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for(int i=0; i<rows.length(); i++) {
-					currentIndex++;
-					values = rows.getJSONObject(i).getJSONArray("values");
-					lasdesas.put(values.getString(0),values.getString(1));
-				}
-			}while(currentIndex < totalSize);
-			currentIndex = 0;
-		}catch(org.json.JSONException e) {
-			log(workshop.getRawResponse());
-			logE(e);
-			return null;
+		java.util.Map<String, String> lasdesas = new java.util.TreeMap<>();
+
+		String attributeGroup =
+				"SBB".equals(business)
+					? "CategorySpecificAttributesS4H"
+					: "CategorySpecificAttributesSAP";
+
+		String externalSystem =
+				"SBB".equals(business)
+					? "S4HANA"
+					: "ECC";
+
+		java.util.Map<String, java.util.Set<String>> groups =
+				dastub.getSourceLookupValueCodesByReferencedLookupValueCodes(
+						"Characteristics",
+						"AttributeGroup",
+						java.util.Collections.singletonList(attributeGroup));
+
+		java.util.Set<String> characteristics = groups.get(attributeGroup);
+
+		if (characteristics == null || characteristics.isEmpty()) {
+			return lasdesas;
 		}
+
+		for (org.json.JSONObject row :
+				dastub.getLookupValueCodeNameExternalCodeRows(
+						"Characteristics",
+						10,
+						externalSystem,
+						true)) {
+
+			String code = row.optString("code", "");
+
+			if (characteristics.contains(code)) {
+				lasdesas.put(
+						code,
+						row.optString("externalCode", ""));
+			}
+		}
+
 		return lasdesas;
 	}
+	
+//	private java.util.Map<String, String> seleccionaLasDesas(String business){
+//		java.util.Map<String, String> lasdesas = new java.util.TreeMap<>();
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		org.json.JSONArray values = null;
+//		java.util.Map<String, String> qp = new java.util.TreeMap<>();
+//		qp.put("lookup", "'Characteristics'");
+//		qp.put("query", "LookupValueReference.LookupValues('AttributeGroup')->LookupValue.Code in (\"" + ("SBB".equals(business) ? "CategorySpecificAttributesS4H" : "CategorySpecificAttributesSAP") + "\")");
+//		qp.put("fields", "LookupValue.Code,LookupValueIdentifier.Code(" + ("SBB".equals(business) ? "S4HANA" : "ECC") + ")");
+//		qp.put("pageSize", "250");
+//
+//		int currentIndex = 0;
+//		int totalSize = 0;
+//		try {
+//			do {
+//				qp.put("startIndex", String.valueOf(currentIndex));
+//				response = workshop.makeRequest("GET", "/list/LookupValue/bySearch", qp, null);
+//				totalSize = response.getInt("totalSize");
+//				rows = response.getJSONArray("rows");
+//				for(int i=0; i<rows.length(); i++) {
+//					currentIndex++;
+//					values = rows.getJSONObject(i).getJSONArray("values");
+//					lasdesas.put(values.getString(0),values.getString(1));
+//				}
+//			}while(currentIndex < totalSize);
+//			currentIndex = 0;
+//		}catch(org.json.JSONException e) {
+//			log(workshop.getRawResponse());
+//			logE(e);
+//			return null;
+//		}
+//		return lasdesas;
+//	}
 
 	private String dqGeneralTreatment(String input) {
 		return input == null || "".equals(input) ? input : 
@@ -1634,7 +1697,7 @@ public class CrearArchivosParaSKU {
 	}
 
 	public static void main(String[] args) throws ServiceUnavailableException {
-		CrearArchivosParaSKU creati = new CrearArchivosParaSKU();
+		try(CrearArchivosParaSKU creati = new CrearArchivosParaSKU()){
 //		String a[] = ("1754611671031441\r\n"
 //				+ "1754611671028552").split("\\r\\n");
 //		for(String a0 : a) {
@@ -1647,8 +1710,11 @@ public class CrearArchivosParaSKU {
 //			}
 //		}
 
-		new Thread(creati::run).start();
-		creati.process(args[0], args[1], args[2]);
+			new Thread(creati::run).start();
+			creati.process(args[0], args[1], args[2]);
+		} catch (java.io.IOException e) {
+			e.printStackTrace();
+		}
 		
 	}
 	
@@ -1837,7 +1903,6 @@ public class CrearArchivosParaSKU {
 	private String[] checkProductWrapper(String id) {
 		String[] data = checkProduct(id);
 		if(data != null && "00".equals(data[0]) && "".equals(data[2])) {
-			DataRequestor dr = new DataRequestor();
 			java.util.Set<String> varSet = dr.getVariants(id);
 			if(varSet.size() == 1) {
 				String rr = dr.getArticleData(new org.json.JSONArray().put(new java.util.ArrayList<>(varSet).get(0)));
@@ -1854,7 +1919,6 @@ public class CrearArchivosParaSKU {
 	}
 	
 	private String[] checkProduct(String id) {
-		DataRequestor dr = new DataRequestor();
 		try {
 				String resp = dr.getProductData(new org.json.JSONArray().put(id));
 				if(resp != null) {
@@ -2100,12 +2164,17 @@ public class CrearArchivosParaSKU {
 //		System.out.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()))+ "]  " + message);
     }
 
-    private static void logE(Exception ex) {
+    private void logE(Exception ex) {
         try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
                 new java.io.FileOutputStream("../logs/activeMQToSKUCreation.log", true)))) {
             ex.printStackTrace(pw);
         } catch (java.io.IOException e) {
         }
     }
+
+	@Override
+	public void close() throws IOException {
+		dastub.close();
+	}
 
 }

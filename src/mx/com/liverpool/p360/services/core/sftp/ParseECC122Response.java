@@ -1,6 +1,7 @@
 package mx.com.liverpool.p360.services.core.sftp;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
@@ -35,6 +36,8 @@ import org.apache.sshd.sftp.client.SftpClient.DirEntry;
 import org.apache.sshd.sftp.client.SftpClientFactory;
 import org.xml.sax.SAXException;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.PubSubGCP;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
@@ -49,8 +52,23 @@ import mx.com.liverpool.p360.services.core.sftp.handlers.Product122;
 import mx.com.liverpool.p360.services.core.sftp.handlers.Value;
 import mx.com.liverpool.p360.services.core.temp.exports.RealExportProductsExpressOMS;
 
-public class ParseECC122Response extends Thread implements SimpleLog {
+public class ParseECC122Response extends Thread implements SimpleLog, Closeable {
 
+	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			ParseECC122Response.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			ParseECC122Response.this.log(message);
+		}
+	} );
+	
+	private final DataRequestor dr = new DataRequestor(dastub);
+	
 	private static final RESTWrapper rw = new RESTWrapper();
 	private static final RESTWorkshop workshop = rw.getRw();
 	private static final String BASE_URL = workshop.getBaseUrl();
@@ -70,24 +88,30 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	        PropertiesManager.get("p360.contingency.gcp.post_products_topic")
 	);
 	
-	private static final java.util.Map<String, String> charIDToECC = new java.util.TreeMap<>();
-	private static final java.util.Map<String, String> eccToCharID = new java.util.TreeMap<>();
-	private static final java.util.LinkedList<String> product2GCharacteristics = new java.util.LinkedList<>();
-	private static final java.util.LinkedList<String> articleCharacteristics = new java.util.LinkedList<>();
-	private static final java.util.Map<String, String> articleHigherLevelProduct = new java.util.TreeMap<>();
-	private static final java.util.Map<String, String> articleSupplierAIDToSKU = new java.util.TreeMap<>();
-	private static final java.util.Map<String, String> skuToArticleSupplierAID = new java.util.TreeMap<>();
-	private static final java.util.List<String> variantesConImagen = new java.util.ArrayList<>();
-	private static final java.util.List<String> propuestasRevisadas = new java.util.ArrayList<>();
+	private final java.util.Map<String, String> charIDToECC = new java.util.TreeMap<>();
+	private final java.util.Map<String, String> eccToCharID = new java.util.TreeMap<>();
+	private final java.util.Map<String, String> eccDataTypes = new java.util.TreeMap<>();
+	private final java.util.LinkedList<String> product2GCharacteristics = new java.util.LinkedList<>();
+	private final java.util.LinkedList<String> articleCharacteristics = new java.util.LinkedList<>();
+	private final java.util.Map<String, String> canonicalProductBySku = new java.util.HashMap<>();
+	private final java.util.Map<String, String> canonicalArticleBySku = new java.util.HashMap<>();
+	private final java.util.Set<String> queuedProductAltIds = new java.util.HashSet<>();
+	private final java.util.Set<String> queuedArticleAltIds = new java.util.HashSet<>();
+	private final java.util.Map<String, String[]> pendingProductRetirements = new java.util.LinkedHashMap<>();
+	private final java.util.Map<String, String[]> pendingArticleRetirements = new java.util.LinkedHashMap<>();
+	private final java.util.Map<String, String> articleHigherLevelProduct = new java.util.TreeMap<>();
+	private final java.util.Map<String, String> articleSupplierAIDToSKU = new java.util.TreeMap<>();
+	private final java.util.Map<String, String> skuToArticleSupplierAID = new java.util.TreeMap<>();
+	private final java.util.List<String> variantesConImagen = new java.util.ArrayList<>();
+	private final java.util.List<String> propuestasRevisadas = new java.util.ArrayList<>();
 
     private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
 	
-
-	private static final ParseECCAttributesFile attp = new ParseECCAttributesFile();
+	private final ParseECCAttributesFile attp = new ParseECCAttributesFile();
 	
 	private final java.util.List<String> pids = new java.util.ArrayList<>(); 
 	
-	private static final ParsersTools tools = new ParsersTools(new SimpleLog() {
+	private final ParsersTools tools = new ParsersTools(new SimpleLog() {
 		
 		@Override
 		public final void log(String message) {
@@ -107,7 +131,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 			} catch (java.io.IOException e) {
 			}
 		}
-	});
+	}, dr);
 	
 	@Override
 	public void run() {
@@ -144,6 +168,16 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 			.put(new org.json.JSONObject().put("identifier", "Article.SKU"))
 			;
 	private final org.json.JSONObject requestSKUA = new org.json.JSONObject().put("columns", columnsSKUA).put("rows", rowsSKUA);
+
+	private final org.json.JSONArray rowsAltProductNo = new org.json.JSONArray();
+	private final org.json.JSONObject requestAltProductNo = new org.json.JSONObject()
+			.put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2G.AltProductNo")))
+			.put("rows", rowsAltProductNo);
+
+	private final org.json.JSONArray rowsSupplierAltAID = new org.json.JSONArray();
+	private final org.json.JSONObject requestSupplierAltAID = new org.json.JSONObject()
+			.put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Article.SupplierAltAID")))
+			.put("rows", rowsSupplierAltAID);
 	
     private final org.json.JSONArray rows = new org.json.JSONArray();
     private final org.json.JSONArray columns = new org.json.JSONArray()
@@ -182,132 +216,80 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 
 	private boolean running = true;
 	
-	static {
-		if(java.nio.file.Files.notExists(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory")))) {
-			try{
-				java.nio.file.Files.createDirectories(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory")));
-			}catch(java.io.IOException e) {
-				e.printStackTrace();
-			}
-		}
-		if(java.nio.file.Files.notExists(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache"))) {
-			try{
-				java.nio.file.Files.createDirectories(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache"));
-			}catch(java.io.IOException e) {
-				e.printStackTrace();
-			}
-		}
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("fields", 
-				   "Characteristic.Identifier"
-				+ ",Characteristic.DataType"
-				+ ",CharacteristicIdentifier.AlternativeIdentifier(ECC)"
-				+ ",CharacteristicIdentifier.AlternativeIdentifier(S4HANA)"
-				+ ",CharacteristicIdentifier.AlternativeIdentifier(ATG)"
-				+ ",Characteristic.Lookup->Lookup.Identifier"
-			);
-		qp.put("query", "Characteristic.IsActive = true and not Characteristic.Entities is empty and Characteristic.ParentCharacteristic is empty and not Characteristic.DataType = \"NONE\"");
-		qp.put("pageSize", "5000");
-		try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "characteristics").toString())))){
-			rw.collectData("list", "Characteristic", null, "bySearch", qp, row -> pw.println( workshop.serializeChunk(new Object[] { 
-					 row.getJSONArray("values").getString(0)
-					,row.getJSONArray("values").getString(1)
-					,row.getJSONArray("values").getString(2)
-					,row.getJSONArray("values").getString(3)
-					,row.getJSONArray("values").getString(4)
-					,row.getJSONArray("values").getString(5)
-				}, "\"", ";", "\\") ), System.out::println);
-		}catch(java.io.IOException e) {
-			e.printStackTrace();
-		}
-		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "characteristics").toFile()), java.nio.charset.StandardCharsets.UTF_8))){
-			String line = null;
-			String[] pcs = null;
-			while((line = br.readLine()) != null) {
-				pcs = workshop.parseLine(line, "\"", ";", "\\");
-				if(pcs.length > 2) {
-					charIDToECC.put(pcs[0], pcs[2]);
-					eccToCharID.put(pcs[2], pcs[0]);
-				}
-			}
-		}catch(java.io.IOException e) {
-			e.printStackTrace();
-		}
-		qp.clear();
-		qp.put("fields", "Characteristic.Identifier,Characteristic.Entities");
-		qp.put("query", "Characteristic.ParentCharacteristic is empty and not Characteristic.DataType = \"NONE\"");
-		qp.put("pageSize", "10000");
-		try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "characteristic_entities").toFile())))){
-			rw.collectData("list", "Characteristic", null, "bySearch", qp, row->{
-				org.json.JSONArray entities = row.getJSONArray("values").getJSONArray(1);
-				java.util.LinkedList<String> entitiesList = new java.util.LinkedList<>();
-				for(int i=0; i<entities.length(); i++) {
-					entitiesList.addLast(entities.getString(i));
-				}
-				pw.println( rw.getRw().serializeChunk( new String[] { row.getJSONArray("values").getString(0), rw.getRw().serializeChunk( entitiesList.toArray(new String[] {}) ) }, "\"", ";", "\\" ) );
-			}, System.out::println);
-		}catch(java.io.IOException e) {
-			e.printStackTrace();
-		}
-		tools.collectCharacteristicsByEntity(product2GCharacteristics, articleCharacteristics);
-	}
-	
 	private void cargaLasCosas() {
 		long init = System.currentTimeMillis();
 		log("Material refresh...");
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("fields", 
-				   "Characteristic.Identifier"
-				+ ",Characteristic.DataType"
-				+ ",CharacteristicIdentifier.AlternativeIdentifier(ECC)"
-				+ ",CharacteristicIdentifier.AlternativeIdentifier(S4HANA)"
-				+ ",CharacteristicIdentifier.AlternativeIdentifier(ATG)"
-				+ ",Characteristic.Lookup->Lookup.Identifier"
-			);
-		qp.put("query", "Characteristic.IsActive = true and not Characteristic.Entities is empty and Characteristic.ParentCharacteristic is empty and not Characteristic.DataType = \"NONE\"");
-		qp.put("pageSize", "5000");
-		try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "characteristics").toString())))){
-			rw.collectData("list", "Characteristic", null, "bySearch", qp, row -> pw.println( workshop.serializeChunk(new Object[] { 
-					 row.getJSONArray("values").getString(0)
-					,row.getJSONArray("values").getString(1)
-					,row.getJSONArray("values").getString(2)
-					,row.getJSONArray("values").getString(3)
-					,row.getJSONArray("values").getString(4)
-					,row.getJSONArray("values").getString(5)
-				}, "\"", ";", "\\") ), System.out::println);
-		}catch(java.io.IOException e) {
-			e.printStackTrace();
-		}
-		collectLookupCharacteristics(dataTypes, lkps);
+		ensureLocalCacheDirectories();
+
+		/* El cache raíz se conserva; el universo ECC se refresca aparte. */
+		refreshEccMetadata();
+
+		dataTypes.clear();
+		lkps.clear();
+		dastub.collectLookupCharacteristics(dataTypes, lkps);
 		for(java.util.Map.Entry<String, String> entry : dataTypes.entrySet()) {
-			tools.collectLookupValues(lkps.get( entry.getKey() ), map, mapB, entry.getValue());
+			tools.collectLookupValues(lkps.get(entry.getKey()), map, mapB, entry.getValue());
 		}
 		articleHigherLevelProduct.clear();
 		articleSupplierAIDToSKU.clear();
 		skuToArticleSupplierAID.clear();
 		variantesConImagen.clear();
 		propuestasRevisadas.clear();
-		qp = new java.util.HashMap<>();
-		qp.put("fields", 
-				   "Article.SupplierAID"
-				+ ",ArticleCharacteristicValueLang.Value('ProductImage',\"0000.0000.RK\",\"0000.0000.RK\",'ProductImage_URL',-1)"
-				+ ",ArticleCharacteristicValueLang.Value('ProductImageDetail',\"0000.0000.RK\",\"0000.0000.RK\",'ProductImageDetail_URL',-1)"
-			);
-		qp.put("query", "Article.CurrentStatus = \"Creación de SKU\"");
-		qp.put("pageSize", "10000");
-		try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.nio.file.Paths.get("/", "u01", "stage", "cache", "SKUCreationWithImages").toFile()), java.nio.charset.StandardCharsets.UTF_8))){
-			rw.collectData("list", "Article", null, "bySearch", qp, row -> {
-				org.json.JSONArray values = row.getJSONArray("values");
-				if(!"".equals(values.getJSONArray(1).getString(0)) || !"".equals(values.getJSONArray(2).getString(0)))
-					variantesConImagen.add(values.getString(0));
-					pw.println( values.getString(0) );
-			});
-		}catch(java.io.IOException e) {
-			logE(e);
-		}
+		canonicalProductBySku.clear();
+		canonicalArticleBySku.clear();
+		queuedProductAltIds.clear();
+		queuedArticleAltIds.clear();
+		pendingProductRetirements.clear();
+		pendingArticleRetirements.clear();
+
 		log("Refreshed took (main): " + rw.getRw().formatTime(System.currentTimeMillis() - init));
 	}
 	
+
+	private void ensureLocalCacheDirectories() {
+		try {
+			java.nio.file.Path base = java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"));
+			java.nio.file.Files.createDirectories(base);
+			java.nio.file.Files.createDirectories(base.resolve("cache"));
+			java.nio.file.Files.createDirectories(java.nio.file.Paths.get("/", "u01", "stage", "cache"));
+		}catch(java.io.IOException e) {
+			logE(e);
+		}
+	}
+
+	private void refreshEccMetadata() {
+		charIDToECC.clear();
+		eccToCharID.clear();
+		eccDataTypes.clear();
+		product2GCharacteristics.clear();
+		articleCharacteristics.clear();
+
+		for (org.json.JSONObject row : dastub.getEccCharacteristicMetadataRows()) {
+
+			String characteristicId = row.optString("characteristic", "");
+			String dataType = row.optString("dataType", "");
+			String eccId = row.optString("ecc", "");
+
+			if (characteristicId.isEmpty() || eccId.isEmpty()) {
+				continue;
+			}
+
+			charIDToECC.put(characteristicId, eccId);
+			eccToCharID.put(eccId, characteristicId);
+			eccDataTypes.put(characteristicId, dataType);
+
+			if (row.optBoolean("product2G", false)) {
+				product2GCharacteristics.addLast(characteristicId);
+			}
+
+			if (row.optBoolean("article", false)) {
+				articleCharacteristics.addLast(characteristicId);
+			}
+		}
+
+		log("ECC metadata refreshed. mappings=" + eccToCharID.size() + ", product2G=" + product2GCharacteristics.size() + ", article=" + articleCharacteristics.size());
+	}
+
     private void launchListenerThread() {
 		Thread t = new Thread(()->{
 			while(running) {
@@ -341,26 +323,29 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	}
 
     public static void main(String[] args) {
-    	if(args.length > 1 && "demo".equals(args[0])) {
-    		ParseECC122Response parse = new ParseECC122Response();
-        	parse.cargaLasCosas();
-        	attp.cargaLasCosas();
-    		try {
-				parse.processFile(java.nio.file.Paths.get(args[1]), null, null);
-			} catch (ServiceUnavailableException | ParserConfigurationException | SAXException | IOException e) {
-				e.printStackTrace();
-			}
-    		parse.sendData();
-    	}else {
-	    	ParseECC122Response object = new ParseECC122Response();
-	    	Runtime.getRuntime().addShutdownHook(object);
-	    	object.launchListenerThread();
-	    	try {
-				object.runOnSftp();
-			} catch (ParserConfigurationException | SAXException e) {
-				e.printStackTrace();
-			}
-    	}
+    	try(ParseECC122Response parse = new ParseECC122Response()){
+	    	if(args.length > 1 && "demo".equals(args[0])) {
+	        	parse.cargaLasCosas();
+	        	parse.attp.cargaLasCosas();
+	        	parse.attp.setMetadataCache(parse.eccToCharID, parse.charIDToECC, parse.product2GCharacteristics, parse.articleCharacteristics, parse.eccDataTypes);
+	    		try {
+					parse.processFile(java.nio.file.Paths.get(args[1]), null, null);
+				} catch (ServiceUnavailableException | ParserConfigurationException | SAXException | IOException e) {
+					e.printStackTrace();
+				}
+	    		parse.sendData();
+	    	}else {
+		    	Runtime.getRuntime().addShutdownHook(parse);
+		    	parse.launchListenerThread();
+		    	try {
+		    		parse.runOnSftp();
+				} catch (ParserConfigurationException | SAXException e) {
+					e.printStackTrace();
+				}
+	    	}
+    	} catch (java.io.IOException e1) {
+			e1.printStackTrace();
+		}
     }
     
 
@@ -397,6 +382,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
     public void prepareLocalReplay() {
         cargaLasCosas();
         attp.cargaLasCosas();
+        attp.setMetadataCache(eccToCharID, charIDToECC, product2GCharacteristics, articleCharacteristics, eccDataTypes);
     }
 
     public void flushPendingWrites() {
@@ -467,7 +453,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	                                entries.add(e);
 	                            }
 	                            java.util.Map<Long, java.util.List<DirEntry>> byTs = new java.util.TreeMap<>();
-	                            for (DirEntry e : entriesIt) {
+	                            for (DirEntry e : entries) {
 	                                long ts = extractTsFromNameMillis(e.getFilename());
 	                                if (ts < 0) ts = eventTimeMillis(e);
 	                                byTs.computeIfAbsent(ts, k -> new java.util.ArrayList<>()).add(e);
@@ -496,13 +482,16 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 							                                    eccToCharID,
 							                                    charIDToECC,
 							                                    product2GCharacteristics,
-							                                    articleCharacteristics
+							                                    articleCharacteristics,
+													        eccDataTypes
 							                            );
 							                        	laPrimeraBez = false;
 							                        }
 					                            	processFile(java.nio.file.Paths.get(filePath), out, sftp);
 					                    		} catch (ParserConfigurationException | SAXException | IOException e) {
 					                    			logE(e);
+					                    			log("No se elimina remoto porque falló el procesamiento: " + name);
+					                    			continue;
 					                    		}
 					                            sftp.remove(filePath);
 		
@@ -536,7 +525,8 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 					                                    eccToCharID,
 					                                    charIDToECC,
 					                                    product2GCharacteristics,
-					                                    articleCharacteristics
+					                                    articleCharacteristics,
+													        eccDataTypes
 					                            );
 					                        	laPrimeraBez = false;
 					                        }
@@ -553,7 +543,9 @@ public class ParseECC122Response extends Thread implements SimpleLog {
  							                        log("(Attributes) Processing: " + name);
  					                            	attp.processFile(handler.getCollected());
  					                    		} catch (ParserConfigurationException | SAXException | IOException e) {
- 					                    			e.printStackTrace();
+ 					                    			logE(e);
+ 					                    			log("No se elimina remoto porque falló el procesamiento: " + name);
+ 					                    			continue;
  					                    		}
  					                            sftp.remove(filePath);
  		
@@ -704,12 +696,11 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 			supplier = attributeValues.get( "LIFNR" );
 			modelo = attributeValues.get( "IDNLF" );
 			if(znprst != null && sku != null) {
-				articleSupplierAIDToSKU.put(sku, znprst);
-				skuToArticleSupplierAID.put(znprst, sku);
+				articleSupplierAIDToSKU.put(znprst, sku);
+				skuToArticleSupplierAID.put(sku, znprst);
 			}
 			String externalId = null;
 			String entity = null;
-			DataRequestor dr = new DataRequestor();
 			
 			if(znprst != null && !"".equals(znprst)) {
 				externalId = znprst;
@@ -722,8 +713,15 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 				if( info == null ) {
 					info = tools.checkArticle(znprst);
 					if( info != null ) {
-						resuelveEmpateDeArticulo(sku, znprst);
-						if(!"".equals(satnr) && satnr != null) {
+						znprst = resuelveEmpateDeArticulo(sku, znprst);
+						externalId = znprst;
+						info = tools.checkArticle(znprst);
+						if(info == null) {
+							log("No se pudo releer Article canónico después de resolver SKU. id=" + znprst + ", sku=" + sku);
+							entity = null;
+							continue;
+						}
+						if(satnr != null && !"".equals(satnr)) {
 							conciliaRelacionArticuloProducto(
 							        znprst,
 							        sku,
@@ -1191,11 +1189,11 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 				return;
 			}
 		}
+		flushPendingIdentityRetirements();
 		log("Writing relationships");
 		org.json.JSONArray items = new org.json.JSONArray();
 		org.json.JSONObject item = null;
 		String parentId = null;
-		DataRequestor dr = new DataRequestor();
 		for( java.util.Map.Entry<String, String> entry : articleHigherLevelProductNotReadyYet.entrySet() ) {
 			parentId = skuToArticleSupplierAID.get(entry.getValue());
 			if(parentId == null) {
@@ -1238,51 +1236,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	        java.util.Map<String, String> articleHigherLevelProductNotReadyYet,
 	        DataRequestor dr
 	) {
-	    if(articleId == null || "".equals(articleId) || "null".equals(articleId)) {
-	        return null;
-	    }
-
-	    if(satnr == null || "".equals(satnr)) {
-	        log("No se puede conciliar padre de variante porque SATNR viene vacío. articleId=" + articleId + ", sku=" + sku);
-	        return null;
-	    }
-
-	    String targetParentId = null;
-	    log("Entramos a ver por " + articleId + ", con su satnr: " + satnr);
-	    targetParentId = resolveProductIdBySku(satnr, dr);;
-	    log("Resolvió a: " + targetParentId);
-
-	    if(targetParentId == null || "".equals(targetParentId)) {
-	    	log("No pude con el targetParentId, preguntando por SKU");
-	        String response = dr.productBySKU(new org.json.JSONArray().put(satnr));
-	        log("Resultado: " + response);
-	        if(response != null) {
-	            try {
-	                org.json.JSONObject jr = new org.json.JSONObject(response);
-	                org.json.JSONArray items = jr.getJSONArray("items");
-	                if(items.length() > 0 && !"".equals(items.getString(0))) {
-	                    targetParentId = items.getString(0);
-	                }
-	            } catch(org.json.JSONException e) {
-	                logE(e);
-	            }
-	        }
-	    }
-
-	    if(targetParentId == null || "".equals(targetParentId)) {
-//	        String[] p360Parent = tools.checkProductBySKUOnP360(satnr);
-//	        log("Preguntando a P360...");
-//	        if(p360Parent != null) {
-//	            targetParentId = p360Parent[0];
-//	        }
-	        log("Obtuvimos: " + targetParentId);
-	    }
-
-	    if(targetParentId == null || "".equals(targetParentId)) {
-	        articleHigherLevelProductNotReadyYet.put(articleId, satnr);
-	        log("Padre pendiente. articleId=" + articleId + ", sku=" + sku + ", satnr=" + satnr);
-	        return null;
-	    }
+	    if(articleId == null || "".equals(articleId) || "null".equals(articleId)) return null;
 
 	    if(currentParentId == null || "".equals(currentParentId) || "null".equals(currentParentId)) {
 	        String response = dr.getProductByVariant(new org.json.JSONArray().put(articleId));
@@ -1290,36 +1244,51 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	            try {
 	                org.json.JSONObject jr = new org.json.JSONObject(response);
 	                org.json.JSONArray items = jr.getJSONArray("items");
-	                if(items.length() > 0 && !"".equals(items.getString(0))) {
-	                    currentParentId = items.getString(0);
-	                }
+	                if(items.length() > 0 && !"".equals(items.getString(0))) currentParentId = items.getString(0);
 	            } catch(org.json.JSONException e) {
 	                logE(e);
 	            }
 	        }
 	    }
 
-	    if(currentParentId != null && !"".equals(currentParentId) && !"null".equals(currentParentId) && !targetParentId.equals(currentParentId)) {
-	        java.util.Map<String, String> qp = new java.util.HashMap<>();
-	        log("Now deleting current article relationship to current parent (" + articleId + " || " + currentParentId + " || " + targetParentId + ")");
-	        qp.put("items", "'" + articleId + "'@1");
-	        rw.deleteData("list", "Article", "ProductReference", "byItems", qp, this::log);
-	        log("Se quitó relación anterior de Article. articleId=" + articleId + ", oldParent=" + currentParentId + ", newParent=" + targetParentId);
+	    /* Si ya tenía padre, ese padre manda. SATNR ya no re-parenta. */
+	    if(currentParentId != null && !"".equals(currentParentId) && !"null".equals(currentParentId)) {
+	        if(satnr != null && !"".equals(satnr)) {
+	            String targetFromSatnr = resolveProductIdBySku(satnr, dr);
+	            if(targetFromSatnr != null && !currentParentId.equals(targetFromSatnr)) {
+	                log("Se conserva relación existente. articleId=" + articleId + ", sku=" + sku
+	                        + ", currentParent=" + currentParentId + ", SATNR resolvería a=" + targetFromSatnr);
+	            }
+	        }
+	        articleHigherLevelProduct.put(articleId, currentParentId);
+	        registerArticleParentInAdmin(articleId, sku, currentParentId, dr);
+	        return currentParentId;
+	    }
+
+	    if(satnr == null || "".equals(satnr)) {
+	        log("Artículo sin padre y sin SATNR. articleId=" + articleId + ", sku=" + sku);
+	        return null;
+	    }
+
+	    String targetParentId = resolveProductIdBySku(satnr, dr);
+	    if(targetParentId == null || "".equals(targetParentId)) {
+	        articleHigherLevelProductNotReadyYet.put(articleId, satnr);
+	        log("Padre pendiente. articleId=" + articleId + ", sku=" + sku + ", satnr=" + satnr);
+	        return null;
 	    }
 
 	    articleHigherLevelProduct.put(articleId, targetParentId);
-
-	    org.json.JSONArray items = new org.json.JSONArray();
-	    items.put(new org.json.JSONObject()
-	            .put("supplierAID", articleId)
-	            .put("sku", sku)
-	            .put("productNo", targetParentId));
-
-	    log("From conciliación: " + dr.putSkuSupplierAID(items));
-
+	    registerArticleParentInAdmin(articleId, sku, targetParentId, dr);
 	    return targetParentId;
 	}
 	
+
+	private void registerArticleParentInAdmin(String articleId, String sku, String productNo, DataRequestor dr) {
+		org.json.JSONArray items = new org.json.JSONArray();
+		items.put(new org.json.JSONObject().put("supplierAID", articleId).put("sku", sku).put("productNo", productNo));
+		log("From conciliación conservadora: " + dr.putSkuSupplierAID(items));
+	}
+
 	private String resolveProductIdBySku(String sku, DataRequestor dr) {
 	    if(sku == null || "".equals(sku)) {
 	        return null;
@@ -1339,12 +1308,6 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	            logE(e);
 	        }
 	    }
-
-//	    String[] p360Parent = tools.checkProductBySKUOnP360(sku);
-//
-//	    if(p360Parent != null) {
-//	        return p360Parent[0];
-//	    }
 
 	    return null;
 	}
@@ -1809,17 +1772,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	}
 	
 	private java.util.List<String> collectArticleObjectIdsByProduct(String productIdentifier) {
-	    java.util.Map<String, String> qp = new java.util.HashMap<>();
-	    qp.put("pageSize", "2000");
-	    qp.put("products", "'" + productIdentifier + "'@1");
-
-	    java.util.List<String> items = new java.util.ArrayList<>();
-
-	    rw.collectData("list", "Article", null, "byProducts", qp, row -> {
-	        items.add(row.getJSONObject("object").getString("id"));
-	    });
-
-	    return items;
+		return dastub.getArticleObjectIdsByProduct(productIdentifier);
 	}
 	
 	private void mergeArrayMissing(String sectionName, org.json.JSONArray targetArray, org.json.JSONArray sourceArray) {
@@ -2153,188 +2106,256 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	    return "";
 	}
 	
-//	private void resolveVariantParent(String znprst, String pid, String satnr) {
-//		String[] pinf = tools.checkProductBySKU(satnr);
-//		if(pinf != null && !pid.equals(pinf[0])) {
-//			if("00".equals(pinf[1])) {
-//				java.util.Map<String, String> qp = new java.util.HashMap<>();
-//				qp.put("items", "'" + znprst + "'@1");
-//				rw.deleteData("list", "Article", "ProductReference", "byItems", qp, this::log);
-//			}
-//		}else {
-//			java.util.Map<String, String> qp = new java.util.HashMap<>();
-//			qp.put("items", "'" + znprst + "'@1");
-//			rw.deleteData("list", "Article", "ProductReference", "byItems", qp, this::log);
-//		}
-//	}
-	
-	private String chooseProperProductZNPRST(String sku, String znprst) {
-		String chosenOne = znprst;
-		String[] info = tools.checkProductBySKU(sku);
-		String externalId = null;
-		if(info != null) {
-			externalId = info[0];
-			if(!znprst.equals(externalId) && (externalId.length() == 16 || (!externalId.startsWith("LVP")))) {
-				return externalId;
-			}
+	private String chooseProperProductZNPRST(String sku, String incomingId) {
+		if(isBlankId(sku) || isBlankId(incomingId)) return incomingId;
+
+		String existingId = canonicalProductBySku.get(sku);
+		if(isBlankId(existingId)) {
+			String[] info = tools.checkProductBySKU(sku);
+			existingId = info != null ? info[0] : null;
 		}
-		return chosenOne;
+		if(isBlankId(existingId)) {
+			canonicalProductBySku.put(sku, incomingId);
+			return incomingId;
+		}
+		if(existingId.equals(incomingId)) {
+			canonicalProductBySku.put(sku, existingId);
+			return existingId;
+		}
+
+		/* El objeto que ya tenía el MATNR registra el ID alterno que acaba de llegar. */
+		queueProductAltId(existingId, incomingId);
+
+		String winner = decideProductWinner(incomingId, existingId);
+		String loser = winner.equals(incomingId) ? existingId : incomingId;
+		if(winner.equals(incomingId)) {
+			retireProductSku(loser, winner, sku);
+			log("Product2G promovido por identificador de mayor prioridad. sku=" + sku + ", old=" + loser + ", new=" + winner);
+		}else {
+			retireProductSkuIfExists(loser, winner, sku);
+			log("Product2G existente conservado por MATNR. sku=" + sku + ", canonical=" + winner + ", incomingAlt=" + incomingId);
+		}
+		canonicalProductBySku.put(sku, winner);
+		return winner;
 	}
 	
-	private String chooseProperArticleZNPRST(String sku, String znprst) {
-		String chosenOne = znprst;
-		String externalId = tools.checkArticleBySKU(sku); log("Between " + znprst + " and " + externalId);
-		if(externalId != null && !znprst.equals(externalId) && (znprst.length() != 16 && externalId.length() == 16)) {
-			return externalId;
+	private String chooseProperArticleZNPRST(String sku, String incomingId) {
+		if(isBlankId(sku) || isBlankId(incomingId)) return incomingId;
+
+		String existingId = canonicalArticleBySku.get(sku);
+		if(isBlankId(existingId)) existingId = tools.checkArticleBySKU(sku);
+		log("Article identity for sku=" + sku + ": incoming=" + incomingId + ", existing=" + existingId);
+
+		if(isBlankId(existingId)) {
+			canonicalArticleBySku.put(sku, incomingId);
+			return incomingId;
 		}
-		return chosenOne;
+		if(existingId.equals(incomingId)) {
+			canonicalArticleBySku.put(sku, existingId);
+			return existingId;
+		}
+
+		queueArticleAltId(existingId, incomingId);
+		String winner = decideProductWinner(incomingId, existingId);
+		String loser = winner.equals(incomingId) ? existingId : incomingId;
+		if(winner.equals(incomingId)) {
+			retireArticleSku(loser, winner, sku, isPrototypeId(loser));
+			log("Article promovido por identificador de mayor prioridad. sku=" + sku + ", old=" + loser + ", new=" + winner);
+		}else {
+			retireArticleSkuIfExists(loser, winner, sku);
+			log("Article existente conservado por MATNR. sku=" + sku + ", canonical=" + winner + ", incomingAlt=" + incomingId);
+		}
+		canonicalArticleBySku.put(sku, winner);
+		return winner;
 	}
 	
 	private ProductMergeDecision resuelveEmpateDeProducto(String sku, String znprst) {
-	    ProductMergeDecision decision = new ProductMergeDecision();
-	    decision.productIdToUse = znprst;
-	    decision.shouldMerge = false;
-	    decision.manualReview = false;
-
-	    String[] info = tools.checkProductBySKU(sku);
-
-	    if(info == null) {
-	        decision.reason = "No existing Product2G by SKU";
-	        return decision;
-	    }
-
-	    String externalId = info[0];
-
-	    if(externalId == null || "".equals(externalId) || znprst.equals(externalId)) {
-	        decision.productIdToUse = znprst;
-	        decision.reason = "Same Product2G or empty existing";
-	        return decision;
-	    }
-
-	    String winner = decideProductWinner(znprst, externalId);
-	    String loser = winner.equals(znprst) ? externalId : znprst;
-
-	    decision.productIdToUse = winner;
-	    decision.id1 = winner;
-	    decision.id2 = loser;
-
-	    if(winner == null || loser == null) {
-	        decision.manualReview = true;
-	        decision.reason = "Could not decide winner";
-	        return decision;
-	    }
-
-	    if(isSameOriginUnsafe(znprst, externalId)) {
-	        decision.manualReview = true;
-	        decision.shouldMerge = false;
-	        decision.reason = "Same-origin duplicate Product2G. current=" + znprst + ", existing=" + externalId;
-
-	        log("PANIC, necesita generarse una tarea de resolución de duplicados. (current: " + znprst + " | existing: " + externalId + ")");
-//	        logProductDuplicate(znprst, externalId);
-
-	        return decision;
-	    }
-
-	    decision.shouldMerge = true;
-	    decision.reason = "Merge allowed. winner=" + winner + ", loser=" + loser;
-
-	    return decision;
+		ProductMergeDecision decision = new ProductMergeDecision();
+		decision.productIdToUse = chooseProperProductZNPRST(sku, znprst);
+		decision.shouldMerge = false; // unificación lógica; no merge destructivo automático.
+		decision.manualReview = decision.productIdToUse == null;
+		decision.id1 = decision.productIdToUse;
+		decision.id2 = decision.productIdToUse != null && !decision.productIdToUse.equals(znprst) ? znprst : null;
+		decision.reason = decision.manualReview ? "Could not decide canonical Product2G"
+				: (decision.productIdToUse.equals(znprst) ? "Incoming Product2G is canonical" : "Existing Product2G is canonical; incoming stored as AltProductNo");
+		return decision;
 	}
 	
 	private String decideProductWinner(String currentId, String existingId) {
-	    int currentRank = originRank(currentId);
-	    int existingRank = originRank(existingId);
-
-	    if(existingRank > currentRank) {
-	        return existingId;
-	    }
-
-	    if(currentRank > existingRank) {
-	        return currentId;
-	    }
-
-	    return currentId;
+		int currentRank = originRank(currentId);
+		int existingRank = originRank(existingId);
+		if(currentRank > existingRank) return currentId;
+		/* En empate o si el incoming es peor, conserva el que ya tenía el MATNR. */
+		return existingId;
 	}
 
 	private int originRank(String id) {
-	    if(id == null || "".equals(id)) {
-	        return 0;
-	    }
-
-	    if(id.length() == 16) {
-	        return 3; // P360
-	    }
-
-	    if(id.startsWith("S")) {
-	        return 2; // STEP
-	    }
-
-	    if(id.startsWith("LVP")) {
-	        return 1; // SAP/local fallback
-	    }
-
-	    return 0;
+		if(isBlankId(id)) return 0;
+		if(id.length() == 16) return 3; // P360 adoptado
+		if(isPrototypeId(id)) return 1; // LVP / SBB: prototipo
+		if(id.startsWith("S")) return 2; // STEP
+		return 0;
 	}
 
 	private boolean isSameOriginUnsafe(String currentId, String existingId) {
-	    return originRank(currentId) == originRank(existingId);
+		return originRank(currentId) == originRank(existingId);
+	}
+
+	private boolean isPrototypeId(String id) {
+		return id != null && (id.startsWith("LVP") || id.startsWith("SBB"));
+	}
+
+	private boolean isBlankId(String value) {
+		return value == null || value.isEmpty() || "null".equalsIgnoreCase(value);
+	}
+
+	private void queueProductAltId(String existingProductId, String incomingId) {
+		if(isBlankId(existingProductId) || isBlankId(incomingId) || existingProductId.equals(incomingId)) return;
+		String key = existingProductId + "::" + incomingId;
+		if(!queuedProductAltIds.add(key)) return;
+		rowsAltProductNo.put(new org.json.JSONObject()
+				.put("object", new org.json.JSONObject().put("id", "'" + existingProductId + "'@1"))
+				.put("values", new org.json.JSONArray().put(incomingId)));
+		if(rowsAltProductNo.length() == 100) {
+			java.util.Map<String, String> writeQp = new java.util.HashMap<>();
+			writeQp.put("includeObjectsInProtocol", "false");
+			rw.writeData("list", "Product2G", null, writeQp, requestAltProductNo, this::log);
+		}
+	}
+
+	private void queueArticleAltId(String existingArticleId, String incomingId) {
+		if(isBlankId(existingArticleId) || isBlankId(incomingId) || existingArticleId.equals(incomingId)) return;
+		String key = existingArticleId + "::" + incomingId;
+		if(!queuedArticleAltIds.add(key)) return;
+		rowsSupplierAltAID.put(new org.json.JSONObject()
+				.put("object", new org.json.JSONObject().put("id", "'" + existingArticleId + "'@1"))
+				.put("values", new org.json.JSONArray().put(incomingId)));
+		if(rowsSupplierAltAID.length() == 100) {
+			java.util.Map<String, String> writeQp = new java.util.HashMap<>();
+			writeQp.put("includeObjectsInProtocol", "false");
+			rw.writeData("list", "Article", null, writeQp, requestSupplierAltAID, this::log);
+		}
+	}
+
+	private void retireProductSkuIfExists(String loserId, String winnerId, String sku) {
+		if(isBlankId(loserId) || loserId.equals(winnerId)) return;
+		String[] loserInfo = tools.checkProduct(loserId);
+		if(loserInfo != null) retireProductSku(loserId, winnerId, sku);
+	}
+
+	private void retireProductSku(String loserId, String winnerId, String sku) {
+		if(isBlankId(loserId) || loserId.equals(winnerId)) return;
+		if(tools.checkProduct(winnerId) == null) {
+			pendingProductRetirements.put(loserId, new String[] { winnerId, sku });
+			log("Retiro de Product2G diferido hasta confirmar winner. loser=" + loserId + ", winner=" + winnerId + ", sku=" + sku);
+			return;
+		}
+		java.util.Map<String, String> writeQp = new java.util.HashMap<>();
+		writeQp.put("includeObjectsInProtocol", "false");
+		RequestHandler rh = new RequestHandler(
+				new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2G.SKU")),
+				1000,
+				request -> rw.writeData("list", "Product2G", null, writeQp, request, this::log));
+		rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + loserId + "'@1")).put("values", new org.json.JSONArray().put("")));
+		rh.sendData();
+		clearProductSkuInAdmin(loserId);
+		log("Product2G deja de reclamar MATNR. loser=" + loserId + ", winner=" + winnerId + ", sku=" + sku);
+	}
+
+	private void clearProductSkuInAdmin(String productNo) {
+		String response = dr.getProductData(new org.json.JSONArray().put(productNo));
+		if(response == null) return;
+		try {
+			org.json.JSONObject jr = new org.json.JSONObject(response);
+			org.json.JSONArray items = jr.getJSONArray("items");
+			if(items.length() > 0 && items.opt(0) instanceof org.json.JSONObject) {
+				items.getJSONObject(0).put("SKU", "");
+				log("Clearing SKU in admin (prod): " + dr.putProductData(items));
+			}
+		}catch(org.json.JSONException e) { logE(e); }
+	}
+
+	private void retireArticleSkuIfExists(String loserId, String winnerId, String sku) {
+		if(isBlankId(loserId) || loserId.equals(winnerId)) return;
+		String[] loserInfo = tools.checkArticle(loserId);
+		if(loserInfo != null) retireArticleSku(loserId, winnerId, sku, isPrototypeId(loserId));
+	}
+
+	private void retireArticleSku(String loserId, String winnerId, String sku, boolean eliminatePrototype) {
+		if(isBlankId(loserId) || loserId.equals(winnerId)) return;
+		if(tools.checkArticle(winnerId) == null) {
+			pendingArticleRetirements.put(loserId, new String[] { winnerId, sku, String.valueOf(eliminatePrototype) });
+			log("Retiro de Article diferido hasta confirmar winner. loser=" + loserId + ", winner=" + winnerId + ", sku=" + sku);
+			return;
+		}
+		java.util.Map<String, String> writeQp = new java.util.HashMap<>();
+		writeQp.put("includeObjectsInProtocol", "false");
+		org.json.JSONArray columns = new org.json.JSONArray()
+				.put(new org.json.JSONObject().put("identifier", "Article.SKU"))
+				.put(new org.json.JSONObject().put("identifier", "ArticleCharacteristicValueLang.Value('SKU',root,\"0000.0000.RK\",'SKU',-1)"));
+		if(eliminatePrototype) {
+			columns.put(new org.json.JSONObject().put("identifier", "Article.CurrentStatus"));
+			columns.put(new org.json.JSONObject().put("identifier", "ArticleLog.Remarks(es)"));
+		}
+		RequestHandler rh = new RequestHandler(columns, 1000, request -> rw.writeData("list", "Article", null, writeQp, request, this::log));
+		org.json.JSONArray values = new org.json.JSONArray().put("").put("");
+		if(eliminatePrototype) {
+			values.put("Eliminada");
+			values.put("Unificado por arribo de ID de mayor prioridad: " + winnerId);
+		}
+		rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + loserId + "'@1")).put("values", values));
+		rh.sendData();
+		clearArticleSkuInAdmin(loserId);
+		log("Article deja de reclamar MATNR. loser=" + loserId + ", winner=" + winnerId + ", sku=" + sku + (eliminatePrototype ? ", prototype=eliminated" : ""));
+	}
+
+	private void clearArticleSkuInAdmin(String supplierAID) {
+		String response = dr.getArticleData(new org.json.JSONArray().put(supplierAID));
+		if(response == null) return;
+		try {
+			org.json.JSONObject jr = new org.json.JSONObject(response);
+			org.json.JSONArray items = jr.getJSONArray("items");
+			if(items.length() > 0 && items.opt(0) instanceof org.json.JSONObject) {
+				items.getJSONObject(0).put("SKU", "");
+				log("Clearing SKU in admin (article): " + dr.putArticleData(items));
+			}
+		}catch(org.json.JSONException e) { logE(e); }
 	}
 	
-	private void resuelveEmpateDeArticulo(String sku, String znprst) {
-		
-		/***********************************************/
-		
-		String externalId = tools.checkArticleBySKU(sku);
-		if(externalId != null) {
-			if(!znprst.equals(externalId)) {
-				if(znprst.length() == 16 && externalId.length() == 16) {
-					// PANIC, necesita generarse una tarea de resolución de duplicados
-					log("PANIC, necesita generarse una tarea de resolución de duplicados. (current: " + znprst + " | existing: " + externalId + ")");
-					java.util.Map<String, String> qp = new java.util.HashMap<>();
-					qp.put("includeObjectsInProtocol", "false");
-					RequestHandler rh = new RequestHandler( 
-							new org.json.JSONArray()
-							.put(new org.json.JSONObject().put("identifier", "ArticleLog.Remarks(es)"))
-							, 1000
-							, request -> rw.writeData("list", "Article", null, qp, request, this::log) 
-							);
-					rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put("Otro artículo con mismo SKU: " + znprst)));
-					rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + znprst + "'@1")).put("values", new org.json.JSONArray().put("Otro artículo con mismo SKU: " + externalId)));
-					rh.sendData();
-				}else if(znprst.startsWith("S") && externalId.startsWith("S")) {
-					// PANIC, necesita generarse una tarea de resolución de duplicados
-					log("PANIC, necesita generarse una tarea de resolución de duplicados. (current: " + znprst + " | existing: " + externalId + ")");
-					java.util.Map<String, String> qp = new java.util.HashMap<>();
-					qp.put("includeObjectsInProtocol", "false");
-					RequestHandler rh = new RequestHandler( 
-							new org.json.JSONArray()
-							.put(new org.json.JSONObject().put("identifier", "ArticleLog.Remarks(es)"))
-							, 1000
-							, request -> rw.writeData("list", "Article", null, qp, request, this::log) 
-							);
-					rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put("Otro artículo con mismo SKU: " + znprst)));
-					rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + znprst + "'@1")).put("values", new org.json.JSONArray().put("Otro artículo con mismo SKU: " + externalId)));
-					rh.sendData();
-				}else if(externalId.startsWith("LVP")) {
-					java.util.Map<String, String> qp = new java.util.HashMap<>();
-					qp.put("includeObjectsInProtocol", "false");
-					RequestHandler rh = new RequestHandler( 
-							new org.json.JSONArray()
-								.put(new org.json.JSONObject().put("identifier", "Article.SKU"))
-								.put(new org.json.JSONObject().put("identifier", "ArticleCharacteristicValueLang.Value('SKU',root,\"0000.0000.RK\",'SKU',-1)"))
-								.put(new org.json.JSONObject().put("identifier", "Article.CurrentStatus"))
-								.put(new org.json.JSONObject().put("identifier", "ArticleLog.Remarks(es)"))
-							, 1000
-							, request -> rw.writeData("list", "Article", null, qp, request, this::log) 
-						);
-					rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put("").put("").put("Eliminada").put("Eliminado por arribo de producto con ID establecido por sistema PIM (" + (znprst.length() == 16 ? "P360" : "STEP") + ")")));
-					rh.sendData();
-				}
+
+	private void flushPendingIdentityRetirements() {
+		java.util.Iterator<java.util.Map.Entry<String, String[]>> pit = pendingProductRetirements.entrySet().iterator();
+		while(pit.hasNext()) {
+			java.util.Map.Entry<String, String[]> entry = pit.next();
+			String loser = entry.getKey();
+			String[] data = entry.getValue();
+			if(data != null && data.length >= 2 && tools.checkProduct(data[0]) != null) {
+				pit.remove();
+				retireProductSku(loser, data[0], data[1]);
 			}
 		}
-		
-		/***********************************************/
-		
+
+		java.util.Iterator<java.util.Map.Entry<String, String[]>> ait = pendingArticleRetirements.entrySet().iterator();
+		while(ait.hasNext()) {
+			java.util.Map.Entry<String, String[]> entry = ait.next();
+			String loser = entry.getKey();
+			String[] data = entry.getValue();
+			if(data != null && data.length >= 3 && tools.checkArticle(data[0]) != null) {
+				ait.remove();
+				retireArticleSku(loser, data[0], data[1], Boolean.parseBoolean(data[2]));
+			}
+		}
+
+		for(java.util.Map.Entry<String, String[]> entry : pendingProductRetirements.entrySet()) {
+			log("Se conserva Product2G anterior porque winner aún no existe. loser=" + entry.getKey() + ", winner=" + entry.getValue()[0]);
+		}
+		for(java.util.Map.Entry<String, String[]> entry : pendingArticleRetirements.entrySet()) {
+			log("Se conserva Article anterior porque winner aún no existe. loser=" + entry.getKey() + ", winner=" + entry.getValue()[0]);
+		}
+	}
+
+	private String resuelveEmpateDeArticulo(String sku, String znprst) {
+		return chooseProperArticleZNPRST(sku, znprst);
 	}
 	
 	private String nvl(String val) {
@@ -2363,7 +2384,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 		pids.add(productNo);
 		rowsSKU.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + productNo + "'@1")).put("values", new org.json.JSONArray().put(sku)));
 		if(rowsSKU.length() == 100) {
-			rw.writeData("list", "Product2G", null, qp, requestSKUA, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestSKU, this::log);
 		}
 		String r = dr.getProductData(new org.json.JSONArray().put(productNo));
 		if(r != null) {
@@ -2406,16 +2427,20 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 		java.util.Map<String, String> qp = new java.util.HashMap<>();
 		qp.put("includeObjectsInProtocol", "false");
 		if(rowsSKU.length() > 0) { 
-			log("Sending skus (" + rowsSKU.length() + ")");
-			rw.writeData("list", "Product2G", null, qp, requestSKU, this::log);
-		}
-		if(rowsSKU.length() > 0) {
-			log("sending skus only (product): " + rowsSKU.length() + "");
+			log("Sending skus (product): " + rowsSKU.length());
 			rw.writeData("list", "Product2G", null, qp, requestSKU, this::log);
 		}
 		if(rowsSKUA.length() > 0) {
 			log("sending skus only (article): " + rowsSKUA.length() + "");
 			rw.writeData("list", "Article", null, qp, requestSKUA, this::log);
+		}
+		if(rowsAltProductNo.length() > 0) {
+			log("sending alternate ids (product): " + rowsAltProductNo.length());
+			rw.writeData("list", "Product2G", null, qp, requestAltProductNo, this::log);
+		}
+		if(rowsSupplierAltAID.length() > 0) {
+			log("sending alternate ids (article): " + rowsSupplierAltAID.length());
+			rw.writeData("list", "Article", null, qp, requestSupplierAltAID, this::log);
 		}
 		if(rows.length() > 0) { 
 			log("sending block (product, " + rows.length() + ")");
@@ -2689,10 +2714,12 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	}
 	
 	private void agregaClasificacion(String itemGroup, String product, String id) throws java.io.IOException {
+		log("FbC: " + itemGroup + "|" + product + "|" + id);
 		if(itemGroup == null || "".equals(itemGroup)) {
 			return;
 		}
 		int internalId = forbiddenChalice(itemGroup, product);
+		log("FbC: " + internalId);
 		requestCommercialECC.getJSONArray("rows")
 			.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + id + "'@1")).put("values", new org.json.JSONArray().put(internalId + "@10001")))
 		;
@@ -2704,21 +2731,26 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	private int forbiddenChalice(String itemGroup, String product) throws IOException {
 		int id = -1;
 		JdbcConfig jdbcConfig = initJdbcConfig();
+		log("FbL: " + itemGroup + "|" + product);
 		try(java.sql.Connection con = openConnection(jdbcConfig, true)){
 			if(product != null && !"".equals(product)) {
+				log("FbL: " + "Got product");
 				try(java.sql.PreparedStatement pstmnt = con.prepareStatement("select \"StructureGroupID\" from PIM_MAIN.\"StructureGroupDetail\" bb inner join PIM_MAIN.\"StructureGroupRevision\" aa on aa.ID = bb.\"StructureGroupRevisionID\" and aa.\"RevisionID\" = 1 and aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0'  and aa.\"StructureID\" = 10001 and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' where \"NodeType\" = 'leaf' and \"ParentIdentifier\" = ? and \"Identifier\" = ?")){
 					pstmnt.setString(1, itemGroup + "-L4ECC");
 					pstmnt.setString(2, product + "-L5ECC");
 					try(java.sql.ResultSet rs = pstmnt.executeQuery()){
 						if(rs.next()) {
+							log("FbL: " + "" + rs.getInt(1));
 							id = rs.getInt(1);
 						}else {
 							try(java.sql.PreparedStatement pstmnt2 = con.prepareStatement("select \"StructureGroupID\" from PIM_MAIN.\"StructureGroupDetail\" bb inner join PIM_MAIN.\"StructureGroupRevision\" aa on aa.ID = bb.\"StructureGroupRevisionID\" and aa.\"RevisionID\" = 1 and aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0'  and aa.\"StructureID\" = 10001 and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' where \"NodeType\" = 'leaf' and \"ParentIdentifier\" = ? and \"Identifier\" = ?")){
+								log("FbL (ND): " + "");
 								pstmnt2.setString(1, itemGroup + "-L4ECC");
 								pstmnt2.setString(2, itemGroup + product + "-L5ECC");
 								try(java.sql.ResultSet rs2 = pstmnt2.executeQuery()){
 									if(rs2.next()) {
 										id = rs2.getInt(1);
+										log("FbL (ND 2): " + "Now got: " + id);
 									}else {
 										id = processMissingPair(itemGroup, itemGroup + product);
 									}
@@ -2733,11 +2765,13 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 					try(java.sql.ResultSet rs = pstmnt.executeQuery()){
 						if(rs.next()) {
 							id = rs.getInt(1);
+							log("FbL: " + "issuing: " + id);
 						}
 					}
 				}
 			}
 		}catch(ClassNotFoundException | java.sql.SQLException e) {
+			log("FbL: " + e.getMessage());
 			logE(e);
 		}
 		return id;
@@ -2749,6 +2783,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 		req.put("nodeType", "leaf");
 		req.put("parent", new org.json.JSONObject().put("_externalId", "'" + itemGroup + "'@10001"));
 		java.util.Map<String, String> qp = new java.util.HashMap<>();
+		log("FbA: " + itemGroup + "|" + product);
 		org.json.JSONObject resp = rw.getRw().makeRequest("PUT", "/object/StructureGroup/'" + product + "-L5ECC'@10001", qp, req.toString());
 		if(resp != null && resp.has("_entityItem")) {
 			return Integer.parseInt( resp.getJSONObject("_entityItem").getString("_internalId").split("@")[0] );
@@ -2758,7 +2793,6 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	
 	private void collectNumberOfImages(String productId, String fotoTomadaLiverpool) {
 		int lacuenta = 0;
-		DataRequestor dr = new DataRequestor();
 		String rsp = dr.getProductData( new org.json.JSONArray().put( productId ));
 		org.json.JSONObject jr = new org.json.JSONObject(rsp);
 		org.json.JSONArray items = jr.getJSONArray("items");
@@ -2794,7 +2828,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 			requestStatus.getJSONArray("rows")
 			.put(new org.json.JSONObject()
 					.put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1"))
-					.put("values", new org.json.JSONArray().put(1020).put( lacuenta > 0 ? 1022 : 1002).put("EnProcesoLiverpool")));
+					.put("values", new org.json.JSONArray().put(1020).put( lacuenta > 0 ? 1022 : 1002 ).put("EnProcesoLiverpool")));
 		}else {
 			log("3");
 			requestStatus.getJSONArray("rows")
@@ -2908,7 +2942,6 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	private void checkParentVariantsCompleteness(String productId, String itemId, org.json.JSONArray characteristicRecords, String fotosTomaLiverpool, String currentStatus) {
 		log("\n\t\tEntering to here! ---> " + productId);
 		boolean pass = true;
-		DataRequestor dr = new DataRequestor();
 		java.util.Set<String> vs = dr.getVariants(productId);
 		org.json.JSONArray items = new org.json.JSONArray();
 		for(String v : vs) {
@@ -2946,7 +2979,6 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	}
 	
 	private String getArticleIdFromProduct(String productId) {
-		DataRequestor dr = new DataRequestor();
 		java.util.Set<String> variantIds = dr.getVariants(productId);
 		return variantIds != null && !variantIds.isEmpty() ? variantIds.toArray(new String[] {})[0] : null;
 	}
@@ -3004,6 +3036,7 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 		try {
 			agregaClasificacion(itemGroup, product, id);
 		} catch (java.io.IOException e) {
+			log("Problema con agregar la clasificación. " + itemGroup + " | " + product + " | " + id);
 			logE(e);
 		}
 	}
@@ -3355,12 +3388,6 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 	@Override
 	public final void log(String message) {
 		LOGGER.info(message);
-//		try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
-//				new java.io.FileOutputStream(java.nio.file.Paths.get("..","logs","parseECC122Response.log").toString(), true)))) {
-//			pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()))
-//					+ "]  " + message);
-//		} catch (java.io.IOException e) {
-//		}
 	}
 
 	@Override
@@ -3370,5 +3397,11 @@ public class ParseECC122Response extends Thread implements SimpleLog {
 			ex.printStackTrace(pw);
 		} catch (java.io.IOException e) {
 		}
+	}
+
+	@Override
+	public void close() throws IOException {
+		dastub.close();
+		attp.close();
 	}
 }

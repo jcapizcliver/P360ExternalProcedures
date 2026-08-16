@@ -2509,6 +2509,7 @@ public class RealExportProducts {
 		long ctm = System.currentTimeMillis();
 		String suffix = String.format("%03d", batchNumber) + "_" + ctm + ".xml";
 		String fn = java.nio.file.Paths.get(fileSystemPrefix.toString(), "pepele" + suffix).toString();
+		String fnBad = java.nio.file.Paths.get(fileSystemPrefix.toString(), "badgg" + suffix).toString();
 		writeUtf8File(fn, xmlOutputIndented);
 		generatedAtgFiles.add(fn);
 
@@ -2525,6 +2526,7 @@ public class RealExportProducts {
 		removeDirectChildIfPresent(omsRoot, "AttributeList");
 		String xmlOutputOms = new String(serializeXml(omsDocument, false), StandardCharsets.UTF_8);
 		String fnOms = java.nio.file.Paths.get(fileSystemPrefixOMS.toString(), "pepele" + suffix).toString();
+		String fnOmsBad = java.nio.file.Paths.get(fileSystemPrefixOMS.toString(), "bad" + suffix).toString();
 		writeUtf8File(fnOms, xmlOutputOms);
 
 		java.util.List<Element> productElements = directElementChildren(batch.products, "Product");
@@ -2548,6 +2550,7 @@ public class RealExportProducts {
 			if (atgResponse != null && atgResponse.contains("Se proceso correctamente")) {
 				handleSuccessfulAtgBatch(batch, xmlOutput, fn, execId, envioAtgExecId, jdbcConfig, ctm);
 			} else {
+				writeBadUtf8File(fnBad, xmlOutputIndented);
 				atgBrokerFailure = true;
 				markExecutionFailed(jdbcConfig, envioAtgExecId,
 						new IllegalStateException(String.valueOf(atgResponse)));
@@ -2558,6 +2561,7 @@ public class RealExportProducts {
 			sendRequestRows("Product2G", batch.req2, this::log);
 			sendRequestRows("Article", batch.reqAPublishMessage, this::log);
 		} catch (IOException e) {
+			writeBadUtf8File(fnBad, xmlOutputIndented);
 			atgBrokerFailure = true;
 			atgBrokerResponses.add("IOException: " + e.getMessage());
 			logE(e);
@@ -2568,7 +2572,11 @@ public class RealExportProducts {
 			String omsResponse = batchClient.getRequest("POST", urlDeOMS, xmlOutputOms);
 			log("[" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()) + "] (OMS) Batch " + batchNumber + " request sent for " + batch.proposalIds + ": " + omsResponse);
 			result.append("<;;>").append(fnOms).append("<::>").append(omsResponse);
+			if(omsResponse == null || "".equals(omsResponse)) {
+				writeBadUtf8File(fnOmsBad, xmlOutputOms);
+			}
 		} catch (IOException e) {
+			writeBadUtf8File(fnOmsBad, xmlOutputOms);
 			logE(e);
 		}
 		return result.toString();
@@ -2760,8 +2768,15 @@ public class RealExportProducts {
 	}
 
 	private void writeUtf8File(String fileName, String content) {
-		try (java.io.PrintWriter writer = new java.io.PrintWriter(new java.io.OutputStreamWriter(
-				new java.io.FileOutputStream(fileName), StandardCharsets.UTF_8))) {
+		try (java.io.PrintWriter writer = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(fileName), StandardCharsets.UTF_8))) {
+			writer.print(content);
+		} catch (java.io.IOException e) {
+			logE(e);
+		}
+	}
+
+	private void writeBadUtf8File(String fileName, String content) {
+		try (java.io.PrintWriter writer = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(fileName), StandardCharsets.UTF_8))) {
 			writer.print(content);
 		} catch (java.io.IOException e) {
 			logE(e);

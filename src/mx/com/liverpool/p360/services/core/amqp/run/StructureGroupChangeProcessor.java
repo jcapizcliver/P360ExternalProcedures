@@ -89,8 +89,8 @@ public class StructureGroupChangeProcessor {
 						}
 					}else if("'PrimaryProductTaxonomy'".equals(structureExternalId)) {
 						SendStructureGroupToPubSub s = new SendStructureGroupToPubSub();
-						s.sendDataToPubSub(json.getJSONObject("entityItemChange").getString("_identifier"), "idmc_put_template");
-						log("Sent " + json.getJSONObject("entityItemChange").getString("_identifier") + " to pubSub: idmc:put_template");
+						String msg = s.sendDataToPubSub(json.getJSONObject("entityItemChange").getString("_identifier"), "idmc_put_template");
+						log("Sent " + json.getJSONObject("entityItemChange").getString("_identifier") + " to pubSub: idmc:put_template. Message: " + msg);
 						if(externalId.startsWith("'StructureGroup_")) {
 							XMLMisc xmm = rw.getXmm();
 							String level = null;

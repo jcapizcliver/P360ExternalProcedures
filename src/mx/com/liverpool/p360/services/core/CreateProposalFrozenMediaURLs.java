@@ -34,23 +34,12 @@ public class CreateProposalFrozenMediaURLs {
 
 	private final long myId;
 	
-	private java.util.concurrent.ConcurrentMap<String, String[]> parties = new java.util.concurrent.ConcurrentHashMap<String, String[]>(30000);
-	
-	private void loadParties() {
-		try(java.util.stream.Stream<String> lns = java.nio.file.Files.lines(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "party"))){
-			lns.parallel().map(s -> workshop.parseLine(s, "\"", ";", "\\")).forEach(arr -> parties.put(arr[0], new String[] { arr[1], arr[2], arr[3], arr[4] }));
-		}catch(java.io.IOException e) {
-			logE(e);
-		}
-	}
-	
 	public CreateProposalFrozenMediaURLs(String baseUrl, String encoded, long myId) {
 		this.myId = myId;
 		this.workshop = rw.getRw();
 		this.rc = workshop.getRc();
 		this.objectAPIProduct2GURL = baseUrl + "/object/Product2G";
 		this.objectAPIArticleURL = baseUrl + "/object/Article";
-		loadParties();
 	}
 
 	public String doIt(String[] args) {
@@ -58,9 +47,14 @@ public class CreateProposalFrozenMediaURLs {
 	}
 
 	public String doIt(String[] args, boolean ex) {
+		if (!ImageTrafficLimiter.tryAcquire()) {
+			log("Rejected final-media request: inFlight=" + ImageTrafficLimiter.getInFlight());
+			return ImageTrafficLimiter.busyResponse();
+		}
 		try {
+			try {
 			input = args[0];
-			log("An input: " + input);
+			log("Input received, chars=" + (input == null ? 0 : input.length()));
 			if (args.length > 2) {
 				deleteInputFile = Boolean.parseBoolean( args[2] );
 				if (args.length > 3) {
@@ -75,6 +69,9 @@ public class CreateProposalFrozenMediaURLs {
 					"Invalid number of arguments for java routine. Mandatories are: <inputFile> <baseCacheDir>, optionals are: <dictionary> <nextStatusDictionaryId> <externalStatusDictionaryId>, in that order.");
 		}
 		return null;
+		} finally {
+			ImageTrafficLimiter.release();
+		}
 	}
 
 
@@ -343,11 +340,11 @@ public class CreateProposalFrozenMediaURLs {
 
 						log("External Product Id 2: " + (externalProductId));
 						if(externalProductId != null && !"".equals(externalProductId)) {
-							log("GOING WITH PUT <:>" + reqObj + "<:>");
+							log("Product2G PUT " + externalProductId + ", characteristicRecords=" + characteristicArray.length());
 							rawResp = this.rc.getRequest("PUT",
 									this.objectAPIProduct2GURL + "/'" + externalProductId + "'@'MASTER'?includeLabels=true", reqObj.toString());
 						}else {
-							log("GOING WITH POST <:>" + reqObj + "<:>");
+							log("Product2G POST, characteristicRecords=" + characteristicArray.length());
 							rawResp = this.rc.getRequest("POST",
 									this.objectAPIProduct2GURL + "?includeLabels=true", reqObj.toString());
 						}
@@ -356,7 +353,7 @@ public class CreateProposalFrozenMediaURLs {
 							log("Problem: " + jo + ", given req: " + reqObj.toString());
 							throw new org.json.JSONException("Problema persistiendo datos. Solicitar ayuda y presentar el siguiente código: " + myId + ", junto con la siguiente estampa temporal: " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()));
 						}
-						log("On writing proposal... " + rawResp);
+						log("Product2G response chars=" + (rawResp == null ? 0 : rawResp.length()));
 						/** If there are any errors, should report them back **/
 						try {
 							JSONObject rsp = new JSONObject(rawResp);
@@ -366,9 +363,25 @@ public class CreateProposalFrozenMediaURLs {
 											rsp.getJSONObject("_entityItem").getString("_externalId").split("@")[0]
 													.replaceAll("^'|'$", ""));
 							variantResponsesArray = new org.json.JSONArray();
-							for (int j = 0; j < variantes.length(); j++) {
-								variante = variantes.getJSONObject(j);
-								processVariant(externalProductId, variante, this.rc);
+							EliminaImagenesDeVariantes eliminator = new EliminaImagenesDeVariantes();
+							int deleteBatchSize = ImageTrafficLimiter.getDeleteBatchSize();
+							for (int start = 0; start < variantes.length(); start += deleteBatchSize) {
+								int end = Math.min(variantes.length(), start + deleteBatchSize);
+								java.util.LinkedHashSet<String> idsToDelete = new java.util.LinkedHashSet<>();
+								for (int j = start; j < end; j++) {
+									String variantId = variantes.getJSONObject(j).optString("variantId", null);
+									if (variantId != null && !variantId.isEmpty()) {
+										idsToDelete.add(variantId);
+									}
+								}
+								if (!idsToDelete.isEmpty()) {
+									log("Deleting final media in one batch: variants=" + idsToDelete.size());
+									eliminator.deleteAssets2(EliminaImagenesDeVariantes.toItems(idsToDelete));
+								}
+								for (int j = start; j < end; j++) {
+									variante = variantes.getJSONObject(j);
+									processVariant(externalProductId, variante, this.rc);
+								}
 							}
 							org.json.JSONArray tru = new org.json.JSONArray();
 							for(int m=0; m<variantResponsesArray.length(); m++) {
@@ -444,7 +457,6 @@ public class CreateProposalFrozenMediaURLs {
 		JSONObject photo = null;
 		String externalItemId = null;
 		org.json.JSONArray structureProblems = new org.json.JSONArray();
-		java.util.Map<String, java.util.LinkedList<org.json.JSONObject>> diversityMap = new java.util.TreeMap<>();
 		try {
 			log("Came to variant");
 			if (!variant.has("variantId")) {
@@ -452,38 +464,11 @@ public class CreateProposalFrozenMediaURLs {
 				return;
 			} else {
 				externalItemId = variant.getString("variantId");
-				rawResp = rc.getRequest("GET", objectAPIArticleURL + "/'" + externalItemId + "'@'MASTER'?includeLabels=true&includeIds=true&entityFilter=Article,ArticleLog,ArticleCharacteristicValue",null);
+				rawResp = rc.getRequest("GET", objectAPIArticleURL + "/'" + externalItemId
+						+ "'@'MASTER'?includeLabels=false&includeIds=true&entityFilter=Article", null);
 				resp = new JSONObject(rawResp);
-				if (resp.length() > 0 && resp.has("_data")) {
-					org.json.JSONObject data = resp.getJSONObject("_data");
-					internalItemId = !resp.has("_entityItem") ? null : resp.getJSONObject("_entityItem").getString("_internalId");
-					org.json.JSONArray log = data.has("log") ? data.getJSONArray("log") : null;
-					if(log != null) {
-						for(int a=0; a<log.length(); a++) {
-							if("HPM".equals( log.getJSONObject(a).getJSONObject("_qualification").getJSONObject("channel").getString("_key")) ) {
-								break;
-							}
-						}
-					}
-					org.json.JSONArray characteristicRecords = data.has("_characteristicRecords") ? data.getJSONArray("_characteristicRecords") : null;
-					java.util.LinkedList<org.json.JSONObject> lst = null;
-					org.json.JSONObject characteristic = null;
-					String identifier = null;
-					if(characteristicRecords != null) {
-						for(int a=0; a<characteristicRecords.length(); a++) {
-							characteristic = characteristicRecords.getJSONObject(a);
-							identifier = characteristic.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-							lst = diversityMap.get(identifier);
-							if(lst == null) {
-								lst = new java.util.LinkedList<>();
-								diversityMap.put(identifier, lst);
-							}
-							lst.addLast(characteristic);
-						}
-					}
-				} else {
-					return;
-				}
+				internalItemId = !resp.has("_entityItem") ? null
+						: resp.getJSONObject("_entityItem").optString("_internalId", null);
 			}
 			if (internalItemId == null) {
 				/** There was an error **/
@@ -538,7 +523,6 @@ public class CreateProposalFrozenMediaURLs {
 										.put("_children", children));
 						timesDetailImage++;
 					} else if (photo.getString("PhotoAssetType").equals("ProductImage")) {
-						diversityMap.get("ProductImage");
 						log("Adding a productImage ");
 						children = new org.json.JSONArray();
 						children.put(new org.json.JSONObject()
@@ -634,14 +618,12 @@ public class CreateProposalFrozenMediaURLs {
 				}
 			}
 			JSONObject reqObj = new org.json.JSONObject().put("_characteristicRecords", characteristicArray);
-			log("REO: " + reqObj);
+			log("Prepared variant " + externalItemId + ", characteristicRecords=" + characteristicArray.length());
 			try {
-				log("Deleting existing final media assets for variant: " + externalItemId);
-                new EliminaImagenesDeVariantes().deleteAssets2("'" + externalItemId + "'@1");
 				rc.getHeader().put("Accept-Language", "es");
 				rawResp = rc.getRequest("PUT", this.objectAPIArticleURL + "/" + internalItemId + "?includeLabels=true",
 						reqObj.toString());
-				log("From PUT (" + variant + "): " + rawResp + "");
+				log("Variant PUT " + externalItemId + ", responseChars=" + (rawResp == null ? 0 : rawResp.length()));
 				/** If there are any errors, should report them back **/
 				try {
 					resp = new JSONObject(rawResp);
@@ -664,20 +646,34 @@ public class CreateProposalFrozenMediaURLs {
 	}
 
 
-	private void log(String message) {
-		try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
-				new java.io.FileOutputStream("../logs/imagenes_dos.log", true)))) {
-			pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new java.util.Date()))
-					+ "] (" + myId + ") " + message);
+	private static final java.util.logging.Logger LOGGER = java.util.logging.Logger.getLogger(CreateProposalFrozenMediaURLs.class.getName());
+
+	static {
+		try {
+			LOGGER.setUseParentHandlers(false);
+			java.util.logging.FileHandler fh = new java.util.logging.FileHandler("../logs/imagenes_dos-%g.log", 25 * 1024 * 1024, 10, true);
+			fh.setEncoding(java.nio.charset.StandardCharsets.UTF_8.name());
+			fh.setFormatter(new java.util.logging.Formatter() {
+				@Override
+				public String format(java.util.logging.LogRecord record) {
+					String ts = java.time.Instant.ofEpochMilli(record.getMillis())
+							.atZone(java.time.ZoneId.systemDefault())
+							.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss.SSS"));
+					return "[" + ts + "] [" + record.getLevel() + "] " + formatMessage(record) + System.lineSeparator();
+				}
+			});
+			LOGGER.addHandler(fh);
+			LOGGER.setLevel(java.util.logging.Level.ALL);
 		} catch (java.io.IOException e) {
+			throw new ExceptionInInitializerError(e);
 		}
 	}
 
+	private void log(String message) {
+		LOGGER.info("(" + myId + ") " + message);
+	}
+
 	private void logE(Exception ex) {
-		try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
-				new java.io.FileOutputStream("../logs/imagenes_dos.log", true)))) {
-			ex.printStackTrace(pw);
-		} catch (java.io.IOException e) {
-		}
+		LOGGER.log(java.util.logging.Level.SEVERE, "(" + myId + ") " + ex.getMessage(), ex);
 	}
 }

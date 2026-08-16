@@ -28,7 +28,7 @@ public class RedoProductName {
 			}
 			if(a == 1) {
 				return;
-			}
+			}//			System.out.println("....");
 			sb.append((sb.length() == 0 ? "" : ",") + "'" + row[0] + "'@1");
 			if( (a-1) % 1000 == 0 ) {
 				qp.put("items", sb.toString());
@@ -42,7 +42,7 @@ public class RedoProductName {
 						nn.processData(data, characteristicRecords);
 						org.json.JSONObject productNameJO = data.get("ProductName");
 						if(productNameJO != null) {
-							System.out.print(".");
+//							System.out.print(".");
 							rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + values.getString(0) + "'@1")).put("values", new org.json.JSONArray().put(productNameJO.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0))));
 						}
 					}
@@ -50,7 +50,28 @@ public class RedoProductName {
 				sb.setLength(0);
 			}
 		} );
-		parser.parse(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "ElTitulos.csv"));
+		parser.parse(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "SourceST.csv"));
+//		parser.parse(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "OtrosSinTitulo.csv"));
+//		parser.parse(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "SKUSINTITULO.txt"));
+//		parser.parse(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "OtrosTitulos.csv"));
+//		parser.parse(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "ElTitulos.csv"));
+		qp.put("items", sb.toString());
+		rw.collectData("list", "Product2G", null, "byItems", qp, row0 -> {
+			org.json.JSONArray values = row0.getJSONArray("values");
+			if(!"".equals(values.getJSONArray(1).getString(0))) {
+				NameAndProductName nn = new NameAndProductName(values.getString(0), values.getJSONArray(1).getString(0), 0, genFE);
+				nn.setSourceTemplate(values.getJSONArray(2).getString(0));
+				java.util.Map<String, org.json.JSONObject> data = new java.util.HashMap<>();
+				org.json.JSONArray characteristicRecords = new org.json.JSONArray();
+				nn.processData(data, characteristicRecords);
+				org.json.JSONObject productNameJO = data.get("ProductName");
+				if(productNameJO != null) {
+//					System.out.print(".");
+					rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + values.getString(0) + "'@1")).put("values", new org.json.JSONArray().put(productNameJO.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0))));
+				}
+			}
+		});
+		sb.setLength(0);
 		rh.sendData();
 		
 	}

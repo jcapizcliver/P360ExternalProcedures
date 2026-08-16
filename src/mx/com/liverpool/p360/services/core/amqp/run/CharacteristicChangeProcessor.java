@@ -1,5 +1,6 @@
 package mx.com.liverpool.p360.services.core.amqp.run;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.logging.FileHandler;
@@ -25,14 +26,36 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.xml.sax.SAXException;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 import mx.com.liverpool.p360.services.xmlutils.XMLMisc;
 
-public class CharacteristicChangeProcessor {
+public class CharacteristicChangeProcessor implements Closeable {
 
 	private boolean running = true;
+
+	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			CharacteristicChangeProcessor.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			CharacteristicChangeProcessor.this.log(message);
+		}
+	} );
+	
+	private final DataRequestor dr = new DataRequestor(dastub);
+
+	@Override
+	public void close() {
+		dastub.close();
+	}
 
 	private final RESTWrapper rw = new RESTWrapper();
 	private final XMLMisc xmm = rw.getRw().getXmm();
@@ -91,7 +114,6 @@ public class CharacteristicChangeProcessor {
 						if(dataType != null) {
 							Element old = (Element) xmm.byName(dataType, "_old");
 							Element current = (Element) xmm.byName(dataType, "_current");
-							DataRequestor dr = new DataRequestor();
 							String drr = dr.getCharacteristicData(new org.json.JSONArray().put(identifier));
 							if(drr != null && current != null) {
 								org.json.JSONObject jr = new org.json.JSONObject(drr);
@@ -108,7 +130,6 @@ public class CharacteristicChangeProcessor {
 						if(lookup != null) {
 							Element old = (Element) xmm.byName(lookup, "_old");
 							Element current = (Element) xmm.byName(lookup, "_current");
-							DataRequestor dr = new DataRequestor();
 							String drr = dr.getCharacteristicData(new org.json.JSONArray().put(identifier));
 							if(drr != null && current != null) {
 								org.json.JSONObject jr = new org.json.JSONObject(drr);

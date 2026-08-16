@@ -1,5 +1,6 @@
 package mx.com.liverpool.p360.services.core;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
@@ -21,7 +22,7 @@ import mx.com.liverpool.p360.services.core.dq.NumberOfVariants;
 import mx.com.liverpool.p360.services.core.dq.TituloSinMarca;
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 
-public class CreateProposal {
+public class CreateProposal implements Closeable {
 
 	private String input = null;
 	private String response = null;
@@ -61,7 +62,8 @@ public class CreateProposal {
 	        String lookup,
 	        String value) {
 
-	    return String.valueOf(template)
+	    return 
+	    		             String.valueOf(template)
 	            + "\u001F" + String.valueOf(characteristic)
 	            + "\u001F" + String.valueOf(lookup)
 	            + "\u001F" + String.valueOf(value);
@@ -117,7 +119,7 @@ public class CreateProposal {
 	
 	
 //	private java.util.Map<String, String> characteristicsThatAreLookups = null;
-	private final DataRequestor dr = new DataRequestor();
+	private final DataRequestor dr = new DataRequestor(dastub);
 
 	private boolean ex = false;
 	
@@ -1019,12 +1021,6 @@ public class CreateProposal {
 							}else if("PEX".equals(tipoDeProveedor)) {
 								newCharacteristicRecords.put( createCharacteristicValueObject("TImportacion", new org.json.JSONObject().put("_code", "D")) );
 							} else {
-								/*
-								, String template
-								, String status
-								, String negocio
-								, String itemGroup
-								*/
 								log("No good data for supplier: " + template + "|" + status + "|" + negocio + "|" + itemGroup + "WHERL: " + wherl + ", SupplierID: " + supplier + ", proposalId: " + proposalId + ", EAN: " + ean);
 								genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "No es un proveedor válido para catalogación. (Verificar el tipo de proveedor SAP así como el país de origen y el negocio)").put("fields", new org.json.JSONArray().put("TImportacion")));
 							}
@@ -1103,99 +1099,7 @@ public class CreateProposal {
 				newCharacteristicRecords.put( createCharacteristicValueObject("FotoTomadaLiverpool", new org.json.JSONObject().put("_code", "N" )) );
 			}
 		}
-//		String productTypeSAP  = getCharacteristicValue( characteristicsMap.get("ProductTypeSAP")  );
-//		String descriptionLong = getCharacteristicValue( characteristicsMap.get("DescriptionLong") );
-//		log("----> Épale mi compa: " + negocio + ", pts: " + productTypeSAP);
-//		if("Marketplace".equals(negocio) && (productTypeSAP != null && !"".equals(productTypeSAP)) /* ((templateName != null && !"".equals(templateName)) || (productName != null && !"".equals(productName))) */ ) {
-//			getItemGroupFromIA(productName == null || productName.isEmpty() ? templateName : productName, template, productTypeSAP, descriptionLong, templateName, newCharacteristicRecords);
-//		}else {
-//			itemGroup = getCharacteristicValue( characteristicsMap.get("ItemGroup"), true );
-//			log("Fetching data for: " + characteristicsMap.get("ItemGroup"));
-//			log("Another: got an itemGroup: " + itemGroup);	
-//			if(itemGroup == null || "".equals(itemGroup)) {
-//				itemGroup = getCharacteristicValue( characteristicsMap.get("ItemGroupS4H"), true );
-//				log("Another: got an itemGroupS4H: " + itemGroup);
-//			}
-//			String brandName = getCharacteristicValue( characteristicsMap.get("BrandName"), true);
-//			log("OLC");
-//			if(brandName != null && !"".equals(brandName)) {
-//				log("Validando marca y grupo de artículos: " + brandName + ", " + itemGroup + ", " + negocio);
-//				if(!existeMarcaEnGrupoDeArticulos(brandName, itemGroup, negocio)) {
-//					log("No valid pair.");
-//					genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence").put("message", "La marca no es compatible con el grupo de artículos.").put("fields", new org.json.JSONArray().put( "Business" ).put(!"Suburbia".equals(negocio) ? "ItemGroupo" : "ItemGroupS4H").put( "BrandName" )).put("values", new org.json.JSONArray().put(negocio).put(itemGroup).put(brandName)));
-//				}else {
-//					log("Valid pair");
-//				}
-//			}
-//		}
 		log("/OLC.");
-//		java.util.Map<String, String> miraklExcepProvEAN = getLkpValues("MarketplaceExcepProvEAN");
-//		log("Loaded following values for ean mkt exceptions: " + miraklExcepProvEAN);
-//		if(variants.length() == 1) {
-//			if(mainBarCode == null || "".equals(mainBarCode)) {
-//				if(!"".equals("Suburbia")) {
-//					for(int t = 0; t< variants.length(); t+= 1) {
-//						allPresent &= variants.getJSONObject(t).has("MainBarCode") && !"".equals(variants.getJSONObject(t).getString("MainBarCode"));
-//						if(variants.getJSONObject(t).has("MainBarCode")) {
-//							mainBarCode = variants.getJSONObject(t).getString("MainBarCode");
-//							if(!"".equals(mainBarCode)) {
-//								newCharacteristicRecords.put( createCharacteristicValueObject("MainBarCode", mainBarCode) );
-//								log("Got the value from the only variant present.");
-//							}else {
-//								log("The variant had also no main bar code after all. (Variant number: " + t + ")");
-//							}
-//						}else {
-//							mainBarCode = null;
-//							log("Not even the variant contained value.");
-//						}
-//					}
-//					if(mainBarCode != null && !"".equals(mainBarCode) && variants.length() == 1) {
-//						newCharacteristicRecords.put( createCharacteristicValueObject("MainBarCode", mainBarCode) );
-//					}else if(!allPresent) {
-//						log("There was at least one variant with EAN missing... SUpplier: " + supplier + ", Business: " + negocio);
-//						if("Marketplace".equals(negocio) && !miraklExcepProvEAN.containsKey(supplier)) {
-//							genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "Se indicó el negocio Marketplace, el código EAN está vacío, sin embargo, el proveedor no se encuentra dentro de la lista permitida para esto.").put("fields", new org.json.JSONArray().put( "WHERL" ).put( "SupplierID")));
-//						}
-//					}
-//				}else {
-//					for(int t = 0; t< variants.length(); t+= 1) {
-//						allPresent &= ( variants.getJSONObject(t).has("MainBarCodeS4H") || variants.getJSONObject(t).has("MainBarCode") ) && ( !"".equals(variants.getJSONObject(t).getString("MainBarCodeS4H")) || !"".equals(variants.getJSONObject(t).getString("MainBarCode")));
-//						if(variants.getJSONObject(t).has("MainBarCodeS4H")) {
-//							mainBarCode = variants.getJSONObject(t).has("MainBarCodeS4H") ? variants.getJSONObject(t).getString("MainBarCodeS4H") : variants.getJSONObject(t).getString("MainBarCode");
-//							if(!"".equals(mainBarCode)) {
-//								log("Got the value from the only variant present.");
-//							}else {
-//								log("The variant had also no main bar code after all. (Variant number: \"" + t + "\")");
-//							}
-//						}else {
-//							mainBarCode = null;
-//							log("Not even the variant contained value.");
-//						}
-//					}
-//					if(mainBarCode != null && !"".equals(mainBarCode) && variants.length() == 1) {
-//						newCharacteristicRecords.put( createCharacteristicValueObject("MainBarCodeS4H", mainBarCode) );
-//					}else if(!allPresent) {
-//						log("There was at least one variant with EAN missing... SUpplier: " + supplier);
-//						if("Marketplace".equals(negocio) && !miraklExcepProvEAN.containsKey(supplier)) {
-//							genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "Se indicó el negocio Marketplace, el código EAN está vacío, sin embargo, el proveedor no se encuentra dentro de la lista permitida para esto.").put("fields", new org.json.JSONArray().put( "WHERL" ).put( "SupplierID")));
-//						}
-//					}
-//				}
-//			}
-//			log("!!!!!!!!!!! EAN (from only variant): " + mainBarCode);
-//			if(mainBarCode != null && !"".equals(mainBarCode)) {
-//				int lmbc = mainBarCode.length();
-//				String typeMainBarCode =  lmbc == 8 ? "HK" : lmbc >= 6 && lmbc <= 12 ? "UC" : lmbc == 13 ? "HE" : lmbc == 14 ? "IC" : "IE";
-//				newCharacteristicRecords.put( createCharacteristicValueObject(!"Suburbia".equals(negocio) ? "MainBarCode" : "MainBarCodeS4H", mainBarCode) );
-//				newCharacteristicRecords.put( createCharacteristicValueObject(!"Suburbia".equals(negocio) ? "TypeMainBarCode" : "NUMTP_S4H", new org.json.JSONObject().put("_code", typeMainBarCode)) );
-//			}else {
-//				String typeMainBarCode = ("Liverpool".equals(negocio) || "Marketplace".equals(negocio) ? "IE" : "IS");
-//				newCharacteristicRecords.put( createCharacteristicValueObject(!"Suburbia".equals(negocio) ? "TypeMainBarCode" : "NUMTP_S4H", new org.json.JSONObject().put("_code", typeMainBarCode)) );
-//			}
-//		}else {
-//			String typeMainBarCode = ("Liverpool".equals(negocio) || "Marketplace".equals(negocio) ? "IE" : "IS");
-//			newCharacteristicRecords.put( createCharacteristicValueObject(!"Suburbia".equals(negocio) ? "TypeMainBarCode" : "NUMTP_S4H", new org.json.JSONObject().put("_code", typeMainBarCode)) );
-//		}
 		/** Los valores de master pack no coinciden, (Ahorita si es igual a con empaque) **/
 		/** Si en SAP un proveedor para Liverpool tiene el 10103 pero cataloga para 10101, de todos modos lo permite porque está dentro de la sección. En el caso
 		 *  de Suburbia, en STEP se coloca el filtro. **/
@@ -1944,10 +1848,12 @@ public class CreateProposal {
 			mainBarCode = variant.has("MainBarCodeS4H") ? variant.getString("MainBarCodeS4H") : variant.getString("MainBarCode");
 			mainBarCode = mainBarCode == null ? "" : mainBarCode.replaceFirst("^0+", "").replaceAll("\s{2,}", " ").trim();
 			lmbc = mainBarCode == null ? 0 : mainBarCode.length();
+//			lmbc = lmbc - 1;
 			String typeMainBarCode = null; 
 			try{
 				log("Came here (ean computations)");
 				typeMainBarCode = (mainBarCode == null || "".equals(mainBarCode)) ? ("Liverpool".equals(negocio) || "Marketplace".equals(negocio) ? "IE" : "IS") : ( lmbc == 8 ? "HK" : lmbc >= 6 && lmbc <= 12 ? getTypeMainBarCode(mainBarCode, negocio) : lmbc == 13 ? Long.parseLong(mainBarCode) < 3000_000_000_000l ? "EE" : "HE" : lmbc == 14 ? "IC" : "IE" );
+//				typeMainBarCode = (mainBarCode == null || "".equals(mainBarCode)) ? ("Liverpool".equals(negocio) || "Marketplace".equals(negocio) ? "IE" : "IS") : ( lmbc == 8 ? "HK" : lmbc >= 6 && lmbc <= 12 ? getTypeMainBarCode(mainBarCode, negocio) : lmbc == 13 ? Long.parseLong(mainBarCode.substring(0, mainBarCode.length() - 1)) < 3000_000_000_000l ? "EE" : "HE" : lmbc == 14 ? "IC" : "IE" );
 			}catch(NumberFormatException e) {
 				variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "El código EAN no corresponde con un número válido.").put("fields", new org.json.JSONArray().put( "MainBarCode" )));
 			}
@@ -1972,7 +1878,6 @@ public class CreateProposal {
 			}
 			typeMainBarCodeA[0] = typeMainBarCode;
 			boolean dup = false;
-			DataRequestor dr = new DataRequestor();
 			log("Now for dup on: " + mainBarCode);
 			String res = dr.supplierAIDByEAN(new org.json.JSONArray().put(mainBarCode));
 			if(res != null) {
@@ -2140,7 +2045,8 @@ public class CreateProposal {
 
 	private String getTypeMainBarCode(String mainBarCode, String business) {
 		try{
-			Long mbc = Long.parseLong(mainBarCode);
+			Long mbc = Long.parseLong(mainBarCode.substring(0, mainBarCode.length() - 1));
+//			Long mbc = Long.parseLong(mainBarCode.substring(0, mainBarCode.length() - 1));
 			if("Suburbia".equals(business)) {
 				if( mbc.compareTo(750_013_500_000l) >= 0 && mbc.compareTo(750_013_599_999l) <= 0 ) {
 					return "MP";
@@ -2324,487 +2230,332 @@ public class CreateProposal {
 	}
 
 	private String run() {
-		long init = System.currentTimeMillis();
-		resetLookupPerformanceAndCaches();
-		loadNextStatusDictionary();
-		loadExternalStatusDictionary();
-		loadStatusEnum();
-		loadExternalStatusEnum();
-		JSONObject request = null;
-		String rawResp = null;
-		boolean unMasiosare = false;
-		String externalProductId = null;
-		JSONObject resp = null;
-		JSONObject basicData = null;
-		JSONObject attributes = null;
-		JSONObject logisticData = null;
-		JSONObject datosVenta = null;
-		org.json.JSONArray variantes = null;
-		JSONObject variante = null;
-		org.json.JSONArray multimediaArray = null;
-		JSONObject multimedia = null;
-		org.json.JSONArray cosos = null;
-		String d = null;
-		java.util.Map<String, String> validCodes = null;
-		String direction = null;
-		String section = null;
-		String codeValue = null;
-		String templateId = null;
-		String previousStatus = "";
-		String internalStatus = "";
-		String externalStatus = null;
-		String nextStatus = null;
-		String itemGroup = null;
-		String itemGroupS4H = null;
-		String marca = null;
-		String productFromItemGroup = null;
-		String creationDate = null;
-		String business = null;
-		String sapObjectType = null;
-		String supplier = null;
-		String brandName = null;
-		String brandIdS4H = null;
-		String supplierPartNumber = null;
-		String sapObjectTypeLabel = null;
-		String[] direccionSeccion = null;
-		org.json.JSONArray structureProblems = new org.json.JSONArray();
-		org.json.JSONArray photosArray = null;
-		String characteristicLookup = null;
-		String targetRole = "";
-		String holder = null;
-		String mainBarCode = null;
-		String productName = null;
-		String longDescription = null;
-		String longDescription2 = null;
-		String embedCodeWEB = null;
-		String embedCodeWAP = null;
-		String refundPolicy = null;
-		String externalEmail = null;
-		Integer numberOfCurrentVariantsReal = 0;
-		boolean selfAdded = false;
-		boolean sample = false;
-		java.util.List<String> sections = new java.util.ArrayList<>();
 		try {
-			request = new JSONObject(input);
-			org.json.JSONArray products = (org.json.JSONArray) request.remove("products");
-			products = products == null ? new org.json.JSONArray() : products;
-			JSONObject product = null;
-			for (int i = 0; i < products.length(); i++) {
-				externalEmail = null;
-				request = null;
-				rawResp = null;
-				externalProductId = null;
-				resp = null;
-				basicData = null;
-				attributes = null;
-				logisticData = null;
-				datosVenta = null;
-				variantes = null;
-				variante = null;
-				multimediaArray = null;
-				multimedia = null;
-				cosos = null;
-				d = null;
-				validCodes = null;
-				codeValue = null;
-				templateId = null;
-				previousStatus = "";
-				internalStatus = "";
-				externalStatus = null;
-				nextStatus = null;
-				itemGroup = null;
-				productFromItemGroup= null;
-				itemGroupS4H = null;
-				marca = null;
-				creationDate = null;
-				business = null;
-				sapObjectType = null;
-				sapObjectTypeLabel = null;
-				direccionSeccion = null;
-				structureProblems = new org.json.JSONArray();
-				characteristicLookup = null;
-				targetRole = "";
-				holder = null;
-				numberOfCurrentVariantsReal = 0;
-				selfAdded = false;
-				supplier = null;
-				longDescription = null;
-				sample = false;
-				brandName = null;
-				brandIdS4H = null;
-				supplierPartNumber = null;
-				sections.clear();
-				
-				product = products.getJSONObject(i);
-				org.json.JSONObject photo = null;
-				int timesDetailImage = 0;
-				int timesIllustration = 0;
-				int timesSmosh = 0;
-				org.json.JSONArray children = null;
-				String recordKey = null;
-
-				/*****
-				 * 
-				 * 
-				 * {
-				 * 	"products": [
-				 * 			{
-				 * 				"lookGroupId": "MIPROPUESTA",
-				 * 				"name": "",
-				 * 				"description": "",
-				 * 				"startAt": "",
-				 * 				"endAt": "",
-				 * 				"basicData": {
-				 * 					"BrandName": ""
-				 * 				},
-				 * 				"photos": [
-				 * 					{
-				 * 						"PhotoAssetType":"ProductImage", // Detail Image, Illustration, Smosh
-				 * 						"PhotoAssetStatus":"active",
-				 * 						"PhotoAssetName": "hola.jpg",
-				 * 						"PhotoAssetURL": "http://hola.jpg"
-				 * 					}
-				 * 				],
-				 * 				"modifiedFields": {
-				 * 
-				 * 				}
-				 * 			}
-				 * 		]
-				 * }
-				 * {
-				 * 	"_characteristicRecords": [
-				 * 		{
-				 * 			"_qualification": { 
-				 * 				"recordKey": "0000.0000.RK",
-				 * 				"parentRecordKey": "root",
-				 * 				"language": {
-				 * 					"_code":"es"
-				 * 				},
-				 * 				"characteristic": {
-				 * 					"_code":"ProductImage"
-				 * 				}
-				 * 			},
-				 * 			"dataType": "NONE",
-				 * 			"_children": [
-				 * 				{
-				 * 					"_qualification": {
-				 * 						"recordKey": "0000.0000.RK",
-				 * 						"parentRecordKey": "0000.0000.RK",
-				 * 						"language": {
-				 * 							"_code": "es"
-				 * 						},
-				 * 						"characteristic": {
-				 * 							"_code": "ProductImageDetail_Name"
-				 * 						}
-				 * 
-				 * 					},
-				 * 					"dataType":"TEXT",
-				 * 					"_recordLang": [
-				 * 						{
-				 * 							"values":[
-				 * 								"hola.jpg"
-				 * 							]
-				 * 						}
-				 * 					]
-				 * 				},
-				 * 				{
-				 * 					"_qualification": {
-				 * 						"recordKey": "0000.0000.RK",
-				 * 						"parentRecordKey": "0000.0000.RK",
-				 * 						"language": {
-				 * 							"_code": "es"
-				 * 						},
-				 * 						"characteristic": {
-				 * 							"_code": "ProductImageDetail_URL"
-				 * 						}
-				 * 
-				 * 					},
-				 * 					"dataType":"TEXT",
-				 * 					"_recordLang": [
-				 * 						{
-				 * 							"values":[
-				 * 								"http://alangalanga/hola.jpg"
-				 * 							]
-				 * 						}
-				 * 					]
-				 * 				},
-				 * 				{
-				 * 					"_qualification": {
-				 * 						"recordKey": "0000.0000.RK",
-				 * 						"parentRecordKey": "0000.0000.RK",
-				 * 						"language": {
-				 * 							"_code": "es"
-				 * 						},
-				 * 						"characteristic": {
-				 * 							"_code": "ProductImageDetail_Status"
-				 * 						}
-				 * 					},
-				 * 					"dataType":"LOOKUP",
-				 * 					"_recordLang": [
-				 * 						{
-				 * 							"values":[
-				 * 								{
-				 * 									"_code": "01"
-				 * 								}
-				 * 							]
-				 * 						}
-				 * 					]
-				 * 				}
-				 * 			]
-				 * 		}
-				 * 	]
-				 * }
-				 * 
-				 * 
-				 * */
-				
-				if(product.has("lookGroupId")) {
-					String conjuntoLookId = product.getString("lookGroupId");
-					String name = product.has("name") ? product.getString("name") : null;
-					String desc = product.has("description") ? product.getString("description") : null;
-					String startAt = product.has("startAt") ? product.getString("startAt") : null;
-					String endAt = product.has("endAt") ? product.getString("endAt") : null;
+			long init = System.currentTimeMillis();
+			resetLookupPerformanceAndCaches();
+			loadNextStatusDictionary();
+			loadExternalStatusDictionary();
+			loadStatusEnum();
+			loadExternalStatusEnum();
+			JSONObject request = null;
+			String rawResp = null;
+			boolean unMasiosare = false;
+			String externalProductId = null;
+			JSONObject resp = null;
+			JSONObject basicData = null;
+			JSONObject attributes = null;
+			JSONObject logisticData = null;
+			JSONObject datosVenta = null;
+			org.json.JSONArray variantes = null;
+			JSONObject variante = null;
+			org.json.JSONArray multimediaArray = null;
+			JSONObject multimedia = null;
+			org.json.JSONArray cosos = null;
+			String d = null;
+			java.util.Map<String, String> validCodes = null;
+			String direction = null;
+			String section = null;
+			String codeValue = null;
+			String templateId = null;
+			String previousStatus = "";
+			String internalStatus = "";
+			String externalStatus = null;
+			String nextStatus = null;
+			String itemGroup = null;
+			String itemGroupS4H = null;
+			String marca = null;
+			String productFromItemGroup = null;
+			String creationDate = null;
+			String business = null;
+			String sapObjectType = null;
+			String supplier = null;
+			String brandName = null;
+			String brandIdS4H = null;
+			String supplierPartNumber = null;
+			String sapObjectTypeLabel = null;
+			String[] direccionSeccion = null;
+			org.json.JSONArray structureProblems = new org.json.JSONArray();
+			org.json.JSONArray photosArray = null;
+			String characteristicLookup = null;
+			String targetRole = "";
+			String holder = null;
+			String mainBarCode = null;
+			String productName = null;
+			String longDescription = null;
+			String longDescription2 = null;
+			String embedCodeWEB = null;
+			String embedCodeWAP = null;
+			String refundPolicy = null;
+			String externalEmail = null;
+			Integer numberOfCurrentVariantsReal = 0;
+			boolean selfAdded = false;
+			boolean sample = false;
+			java.util.List<String> sections = new java.util.ArrayList<>();
+			try {
+				request = new JSONObject(input);
+				org.json.JSONArray products = (org.json.JSONArray) request.remove("products");
+				products = products == null ? new org.json.JSONArray() : products;
+				JSONObject product = null;
+				for (int i = 0; i < products.length(); i++) {
+					externalEmail = null;
+					request = null;
+					rawResp = null;
+					externalProductId = null;
+					resp = null;
+					basicData = null;
+					attributes = null;
+					logisticData = null;
+					datosVenta = null;
+					variantes = null;
+					variante = null;
+					multimediaArray = null;
+					multimedia = null;
+					cosos = null;
+					d = null;
+					validCodes = null;
+					codeValue = null;
+					templateId = null;
+					previousStatus = "";
+					internalStatus = "";
+					externalStatus = null;
+					nextStatus = null;
+					itemGroup = null;
+					productFromItemGroup= null;
+					itemGroupS4H = null;
+					marca = null;
+					creationDate = null;
+					business = null;
+					sapObjectType = null;
+					sapObjectTypeLabel = null;
+					direccionSeccion = null;
+					structureProblems = new org.json.JSONArray();
+					characteristicLookup = null;
+					targetRole = "";
+					holder = null;
+					numberOfCurrentVariantsReal = 0;
+					selfAdded = false;
+					supplier = null;
+					longDescription = null;
+					sample = false;
+					brandName = null;
+					brandIdS4H = null;
+					supplierPartNumber = null;
+					sections.clear();
 					
-					org.json.JSONObject _data = new org.json.JSONObject();
-					org.json.JSONArray lang = new org.json.JSONArray();
-					_data.put("lang", lang);
-					org.json.JSONArray characteristicArray = new org.json.JSONArray();
-					org.json.JSONObject langObject = new org.json.JSONObject();
-					lang.put(langObject);
-					if(name != null) {
-						langObject.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))).put("descriptionShort", name);
-					}
-					if(desc != null) {
-						langObject.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))).put("descriptionLong", desc);
-					}
-					if(startAt != null) {
-						characteristicArray
-						.put(new org.json.JSONObject()
-								.put("_qualification",
-										new JSONObject()
-										.put("recordKey", recordKey)
-												.put("characteristic",
-														new JSONObject().put("_code", "StartDate")))
-								.put("_recordLang",
-										new org.json.JSONArray()
-												.put(new JSONObject().put("values", new org.json.JSONArray().put(startAt))))
-								);
-					}
-					if(endAt != null) {
+					product = products.getJSONObject(i);
+					org.json.JSONObject photo = null;
+					int timesDetailImage = 0;
+					int timesIllustration = 0;
+					int timesSmosh = 0;
+					org.json.JSONArray children = null;
+					String recordKey = null;
+	
+					/*****
+					 * 
+					 * 
+					 * {
+					 * 	"products": [
+					 * 			{
+					 * 				"lookGroupId": "MIPROPUESTA",
+					 * 				"name": "",
+					 * 				"description": "",
+					 * 				"startAt": "",
+					 * 				"endAt": "",
+					 * 				"basicData": {
+					 * 					"BrandName": ""
+					 * 				},
+					 * 				"photos": [
+					 * 					{
+					 * 						"PhotoAssetType":"ProductImage", // Detail Image, Illustration, Smosh
+					 * 						"PhotoAssetStatus":"active",
+					 * 						"PhotoAssetName": "hola.jpg",
+					 * 						"PhotoAssetURL": "http://hola.jpg"
+					 * 					}
+					 * 				],
+					 * 				"modifiedFields": {
+					 * 
+					 * 				}
+					 * 			}
+					 * 		]
+					 * }
+					 * {
+					 * 	"_characteristicRecords": [
+					 * 		{
+					 * 			"_qualification": { 
+					 * 				"recordKey": "0000.0000.RK",
+					 * 				"parentRecordKey": "root",
+					 * 				"language": {
+					 * 					"_code":"es"
+					 * 				},
+					 * 				"characteristic": {
+					 * 					"_code":"ProductImage"
+					 * 				}
+					 * 			},
+					 * 			"dataType": "NONE",
+					 * 			"_children": [
+					 * 				{
+					 * 					"_qualification": {
+					 * 						"recordKey": "0000.0000.RK",
+					 * 						"parentRecordKey": "0000.0000.RK",
+					 * 						"language": {
+					 * 							"_code": "es"
+					 * 						},
+					 * 						"characteristic": {
+					 * 							"_code": "ProductImageDetail_Name"
+					 * 						}
+					 * 
+					 * 					},
+					 * 					"dataType":"TEXT",
+					 * 					"_recordLang": [
+					 * 						{
+					 * 							"values":[
+					 * 								"hola.jpg"
+					 * 							]
+					 * 						}
+					 * 					]
+					 * 				},
+					 * 				{
+					 * 					"_qualification": {
+					 * 						"recordKey": "0000.0000.RK",
+					 * 						"parentRecordKey": "0000.0000.RK",
+					 * 						"language": {
+					 * 							"_code": "es"
+					 * 						},
+					 * 						"characteristic": {
+					 * 							"_code": "ProductImageDetail_URL"
+					 * 						}
+					 * 
+					 * 					},
+					 * 					"dataType":"TEXT",
+					 * 					"_recordLang": [
+					 * 						{
+					 * 							"values":[
+					 * 								"http://alangalanga/hola.jpg"
+					 * 							]
+					 * 						}
+					 * 					]
+					 * 				},
+					 * 				{
+					 * 					"_qualification": {
+					 * 						"recordKey": "0000.0000.RK",
+					 * 						"parentRecordKey": "0000.0000.RK",
+					 * 						"language": {
+					 * 							"_code": "es"
+					 * 						},
+					 * 						"characteristic": {
+					 * 							"_code": "ProductImageDetail_Status"
+					 * 						}
+					 * 					},
+					 * 					"dataType":"LOOKUP",
+					 * 					"_recordLang": [
+					 * 						{
+					 * 							"values":[
+					 * 								{
+					 * 									"_code": "01"
+					 * 								}
+					 * 							]
+					 * 						}
+					 * 					]
+					 * 				}
+					 * 			]
+					 * 		}
+					 * 	]
+					 * }
+					 * 
+					 * 
+					 * */
+					
+					if(product.has("lookGroupId")) {
+						String conjuntoLookId = product.getString("lookGroupId");
+						String name = product.has("name") ? product.getString("name") : null;
+						String desc = product.has("description") ? product.getString("description") : null;
+						String startAt = product.has("startAt") ? product.getString("startAt") : null;
+						String endAt = product.has("endAt") ? product.getString("endAt") : null;
+						
+						org.json.JSONObject _data = new org.json.JSONObject();
+						org.json.JSONArray lang = new org.json.JSONArray();
+						_data.put("lang", lang);
+						org.json.JSONArray characteristicArray = new org.json.JSONArray();
+						org.json.JSONObject langObject = new org.json.JSONObject();
+						lang.put(langObject);
+						if(name != null) {
+							langObject.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))).put("descriptionShort", name);
+						}
+						if(desc != null) {
+							langObject.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))).put("descriptionLong", desc);
+						}
+						if(startAt != null) {
+							characteristicArray
+							.put(new org.json.JSONObject()
+									.put("_qualification",
+											new JSONObject()
+											.put("recordKey", recordKey)
+													.put("characteristic",
+															new JSONObject().put("_code", "StartDate")))
+									.put("_recordLang",
+											new org.json.JSONArray()
+													.put(new JSONObject().put("values", new org.json.JSONArray().put(startAt))))
+									);
+						}
+						if(endAt != null) {
+							characteristicArray
+							.put(new org.json.JSONObject()
+									.put("_qualification",
+											new JSONObject()
+											.put("recordKey", recordKey)
+											.put("characteristic",
+													new JSONObject().put("_code", "EndDate")))
+									.put("_recordLang",
+											new org.json.JSONArray()
+											.put(new JSONObject().put("values", new org.json.JSONArray().put(endAt))))
+									);
+						}
 						characteristicArray
 						.put(new org.json.JSONObject()
 								.put("_qualification",
 										new JSONObject()
 										.put("recordKey", recordKey)
 										.put("characteristic",
-												new JSONObject().put("_code", "EndDate")))
+												new JSONObject().put("_code", "SAPObjectType")))
 								.put("_recordLang",
 										new org.json.JSONArray()
-										.put(new JSONObject().put("values", new org.json.JSONArray().put(endAt))))
+										.put(new JSONObject().put("values", new org.json.JSONArray().put(new org.json.JSONObject().put("_code", "CLK")))))
 								);
-					}
-					characteristicArray
-					.put(new org.json.JSONObject()
-							.put("_qualification",
-									new JSONObject()
-									.put("recordKey", recordKey)
-									.put("characteristic",
-											new JSONObject().put("_code", "SAPObjectType")))
-							.put("_recordLang",
-									new org.json.JSONArray()
-									.put(new JSONObject().put("values", new org.json.JSONArray().put(new org.json.JSONObject().put("_code", "CLK")))))
-							);
-					_data.put("_characteristicRecords", characteristicArray);
-					photosArray = product.has("photos") ? product.getJSONArray("photos") : new org.json.JSONArray();
-					for (int j = 0; j < photosArray.length(); j++) {
-						photo = photosArray.getJSONObject(j);
-						try {
-							if (photo.getString("PhotoAssetType").startsWith("ProductImageDetail")) {
-								recordKey = timesDetailImage == 0 ? "0000.0000.RK" : "0000." + ( timesDetailImage < 10 ? "000" + timesDetailImage : timesDetailImage < 100 ? "00" + timesDetailImage : timesDetailImage < 1000 ? "0" + timesDetailImage : timesDetailImage ) + ".RK";
-								children = new org.json.JSONArray();
-								children.put(new org.json.JSONObject()
-										.put("_qualification",
-												new org.json.JSONObject()
-												.put("recordKey", recordKey)
-														.put("characteristic",
-																new org.json.JSONObject().put("_code",
-																		"ProductImageDetail_Name")))
-										.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
-												new org.json.JSONArray().put(photo.getString("PhotoAssetName"))))));
-								children.put(new org.json.JSONObject()
-										.put("_qualification",
-												new org.json.JSONObject()
-												.put("recordKey", recordKey)
-														.put("characteristic",
-																new org.json.JSONObject().put("_code",
-																		"ProductImageDetail_URL")))
-										.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
-												new org.json.JSONArray().put(photo.getString("PhotoAssetURL"))))));
-								if(photo.has("PhotoAssetStatus")) {
-									children.put(
-										new org.json.JSONObject()
-												.put("_qualification",
-														new org.json.JSONObject()
-														.put("recordKey", recordKey)
-																.put("characteristic",
-																		new org.json.JSONObject().put("_code",
-																				"ProductImageDetail_Status")))
-												.put("_recordLang",
-														new org.json.JSONArray()
-																.put(new org.json.JSONObject().put("values",
-																		new org.json.JSONArray()
-																				.put(new JSONObject()
-																						.put("_qualification",
-																								new JSONObject().put(
-																										"language",
-																										new JSONObject().put(
-																												"_code", "zxx")))
-																						.put("_label", photo.optString(
-																								"PhotoAssetStatus")))))));
-								}
-								characteristicArray
-										.put(new org.json.JSONObject()
-												.put("_qualification",
-														new JSONObject()
-														.put("recordKey", recordKey)
-																.put("characteristic",
-																		new JSONObject().put("_code", "ProductImageDetail")))
-												.put("_recordLang",
-														new org.json.JSONArray()
-																.put(new JSONObject().put("values", new org.json.JSONArray())))
-												.put("_children", children));
-								timesDetailImage++;
-							} else if (photo.getString("PhotoAssetType").equals("ProductImage")) {
-								log("Adding a productImage ");
-								children = new org.json.JSONArray();
-								children.put(new org.json.JSONObject()
-										.put("_qualification",
-												new org.json.JSONObject()
-												.put("recordKey", "0000.0000.RK")
-														.put("characteristic",
-																new org.json.JSONObject().put("_code", "ProductImage_Name")))
-										.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
-												new org.json.JSONArray().put(photo.getString("PhotoAssetName"))))));
-								children.put(new org.json.JSONObject()
-										.put("_qualification",
-												new org.json.JSONObject()
-												.put("recordKey", "0000.0000.RK")
-														.put("characteristic",
-																new org.json.JSONObject().put("_code", "ProductImage_URL")))
-										.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
-												new org.json.JSONArray().put(photo.getString("PhotoAssetURL"))))));
-								if(photo.has("PhotoAssetStatus")) {
-									children.put(
-										new org.json.JSONObject()
-												.put("_qualification",
-														new org.json.JSONObject()
-														.put("recordKey", "0000.0000.RK")
-																.put("characteristic",
-																		new org.json.JSONObject().put("_code",
-																				"ProductImage_Status")))
-												.put("_recordLang",
-														new org.json.JSONArray()
-																.put(new org.json.JSONObject().put("values",
-																		new org.json.JSONArray()
-																				.put(new JSONObject()
-																						.put("_qualification",
-																								new JSONObject().put(
-																										"language",
-																										new JSONObject().put(
-																												"_code", "zxx")))
-																						.put("_label", photo.optString(
-																								"PhotoAssetStatus")))))));
-								}
-								characteristicArray.put(new org.json.JSONObject().put("_qualification",
-										new JSONObject()
-											.put("recordKey", "0000.0000.RK")
-											.put("characteristic", 
-													new JSONObject()
-														.put("_code", "ProductImage")))
-										.put("_recordLang",
-												new org.json.JSONArray()
-														.put(new JSONObject().put("values", new org.json.JSONArray())))
-										.put("_children", children));
-							} else if (photo.getString("PhotoAssetType").startsWith("Illustration")) {
-								recordKey = timesIllustration == 0 ? "0000.0000.RK" : "0000." + ( timesIllustration < 10 ? "000" + timesIllustration : timesIllustration < 100 ? "00" + timesIllustration : timesIllustration < 1000 ? "0" + timesIllustration : timesIllustration ) + ".RK";
-								children = new org.json.JSONArray();
-								children.put(new org.json.JSONObject()
-										.put("_qualification",
-												new org.json.JSONObject()
-												.put("recordKey",recordKey)
-														.put("characteristic",
-																new org.json.JSONObject().put("_code", "Illustration_Name")))
-										.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
-												new org.json.JSONArray().put(photo.getString("PhotoAssetName"))))));
-								children.put(new org.json.JSONObject()
-										.put("_qualification",
-												new org.json.JSONObject()
-												.put("recordKey", recordKey)
-														.put("characteristic",
-																new org.json.JSONObject().put("_code", "Illustration_URL")))
-										.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
-												new org.json.JSONArray().put(photo.getString("PhotoAssetURL"))))));
-								if(photo.has("PhotoAssetStatus")) {
-									children.put(
-										new org.json.JSONObject()
-												.put("_qualification",
-														new org.json.JSONObject()
-														.put("recordKey", recordKey)
-																.put("characteristic",
-																		new org.json.JSONObject().put("_code",
-																				"Illustration_Status")))
-												.put("_recordLang",
-														new org.json.JSONArray()
-																.put(new org.json.JSONObject().put("values",
-																		new org.json.JSONArray()
-																				.put(new JSONObject()
-																						.put("_qualification",
-																								new JSONObject().put(
-																										"language",
-																										new JSONObject().put(
-																												"_code", "zxx")))
-																						.put("_label", photo.optString(
-																								"PhotoAssetStatus")))))));
-								}
-								characteristicArray.put(new org.json.JSONObject().put("_qualification",
-										new JSONObject()
-										.put("recordKey", recordKey)
-												.put("characteristic", new JSONObject().put("_code", "Illustration")))
-										.put("_recordLang",
-												new org.json.JSONArray()
-														.put(new JSONObject().put("values", new org.json.JSONArray())))
-										.put("_children", children));
-								timesIllustration++;
-							} else if (photo.getString("PhotoAssetType").startsWith("ProductImageSmosh")) {
-								recordKey = timesSmosh == 0 ? "0000.0000.RK" : "0000." + ( timesSmosh < 10 ? "000" + timesSmosh : timesSmosh < 100 ? "00" + timesSmosh : timesSmosh < 1000 ? "0" + timesSmosh : timesSmosh ) + ".RK";
-								children = new org.json.JSONArray();
-								children.put(new org.json.JSONObject()
-										.put("_qualification",
-												new org.json.JSONObject()
-												.put("recordKey", recordKey)
-														.put("characteristic",
-																new org.json.JSONObject().put("_code",
-																		"ProductImageSmosh_Name")))
-										.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
-												new org.json.JSONArray().put(photo.getString("PhotoAssetName"))))));
-								children.put(new org.json.JSONObject()
-										.put("_qualification",
-												new org.json.JSONObject()
-												.put("recordKey", recordKey)
-														.put("characteristic",
-																new org.json.JSONObject().put("_code",
-																		"ProductImageSmosh_URL")))
-										.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
-												new org.json.JSONArray().put(photo.getString("PhotoAssetURL"))))));
-								if(photo.has("PhotoAssetStatus")) {
-									children.put(
+						_data.put("_characteristicRecords", characteristicArray);
+						photosArray = product.has("photos") ? product.getJSONArray("photos") : new org.json.JSONArray();
+						for (int j = 0; j < photosArray.length(); j++) {
+							photo = photosArray.getJSONObject(j);
+							try {
+								if (photo.getString("PhotoAssetType").startsWith("ProductImageDetail")) {
+									recordKey = timesDetailImage == 0 ? "0000.0000.RK" : "0000." + ( timesDetailImage < 10 ? "000" + timesDetailImage : timesDetailImage < 100 ? "00" + timesDetailImage : timesDetailImage < 1000 ? "0" + timesDetailImage : timesDetailImage ) + ".RK";
+									children = new org.json.JSONArray();
+									children.put(new org.json.JSONObject()
+											.put("_qualification",
+													new org.json.JSONObject()
+													.put("recordKey", recordKey)
+															.put("characteristic",
+																	new org.json.JSONObject().put("_code",
+																			"ProductImageDetail_Name")))
+											.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
+													new org.json.JSONArray().put(photo.getString("PhotoAssetName"))))));
+									children.put(new org.json.JSONObject()
+											.put("_qualification",
+													new org.json.JSONObject()
+													.put("recordKey", recordKey)
+															.put("characteristic",
+																	new org.json.JSONObject().put("_code",
+																			"ProductImageDetail_URL")))
+											.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
+													new org.json.JSONArray().put(photo.getString("PhotoAssetURL"))))));
+									if(photo.has("PhotoAssetStatus")) {
+										children.put(
 											new org.json.JSONObject()
 													.put("_qualification",
 															new org.json.JSONObject()
-															.put("recordKey",recordKey)
+															.put("recordKey", recordKey)
 																	.put("characteristic",
 																			new org.json.JSONObject().put("_code",
-																					"ProductImageSmosh_Status")))
+																					"ProductImageDetail_Status")))
 													.put("_recordLang",
 															new org.json.JSONArray()
 																	.put(new org.json.JSONObject().put("values",
@@ -2817,385 +2568,546 @@ public class CreateProposal {
 																													"_code", "zxx")))
 																							.put("_label", photo.optString(
 																									"PhotoAssetStatus")))))));
-								}
-								characteristicArray
-										.put(new org.json.JSONObject()
-												.put("_qualification",
-														new JSONObject()
-														.put("recordKey", recordKey)
-																.put("characteristic",
-																		new JSONObject().put("_code", "ProductImageSmosh")))
-												.put("_recordLang",
-														new org.json.JSONArray()
-																.put(new JSONObject().put("values", new org.json.JSONArray())))
-												.put("_children", children));
-								timesSmosh++;
-							}
-						} catch (org.json.JSONException | NullPointerException e) {
-							structureProblems.put(new org.json.JSONObject()
-									.put("Message", "Error in structure, failed when processing photo object structure. Mandatory attributes are: PhotoAssetURL and PhotoAssetName")
-									.put("Object", photo));
-						}
-					}
-					java.util.Map<String, String> qp = new java.util.TreeMap<>();
-					org.json.JSONObject respo = workshop.makeRequest("PUT", "/object/Product2G/'" + conjuntoLookId + "'@'MASTER'?includeIds=true&includeLabels=true", qp, _data.toString());
-					log(respo == null ? "Problem updating product2G: " + workshop.getRawResponse() : respo.toString());
-					responses.put(respo);
-					continue;
-				}
-
-				if(product.has("userRemarks") || product.has("modifiedFields")) {
-					processModifiedFields(product);
-				}
-				if(product.has("basicData")) {
-					sections.add("basicData");
-				}
-				if(product.has("attributes")) {
-					sections.add("attributes");
-				}
-				if(product.has("logisticData")) {
-					sections.add("logisticData");
-				}
-				if(product.has("datosVenta")) {
-					sections.add("datosVenta");
-				}
-				if(product.has("unMasiosare")) {
-					try{
-						unMasiosare = product.getBoolean("unMasiosare");
-					}catch(org.json.JSONException e) {
-						
-					}
-					product.remove("unMasiosare");
-				}
-				this.userAction = product.has("userAction") ? product.getString("userAction") : "InProgress";
-				externalEmail = product.has("userEmail") ? product.getString("userEmail") : "";
-				targetRole = product.has("targetRole") ? product.getString("targetRole") : "";
-				templateId = product.has("template") ? product.getString("template") : null;
-				basicData = (org.json.JSONObject) product.remove("basicData");
-				attributes = (org.json.JSONObject) product.remove("attributes");
-				logisticData = (org.json.JSONObject) product.remove("logisticData");
-				datosVenta = (org.json.JSONObject) product.remove("datosVenta");
-				multimediaArray = (org.json.JSONArray) product.remove("multiMedia");
-				photosArray = (org.json.JSONArray) product.remove("photos");
-				variantes = (org.json.JSONArray) product.remove("variants");
-				variantes = variantes == null ? new org.json.JSONArray() : variantes;
-				cosos = new org.json.JSONArray();
-				Object o = product.remove("__sample");
-				if(o instanceof Boolean) {
-					sample = (Boolean) o;
-				}
-				business = product.has("Business") ? product.getString("Business") : null;
-				externalProductId = product.has("proposalId") ? product.getString("proposalId") : product.has("lookGroupId") ? product.getString("lookGroupId") : null;
-				log("ExternalProductId: " + (product.has("proposalId") ? product.getString("proposalId") : "---"));
-				if (inconsistentWithVariants(variantes, product.has("proposalId"))) {
-					responses.put(new org.json.JSONObject().put("faultCode", 400).put("message",
-							"El presente es un error técnico: Inconsistencia entre producto y variantes, hay al menos una variante con \"variantId\", pero el producto no especifica un \"proposalId\", de modo que no se pueden hacer actualizaciones a variantes que ya podrían pertenecer a un producto, favor de remover las llaves \"variantId\" del objeto \"JSON\" en la petición."));
-					continue;
-				}else if((business == null || templateId == null ) && !product.has("proposalId")) {
-					responses.put(new org.json.JSONObject().put("faultCode", 400).put("message",
-							"Falta plantilla o negocio para crear la propuesta."));
-					continue;
-				}
-				if (basicData != null) {
-					if(business != null) {
-						basicData.put("Business", business);
-					}
-					cosos.put(basicData);
-				}
-				if (attributes != null) {
-					cosos.put(attributes);
-				}
-				if (logisticData != null) {
-					cosos.put(logisticData);
-				}
-				if (datosVenta != null) {
-					cosos.put(datosVenta);
-				}
-				if(photosArray == null) {
-					photosArray = new org.json.JSONArray();
-				}
-					/*****
-					 *
-					 * Carga lista para validación de que la característica pertenezca a la
-					 * plantilla. loadTemplateCharacteristicsThatUseLookupValue( product.getString(  "template" ) );
-					 *
-					 *********************************************************************************************************/
-				if(variantes != null) {
-					for(int k = 0; k<variantes.length(); k++) {
-						numberOfCurrentVariantsReal += (variantes.getJSONObject(k).has("variantId")) ? 0 : 1 ;
-					}
-					log("Variantes for real: " + numberOfCurrentVariantsReal);
-				}
-				org.json.JSONArray characteristicArray = new org.json.JSONArray();
-				org.json.JSONArray writeDataFails = new org.json.JSONArray();
-				JSONObject charBody = null;
-				itemGroup = null;
-				itemGroupS4H = null;
-				if (cosos.length() > 0) {
-//					if(characteristicsThatAreLookups == null || characteristicsThatAreLookups.isEmpty()) {
-//						characteristicsThatAreLookups = getCharacteristicsThatAreLookups();
-//					}
-				}
-				boolean tellme = false;
-				for (int j = 0; j < cosos.length(); j++) {
-					if (!JSONObject.NULL.equals(cosos.getJSONObject(j)) && cosos.getJSONObject(j) != null) {
-						if(JSONObject.getNames(cosos.getJSONObject(j)) != null) {
-							for (String name : JSONObject.getNames(cosos.getJSONObject(j))) {
-								holder = String.valueOf(cosos.getJSONObject(j).get(name)).replaceAll(" {2,}", " ").trim();
-								if(!"".equals(holder)) {
-									if ("ProductTypeSAPTEMP".equals(name)) {
-										log("Got an item group (ProductTypeSAPTEMP):<::>" + cosos.getJSONObject(j).get(name) + "<::>.");
-										itemGroup = String.valueOf(cosos.getJSONObject(j).get(name)).replaceAll(" - .+", ""); // 93904 3043
-										if(itemGroup.length() >= 5) {
-											productFromItemGroup = itemGroup.substring(5);
-											itemGroup = itemGroup.substring(0,5);
-											charBody = new org.json.JSONObject()
-													.put("_datatype", "LOOKUP")
+									}
+									characteristicArray
+											.put(new org.json.JSONObject()
 													.put("_qualification",
-															new JSONObject().put("characteristic",
-																	new JSONObject().put("_code", "ItemGroup")))
-													.put("_recordLang", new org.json.JSONArray().put(
 															new JSONObject()
-															.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-															.put("values", new org.json.JSONArray()
-																	.put(
-																		new org.json.JSONObject().put("_code", itemGroup)
-																	)
-																)));
-											characteristicArray.put(charBody);
-											if(!"".equals(productFromItemGroup)) {
+															.put("recordKey", recordKey)
+																	.put("characteristic",
+																			new JSONObject().put("_code", "ProductImageDetail")))
+													.put("_recordLang",
+															new org.json.JSONArray()
+																	.put(new JSONObject().put("values", new org.json.JSONArray())))
+													.put("_children", children));
+									timesDetailImage++;
+								} else if (photo.getString("PhotoAssetType").equals("ProductImage")) {
+									log("Adding a productImage ");
+									children = new org.json.JSONArray();
+									children.put(new org.json.JSONObject()
+											.put("_qualification",
+													new org.json.JSONObject()
+													.put("recordKey", "0000.0000.RK")
+															.put("characteristic",
+																	new org.json.JSONObject().put("_code", "ProductImage_Name")))
+											.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
+													new org.json.JSONArray().put(photo.getString("PhotoAssetName"))))));
+									children.put(new org.json.JSONObject()
+											.put("_qualification",
+													new org.json.JSONObject()
+													.put("recordKey", "0000.0000.RK")
+															.put("characteristic",
+																	new org.json.JSONObject().put("_code", "ProductImage_URL")))
+											.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
+													new org.json.JSONArray().put(photo.getString("PhotoAssetURL"))))));
+									if(photo.has("PhotoAssetStatus")) {
+										children.put(
+											new org.json.JSONObject()
+													.put("_qualification",
+															new org.json.JSONObject()
+															.put("recordKey", "0000.0000.RK")
+																	.put("characteristic",
+																			new org.json.JSONObject().put("_code",
+																					"ProductImage_Status")))
+													.put("_recordLang",
+															new org.json.JSONArray()
+																	.put(new org.json.JSONObject().put("values",
+																			new org.json.JSONArray()
+																					.put(new JSONObject()
+																							.put("_qualification",
+																									new JSONObject().put(
+																											"language",
+																											new JSONObject().put(
+																													"_code", "zxx")))
+																							.put("_label", photo.optString(
+																									"PhotoAssetStatus")))))));
+									}
+									characteristicArray.put(new org.json.JSONObject().put("_qualification",
+											new JSONObject()
+												.put("recordKey", "0000.0000.RK")
+												.put("characteristic", 
+														new JSONObject()
+															.put("_code", "ProductImage")))
+											.put("_recordLang",
+													new org.json.JSONArray()
+															.put(new JSONObject().put("values", new org.json.JSONArray())))
+											.put("_children", children));
+								} else if (photo.getString("PhotoAssetType").startsWith("Illustration")) {
+									recordKey = timesIllustration == 0 ? "0000.0000.RK" : "0000." + ( timesIllustration < 10 ? "000" + timesIllustration : timesIllustration < 100 ? "00" + timesIllustration : timesIllustration < 1000 ? "0" + timesIllustration : timesIllustration ) + ".RK";
+									children = new org.json.JSONArray();
+									children.put(new org.json.JSONObject()
+											.put("_qualification",
+													new org.json.JSONObject()
+													.put("recordKey",recordKey)
+															.put("characteristic",
+																	new org.json.JSONObject().put("_code", "Illustration_Name")))
+											.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
+													new org.json.JSONArray().put(photo.getString("PhotoAssetName"))))));
+									children.put(new org.json.JSONObject()
+											.put("_qualification",
+													new org.json.JSONObject()
+													.put("recordKey", recordKey)
+															.put("characteristic",
+																	new org.json.JSONObject().put("_code", "Illustration_URL")))
+											.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
+													new org.json.JSONArray().put(photo.getString("PhotoAssetURL"))))));
+									if(photo.has("PhotoAssetStatus")) {
+										children.put(
+											new org.json.JSONObject()
+													.put("_qualification",
+															new org.json.JSONObject()
+															.put("recordKey", recordKey)
+																	.put("characteristic",
+																			new org.json.JSONObject().put("_code",
+																					"Illustration_Status")))
+													.put("_recordLang",
+															new org.json.JSONArray()
+																	.put(new org.json.JSONObject().put("values",
+																			new org.json.JSONArray()
+																					.put(new JSONObject()
+																							.put("_qualification",
+																									new JSONObject().put(
+																											"language",
+																											new JSONObject().put(
+																													"_code", "zxx")))
+																							.put("_label", photo.optString(
+																									"PhotoAssetStatus")))))));
+									}
+									characteristicArray.put(new org.json.JSONObject().put("_qualification",
+											new JSONObject()
+											.put("recordKey", recordKey)
+													.put("characteristic", new JSONObject().put("_code", "Illustration")))
+											.put("_recordLang",
+													new org.json.JSONArray()
+															.put(new JSONObject().put("values", new org.json.JSONArray())))
+											.put("_children", children));
+									timesIllustration++;
+								} else if (photo.getString("PhotoAssetType").startsWith("ProductImageSmosh")) {
+									recordKey = timesSmosh == 0 ? "0000.0000.RK" : "0000." + ( timesSmosh < 10 ? "000" + timesSmosh : timesSmosh < 100 ? "00" + timesSmosh : timesSmosh < 1000 ? "0" + timesSmosh : timesSmosh ) + ".RK";
+									children = new org.json.JSONArray();
+									children.put(new org.json.JSONObject()
+											.put("_qualification",
+													new org.json.JSONObject()
+													.put("recordKey", recordKey)
+															.put("characteristic",
+																	new org.json.JSONObject().put("_code",
+																			"ProductImageSmosh_Name")))
+											.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
+													new org.json.JSONArray().put(photo.getString("PhotoAssetName"))))));
+									children.put(new org.json.JSONObject()
+											.put("_qualification",
+													new org.json.JSONObject()
+													.put("recordKey", recordKey)
+															.put("characteristic",
+																	new org.json.JSONObject().put("_code",
+																			"ProductImageSmosh_URL")))
+											.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
+													new org.json.JSONArray().put(photo.getString("PhotoAssetURL"))))));
+									if(photo.has("PhotoAssetStatus")) {
+										children.put(
+												new org.json.JSONObject()
+														.put("_qualification",
+																new org.json.JSONObject()
+																.put("recordKey",recordKey)
+																		.put("characteristic",
+																				new org.json.JSONObject().put("_code",
+																						"ProductImageSmosh_Status")))
+														.put("_recordLang",
+																new org.json.JSONArray()
+																		.put(new org.json.JSONObject().put("values",
+																				new org.json.JSONArray()
+																						.put(new JSONObject()
+																								.put("_qualification",
+																										new JSONObject().put(
+																												"language",
+																												new JSONObject().put(
+																														"_code", "zxx")))
+																								.put("_label", photo.optString(
+																										"PhotoAssetStatus")))))));
+									}
+									characteristicArray
+											.put(new org.json.JSONObject()
+													.put("_qualification",
+															new JSONObject()
+															.put("recordKey", recordKey)
+																	.put("characteristic",
+																			new JSONObject().put("_code", "ProductImageSmosh")))
+													.put("_recordLang",
+															new org.json.JSONArray()
+																	.put(new JSONObject().put("values", new org.json.JSONArray())))
+													.put("_children", children));
+									timesSmosh++;
+								}
+							} catch (org.json.JSONException | NullPointerException e) {
+								structureProblems.put(new org.json.JSONObject()
+										.put("Message", "Error in structure, failed when processing photo object structure. Mandatory attributes are: PhotoAssetURL and PhotoAssetName")
+										.put("Object", photo));
+							}
+						}
+						java.util.Map<String, String> qp = new java.util.TreeMap<>();
+						org.json.JSONObject respo = workshop.makeRequest("PUT", "/object/Product2G/'" + conjuntoLookId + "'@'MASTER'?includeIds=true&includeLabels=true", qp, _data.toString());
+						log(respo == null ? "Problem updating product2G: " + workshop.getRawResponse() : respo.toString());
+						responses.put(respo);
+						continue;
+					}
+	
+					if(product.has("userRemarks") || product.has("modifiedFields")) {
+						processModifiedFields(product);
+					}
+					if(product.has("basicData")) {
+						sections.add("basicData");
+					}
+					if(product.has("attributes")) {
+						sections.add("attributes");
+					}
+					if(product.has("logisticData")) {
+						sections.add("logisticData");
+					}
+					if(product.has("datosVenta")) {
+						sections.add("datosVenta");
+					}
+					if(product.has("unMasiosare")) {
+						try{
+							unMasiosare = product.getBoolean("unMasiosare");
+						}catch(org.json.JSONException e) {
+							
+						}
+						product.remove("unMasiosare");
+					}
+					this.userAction = product.has("userAction") ? product.getString("userAction") : "InProgress";
+					externalEmail = product.has("userEmail") ? product.getString("userEmail") : "";
+					targetRole = product.has("targetRole") ? product.getString("targetRole") : "";
+					templateId = product.has("template") ? product.getString("template") : null;
+					basicData = (org.json.JSONObject) product.remove("basicData");
+					attributes = (org.json.JSONObject) product.remove("attributes");
+					logisticData = (org.json.JSONObject) product.remove("logisticData");
+					datosVenta = (org.json.JSONObject) product.remove("datosVenta");
+					multimediaArray = (org.json.JSONArray) product.remove("multiMedia");
+					photosArray = (org.json.JSONArray) product.remove("photos");
+					variantes = (org.json.JSONArray) product.remove("variants");
+					variantes = variantes == null ? new org.json.JSONArray() : variantes;
+					cosos = new org.json.JSONArray();
+					Object o = product.remove("__sample");
+					if(o instanceof Boolean) {
+						sample = (Boolean) o;
+					}
+					business = product.has("Business") ? product.getString("Business") : null;
+					externalProductId = product.has("proposalId") ? product.getString("proposalId") : product.has("lookGroupId") ? product.getString("lookGroupId") : null;
+					log("ExternalProductId: " + (product.has("proposalId") ? product.getString("proposalId") : "---"));
+					if (inconsistentWithVariants(variantes, product.has("proposalId"))) {
+						responses.put(new org.json.JSONObject().put("faultCode", 400).put("message",
+								"El presente es un error técnico: Inconsistencia entre producto y variantes, hay al menos una variante con \"variantId\", pero el producto no especifica un \"proposalId\", de modo que no se pueden hacer actualizaciones a variantes que ya podrían pertenecer a un producto, favor de remover las llaves \"variantId\" del objeto \"JSON\" en la petición."));
+						continue;
+					}else if((business == null || templateId == null ) && !product.has("proposalId")) {
+						responses.put(new org.json.JSONObject().put("faultCode", 400).put("message",
+								"Falta plantilla o negocio para crear la propuesta."));
+						continue;
+					}
+					if (basicData != null) {
+						if(business != null) {
+							basicData.put("Business", business);
+						}
+						cosos.put(basicData);
+					}
+					if (attributes != null) {
+						cosos.put(attributes);
+					}
+					if (logisticData != null) {
+						cosos.put(logisticData);
+					}
+					if (datosVenta != null) {
+						cosos.put(datosVenta);
+					}
+					if(photosArray == null) {
+						photosArray = new org.json.JSONArray();
+					}
+						/*****
+						 *
+						 * Carga lista para validación de que la característica pertenezca a la
+						 * plantilla. loadTemplateCharacteristicsThatUseLookupValue( product.getString(  "template" ) );
+						 *
+						 *********************************************************************************************************/
+					if(variantes != null) {
+						for(int k = 0; k<variantes.length(); k++) {
+							numberOfCurrentVariantsReal += (variantes.getJSONObject(k).has("variantId")) ? 0 : 1 ;
+						}
+						log("Variantes for real: " + numberOfCurrentVariantsReal);
+					}
+					org.json.JSONArray characteristicArray = new org.json.JSONArray();
+					org.json.JSONArray writeDataFails = new org.json.JSONArray();
+					JSONObject charBody = null;
+					itemGroup = null;
+					itemGroupS4H = null;
+					if (cosos.length() > 0) {
+	//					if(characteristicsThatAreLookups == null || characteristicsThatAreLookups.isEmpty()) {
+	//						characteristicsThatAreLookups = getCharacteristicsThatAreLookups();
+	//					}
+					}
+					boolean tellme = false;
+					for (int j = 0; j < cosos.length(); j++) {
+						if (!JSONObject.NULL.equals(cosos.getJSONObject(j)) && cosos.getJSONObject(j) != null) {
+							if(JSONObject.getNames(cosos.getJSONObject(j)) != null) {
+								for (String name : JSONObject.getNames(cosos.getJSONObject(j))) {
+									holder = String.valueOf(cosos.getJSONObject(j).get(name)).replaceAll(" {2,}", " ").trim();
+									if(!"".equals(holder)) {
+										if( name.startsWith("ProductTypeSAPTEMP") ) {
+											String drr = dr.getCharacteristicData(new org.json.JSONArray().put(name));
+											characteristicLookup = drr != null ? new org.json.JSONObject(drr).getJSONArray("items").getJSONObject(0).getString("lookup") : null; // characteristicsThatAreLookups.get(name);
+											log("NEO That are lookup: " + characteristicLookup + " (" + name + ")");
+//											codeValue = resolveLookupCode(
+//													templateId,
+//													name,
+//													characteristicLookup,
+//													holder
+//											);
+											codeValue = dastub.getLookupValueCodeByName(characteristicLookup, 10, holder, true);
+											if(codeValue == null) {
+												log("We stay with: " + holder);
+											}else {
+												log("For " + name + " got: " + codeValue);
+												holder = holder.matches("^[0-9]+ .+") ? holder : codeValue + " - " + holder;
+												log("For " + name + " got (rebuilded): " + holder);
+											}
+										}
+										if ("ProductTypeSAPTEMP".equals(name)) {
+											log("Got an item group (ProductTypeSAPTEMP):<::>" + holder + "<::>.");
+											itemGroup = holder.replaceAll(" - .+", ""); // 93904 3043
+											if(itemGroup.length() >= 5) {
+												productFromItemGroup = itemGroup.substring(5);
+												itemGroup = itemGroup.substring(0,5);
 												charBody = new org.json.JSONObject()
 														.put("_datatype", "LOOKUP")
 														.put("_qualification",
 																new JSONObject().put("characteristic",
-																		new JSONObject().put("_code", "ProductTypeSAP")))
+																		new JSONObject().put("_code", "ItemGroup")))
 														.put("_recordLang", new org.json.JSONArray().put(
 																new JSONObject()
-																.put("_qualification", new org.json.JSONObject()
-																		.put("language", new org.json.JSONObject().put("_code", "zxx")))
-																.put("values", new org.json.JSONArray().put(
-																		new org.json.JSONObject().put("_code", productFromItemGroup)
-																		))));
+																.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+																.put("values", new org.json.JSONArray()
+																		.put(
+																			new org.json.JSONObject().put("_code", itemGroup)
+																		)
+																	)));
 												characteristicArray.put(charBody);
-											}
-										}else {
-											productFromItemGroup = "";
-										}
-									} else if ("ProductTypeSAPTEMPSBB".equals(name)) {
-										itemGroupS4H = String.valueOf(cosos.getJSONObject(j).get(name)).replaceAll(" - .+", "");
-										if(itemGroupS4H.length() >= 5) {
-											if(itemGroupS4H.startsWith("SB")) {
-												productFromItemGroup = itemGroupS4H.substring(7);
-												itemGroupS4H = itemGroupS4H.substring(0,7);
-											}else {
-												productFromItemGroup = itemGroupS4H.substring(5);
-												itemGroupS4H = itemGroupS4H.substring(0,5);
-											}
-											charBody = new org.json.JSONObject()
-													.put("_datatype", "LOOKUP")
-													.put("_qualification",
-															new JSONObject().put("characteristic",
-																	new JSONObject().put("_code", "ItemGroupS4H")))
-													.put("_recordLang", new org.json.JSONArray().put(
-															new JSONObject()
-															.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-															.put("values", new org.json.JSONArray().put(
-																	new org.json.JSONObject().put("_code", itemGroupS4H)
-																))));
-											characteristicArray.put(charBody);
-											if(!"".equals(productFromItemGroup)) {
-												if(externalProductId != null && !"".equals(externalProductId)) {
-													java.util.Map<String, String> qpp = new java.util.HashMap<>();
-													qpp.put("includeObjectsInProtocol", "false");
-													RequestHandler rh = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('SB_0002',root,\"0000.0000.RK\",'SB_0002',-1)")), 1000, req -> rw.writeData("list", "Product2G", null, qpp, req, this::log) );
-													rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalProductId + "'@1")).put("values", new org.json.JSONArray().put(productFromItemGroup)));
-													rh.sendData();
+												if(!"".equals(productFromItemGroup)) {
+													charBody = new org.json.JSONObject()
+															.put("_datatype", "LOOKUP")
+															.put("_qualification",
+																	new JSONObject().put("characteristic",
+																			new JSONObject().put("_code", "ProductTypeSAP")))
+															.put("_recordLang", new org.json.JSONArray().put(
+																	new JSONObject()
+																	.put("_qualification", new org.json.JSONObject()
+																			.put("language", new org.json.JSONObject().put("_code", "zxx")))
+																	.put("values", new org.json.JSONArray().put(
+																			new org.json.JSONObject().put("_code", productFromItemGroup)
+																			))));
+													characteristicArray.put(charBody);
 												}
-												/*
+											}else {
+												productFromItemGroup = "";
+											}
+										} else if ("ProductTypeSAPTEMPSBB".equals(name)) {
+											itemGroupS4H = holder.replaceAll(" - .+", "");
+											if(itemGroupS4H.length() >= 5) {
+												if(itemGroupS4H.startsWith("SB")) {
+													productFromItemGroup = itemGroupS4H.substring(7);
+													itemGroupS4H = itemGroupS4H.substring(0,7);
+												}else {
+													productFromItemGroup = itemGroupS4H.substring(5);
+													itemGroupS4H = itemGroupS4H.substring(0,5);
+												}
 												charBody = new org.json.JSONObject()
 														.put("_datatype", "LOOKUP")
 														.put("_qualification",
 																new JSONObject().put("characteristic",
-																		new JSONObject().put("_code", "SB_0002")))
+																		new JSONObject().put("_code", "ItemGroupS4H")))
 														.put("_recordLang", new org.json.JSONArray().put(
 																new JSONObject()
 																.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
 																.put("values", new org.json.JSONArray().put(
-																		new org.json.JSONObject().put("_code", productFromItemGroup)
+																		new org.json.JSONObject().put("_code", itemGroupS4H)
 																	))));
 												characteristicArray.put(charBody);
-												*/
+												if(!"".equals(productFromItemGroup)) {
+													if(externalProductId != null && !"".equals(externalProductId)) {
+														java.util.Map<String, String> qpp = new java.util.HashMap<>();
+														qpp.put("includeObjectsInProtocol", "false");
+														RequestHandler rh = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('SB_0002',root,\"0000.0000.RK\",'SB_0002',-1)")), 1000, req -> rw.writeData("list", "Product2G", null, qpp, req, this::log) );
+														rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalProductId + "'@1")).put("values", new org.json.JSONArray().put(productFromItemGroup)));
+														rh.sendData();
+													}
+													/*
+													charBody = new org.json.JSONObject()
+															.put("_datatype", "LOOKUP")
+															.put("_qualification",
+																	new JSONObject().put("characteristic",
+																			new JSONObject().put("_code", "SB_0002")))
+															.put("_recordLang", new org.json.JSONArray().put(
+																	new JSONObject()
+																	.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+																	.put("values", new org.json.JSONArray().put(
+																			new org.json.JSONObject().put("_code", productFromItemGroup)
+																		))));
+													characteristicArray.put(charBody);
+													*/
+												}
+											}else {
+												productFromItemGroup = "";
 											}
-										}else {
-											productFromItemGroup = "";
+											log("Came to ProductTypeSAPTEMPSBB, got: " + productFromItemGroup);
+											// Texto del nombre del producto y las unidades de medidas.
 										}
-										log("Came to ProductTypeSAPTEMPSBB, got: " + productFromItemGroup);
-										// Texto del nombre del producto y las unidades de medidas.
-									}
-									if("DescriptionLong".equals(name)) {
-										longDescription = holder;
-										continue;
-									}
-									if("ProductName".equals(name)) {
-										productName = holder;
-									}
-									if("DescriptionLong2".equals(name)) {
-										longDescription2 = holder;
-										continue;
-									}
-									if("EmbedCodeWAP".equals(name)) {
-										embedCodeWAP = holder;
-										continue;
-									}
-									if("EmbedCodeWEB".equals(name)) {
-										embedCodeWEB = holder;
-										continue;
-									}
-									if("refundPolicy".equals(name)) {
-										refundPolicy = holder;
-										continue;
-									}
-									if("MainBarCode".equals(name)) {
-										mainBarCode = holder.replaceFirst("^0+", "").replaceAll("\s{2,}", " ").trim();
-									}
-									if("MainBarCodeS4H".equals(name)) {
-										mainBarCode = holder.replaceFirst("^0+", "").replaceAll("\s{2,}", " ").trim();
-									}
-									if("SupplierPartNumber".equals(name)) {
-										supplierPartNumber = holder;
-									}
-									if (name.startsWith("ProductTypeSAPTEMP")) {
-										codeValue = holder.replaceFirst(" - .*", "").trim();
-
-										if (!codeValue.isEmpty()) {
-											charBody = new org.json.JSONObject()
-													.put("_datatype", "LOOKUP")
-													.put("_qualification",
-															new org.json.JSONObject().put("characteristic",
-																	new org.json.JSONObject().put("_code", name)))
-													.put("_recordLang",
-															new org.json.JSONArray().put(
-																	new org.json.JSONObject()
-																			.put("_qualification",
-																					new org.json.JSONObject().put("language",
-																							new org.json.JSONObject().put("_code", "zxx")))
-																			.put("values",
-																					new org.json.JSONArray().put(
-																							new org.json.JSONObject()
-																									.put("_code", codeValue)
-																									.put("_label", holder)))));
-											characteristicArray.put(charBody);
+										if("DescriptionLong".equals(name)) {
+											longDescription = holder;
+											continue;
 										}
+										if("ProductName".equals(name)) {
+											productName = holder;
+										}
+										if("DescriptionLong2".equals(name)) {
+											longDescription2 = holder;
+											continue;
+										}
+										if("EmbedCodeWAP".equals(name)) {
+											embedCodeWAP = holder;
+											continue;
+										}
+										if("EmbedCodeWEB".equals(name)) {
+											embedCodeWEB = holder;
+											continue;
+										}
+										if("refundPolicy".equals(name)) {
+											refundPolicy = holder;
+											continue;
+										}
+										if("MainBarCode".equals(name)) {
+											mainBarCode = holder.replaceFirst("^0+", "").replaceAll("\s{2,}", " ").trim();
+										}
+										if("MainBarCodeS4H".equals(name)) {
+											mainBarCode = holder.replaceFirst("^0+", "").replaceAll("\s{2,}", " ").trim();
+										}
+										if("SupplierPartNumber".equals(name)) {
+											supplierPartNumber = holder;
+										}
+										if (name.startsWith("ProductTypeSAPTEMP")) {
 
-										continue;
-									}
-									String drr = dr.getCharacteristicData(new org.json.JSONArray().put(name));
-									characteristicLookup = drr != null ? new org.json.JSONObject(drr).getJSONArray("items").getJSONObject(0).getString("lookup") : null; // characteristicsThatAreLookups.get(name);
-									log("That are lookup: " + characteristicLookup + " (" + name + ")");
-									if (characteristicLookup == null || "".equals(characteristicLookup)) {
-										if( cosos.getJSONObject(j).get(name) instanceof org.json.JSONArray ) {
-											org.json.JSONArray auxi = (org.json.JSONArray) cosos.getJSONObject(j).get(name);
-											org.json.JSONArray theValues = new org.json.JSONArray();
-											for(int z=0; z<auxi.length(); z++) {
-												theValues.put( auxi.getString(z).replaceAll(" {2,}", " ").trim() );
+											codeValue = holder.replaceFirst(" - .*", "").trim();
+	
+											if (!codeValue.isEmpty()) {
+												charBody = new org.json.JSONObject()
+														.put("_datatype", "LOOKUP")
+														.put("_qualification",
+																new org.json.JSONObject().put("characteristic",
+																		new org.json.JSONObject().put("_code", name)))
+														.put("_recordLang",
+																new org.json.JSONArray().put(
+																		new org.json.JSONObject()
+																				.put("_qualification",
+																						new org.json.JSONObject().put("language",
+																								new org.json.JSONObject().put("_code", "zxx")))
+																				.put("values",
+																						new org.json.JSONArray().put(
+																								new org.json.JSONObject()
+																										.put("_code", codeValue)
+																										.put("_label", holder)))));
+												characteristicArray.put(charBody);
 											}
-											charBody = new org.json.JSONObject()
-													.put("_qualification",
-															new JSONObject().put("characteristic",
-																	new JSONObject().put("_code", name)))
-													.put("_recordLang", new org.json.JSONArray().put(new JSONObject().put("values",
-															new org.json.JSONArray().put( theValues ))));
-											characteristicArray.put(charBody);
-											tellme = true;
-										}else {
-											charBody = new org.json.JSONObject()
-													.put("_qualification",
-															new JSONObject().put("characteristic",
-																	new JSONObject().put("_code", name)))
-													.put("_recordLang", new org.json.JSONArray().put(new JSONObject().put("values",
-															new org.json.JSONArray().put( holder ))));
-											characteristicArray.put(charBody);
+	
+											continue;
 										}
-									} else {
-//										int s = 0;
-										if ("BrandName".equals(name)) {
-											codeValue = resolveLookupCode(
-													templateId,
-													name,
-													characteristicLookup,
-													holder
-											);
-											validCodes = new java.util.HashMap<>(1);
-											validCodes.put(holder, codeValue);
-										} else {
-										    validCodes = procedeACargarValoresValidos(
-										            templateId,
-										            name
-										    );
-
-										    if (validCodes.isEmpty()) {
-										        validCodes = procedeACargarValoresLookup(
-										                characteristicLookup
-										        );
-										    }
-
-										    codeValue = validCodes.get(holder);
-										}
-										if("Currency".equals(name)) {
-											log("Values for currency: " + validCodes);
-										}
-										if (!validCodes.isEmpty()) {
+										String drr = dr.getCharacteristicData(new org.json.JSONArray().put(name));
+										characteristicLookup = drr != null ? new org.json.JSONObject(drr).getJSONArray("items").getJSONObject(0).getString("lookup") : null; // characteristicsThatAreLookups.get(name);
+										log("That are lookup: " + characteristicLookup + " (" + name + ")");
+										if (characteristicLookup == null || "".equals(characteristicLookup)) {
 											if( cosos.getJSONObject(j).get(name) instanceof org.json.JSONArray ) {
 												org.json.JSONArray auxi = (org.json.JSONArray) cosos.getJSONObject(j).get(name);
 												org.json.JSONArray theValues = new org.json.JSONArray();
 												for(int z=0; z<auxi.length(); z++) {
-													codeValue = validCodes.get(auxi.getString(z).replaceAll(" {2,}", " ").trim());
-													if (codeValue != null) {
-														theValues.put(new org.json.JSONObject().put("_label", auxi.getString(z)).put("_code", codeValue));
-													} else {
-														/*
-														genericFieldErrors.put(new JSONObject().put("fields", new org.json.JSONArray().put(name))
-																.put("values", new org.json.JSONArray().put( cosos.getJSONObject(j).get(name) ))
-																.put("message",
-																		"Problem identifying current value within valid lookup value list")
-																.put("characteristic", name)
-																.put("index", z)
-																);
-														*/
-													}
+													theValues.put( auxi.getString(z).replaceAll(" {2,}", " ").trim() );
 												}
 												charBody = new org.json.JSONObject()
 														.put("_qualification",
 																new JSONObject().put("characteristic",
 																		new JSONObject().put("_code", name)))
-														.put("_recordLang", new org.json.JSONArray().put(
-																new JSONObject().put("values", theValues)));
+														.put("_recordLang", new org.json.JSONArray().put(new JSONObject().put("values",
+																new org.json.JSONArray().put( theValues ))));
 												characteristicArray.put(charBody);
 												tellme = true;
 											}else {
-												codeValue = validCodes.get(cosos.getJSONObject(j).getString(name).replaceAll(" {2,}", " ").trim());
-												if (codeValue != null) {
-													if("BrandName".equals(name)) {
-														brandName = codeValue;
-													}
-													if("BRAND_ID_S4H".equals(name)) {
-														brandIdS4H = codeValue;
+												charBody = new org.json.JSONObject()
+														.put("_qualification",
+																new JSONObject().put("characteristic",
+																		new JSONObject().put("_code", name)))
+														.put("_recordLang", new org.json.JSONArray().put(new JSONObject().put("values",
+																new org.json.JSONArray().put( holder ))));
+												characteristicArray.put(charBody);
+											}
+										} else {
+	//										int s = 0;
+											if ("BrandName".equals(name)) {
+												codeValue = resolveLookupCode(
+														templateId,
+														name,
+														characteristicLookup,
+														holder
+												);
+												validCodes = new java.util.HashMap<>(1);
+												validCodes.put(holder, codeValue);
+											} else {
+											    validCodes = procedeACargarValoresValidos(
+											            templateId,
+											            name
+											    );
+	
+											    if (validCodes.isEmpty()) {
+											        validCodes = procedeACargarValoresLookup(
+											                characteristicLookup
+											        );
+											    }
+	
+											    codeValue = validCodes.get(holder);
+											}
+											if("Currency".equals(name)) {
+												log("Values for currency: " + validCodes);
+											}
+											if (!validCodes.isEmpty()) {
+												if( cosos.getJSONObject(j).get(name) instanceof org.json.JSONArray ) {
+													org.json.JSONArray auxi = (org.json.JSONArray) cosos.getJSONObject(j).get(name);
+													org.json.JSONArray theValues = new org.json.JSONArray();
+													for(int z=0; z<auxi.length(); z++) {
+														codeValue = validCodes.get(auxi.getString(z).replaceAll(" {2,}", " ").trim());
+														if (codeValue != null) {
+															theValues.put(new org.json.JSONObject().put("_label", auxi.getString(z)).put("_code", codeValue));
+														} else {
+															/*
+															genericFieldErrors.put(new JSONObject().put("fields", new org.json.JSONArray().put(name))
+																	.put("values", new org.json.JSONArray().put( cosos.getJSONObject(j).get(name) ))
+																	.put("message",
+																			"Problem identifying current value within valid lookup value list")
+																	.put("characteristic", name)
+																	.put("index", z)
+																	);
+															*/
+														}
 													}
 													charBody = new org.json.JSONObject()
-															.put("_datatype", "LOOKUP")
 															.put("_qualification",
 																	new JSONObject().put("characteristic",
 																			new JSONObject().put("_code", name)))
 															.put("_recordLang", new org.json.JSONArray().put(
-																	new JSONObject()
-																	.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-																	.put("values", new org.json.JSONArray().put(
-																			new org.json.JSONObject().put("_code", codeValue).put("_label",  cosos.getJSONObject(j).get(name))
-																			))));
+																	new JSONObject().put("values", theValues)));
 													characteristicArray.put(charBody);
-												} else {
-													codeValue = keepValueToFile(holder, characteristicLookup, myId);
-													if(codeValue != null) {
+													tellme = true;
+												}else {
+													codeValue = validCodes.get(cosos.getJSONObject(j).getString(name).replaceAll(" {2,}", " ").trim());
+													if (codeValue != null) {
+														if("BrandName".equals(name)) {
+															brandName = codeValue;
+														}
+														if("BRAND_ID_S4H".equals(name)) {
+															brandIdS4H = codeValue;
+														}
 														charBody = new org.json.JSONObject()
 																.put("_datatype", "LOOKUP")
 																.put("_qualification",
@@ -3205,1086 +3117,1100 @@ public class CreateProposal {
 																		new JSONObject()
 																		.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
 																		.put("values", new org.json.JSONArray().put(
-																				new org.json.JSONObject().put("_code", codeValue).put("_label", holder)
+																				new org.json.JSONObject().put("_code", codeValue).put("_label",  cosos.getJSONObject(j).get(name))
 																				))));
 														characteristicArray.put(charBody);
-													}else {
-														log("%%%%%%%%%%%%%%% Maylov %%%%%%%%%%%%%%%% \n\t\n\t" + validCodes + "\n\t" + new JSONObject().put("fields", new org.json.JSONArray().put( name ))
-															.put("values", new org.json.JSONArray().put( holder ))
-															.put("message",
-																	"Problem identifying current value within valid lookup value list")
-															.put("characteristic", name)
-															.put("values", new org.json.JSONArray().put( holder )));
-														children = new org.json.JSONArray();
-														children.put(new org.json.JSONObject()
-																.put("_qualification",
-																		new org.json.JSONObject()
-																				.put("characteristic",
-																						new org.json.JSONObject().put("_code",
-																								"WriteDataIssue_CharacteristicID")))
-																.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
-																		new org.json.JSONArray().put(name)))));
-														children.put(new org.json.JSONObject()
-																.put("_qualification",
-																		new org.json.JSONObject()
-																				.put("characteristic",
-																						new org.json.JSONObject().put("_code",
-																								"WriteDataIssue_TiempoReportado")))
-																.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
-																		new org.json.JSONArray().put(new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").format(new java.util.Date()))))));
-														children.put(new org.json.JSONObject()
-																.put("_qualification",
-																		new org.json.JSONObject()
-																		.put("characteristic",
-																				new org.json.JSONObject().put("_code",
-																						"WriteDataIssue_Detalle")))
-																.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
-																		new org.json.JSONArray().put("No fue posible encontrar un identificador válido para la característica en la plantilla, posiblemente por contar con acotación y no estar actualizada. Valor proporcionado: " + cosos.getJSONObject(j).getString(name).substring(0, Integer.min(cosos.getJSONObject(j).getString(name).length(), 1825)))))));
-														writeDataFails
-															.put(new org.json.JSONObject()
+													} else {
+														codeValue = keepValueToFile(holder, characteristicLookup, myId);
+														if(codeValue != null) {
+															charBody = new org.json.JSONObject()
+																	.put("_datatype", "LOOKUP")
 																	.put("_qualification",
+																			new JSONObject().put("characteristic",
+																					new JSONObject().put("_code", name)))
+																	.put("_recordLang", new org.json.JSONArray().put(
 																			new JSONObject()
+																			.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+																			.put("values", new org.json.JSONArray().put(
+																					new org.json.JSONObject().put("_code", codeValue).put("_label", holder)
+																					))));
+															characteristicArray.put(charBody);
+														}else {
+															log("%%%%%%%%%%%%%%% Maylov %%%%%%%%%%%%%%%% \n\t\n\t" + validCodes + "\n\t" + new JSONObject().put("fields", new org.json.JSONArray().put( name ))
+																.put("values", new org.json.JSONArray().put( holder ))
+																.put("message",
+																		"Problem identifying current value within valid lookup value list")
+																.put("characteristic", name)
+																.put("values", new org.json.JSONArray().put( holder )));
+															children = new org.json.JSONArray();
+															children.put(new org.json.JSONObject()
+																	.put("_qualification",
+																			new org.json.JSONObject()
 																					.put("characteristic",
-																							new JSONObject().put("_code", "WriteDataIssue")))
-																	.put("_recordLang",
-																			new org.json.JSONArray()
-																					.put(new JSONObject().put("values", new org.json.JSONArray())))
-																	.put("_children", children));
-													}
-													/*
-													genericFieldErrors.put(new JSONObject().put("fields", new org.json.JSONArray().put( name ))
-															.put("values", new org.json.JSONArray().put( cosos.getJSONObject(j).get(name) ))
-															.put("message",
-																	"Problem identifying current value within valid lookup value list")
-															.put("characteristic", name)
-															.put("values", new org.json.JSONArray().put( cosos.getJSONObject(j).get(name) )));
-													*/
-													if("ItemGroup".equals(name)) {
-														log("2nd.- ValidCodes for BrandName (looking for: " + ("ItemGroup".equals(name) ? cosos.getJSONObject(j).getString(name).replaceAll("^[0-9]+ - ", "") : cosos.getJSONObject(j).get(name)) + "): " + validCodes + "<::::::::::::::::::::>");
+																							new org.json.JSONObject().put("_code",
+																									"WriteDataIssue_CharacteristicID")))
+																	.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
+																			new org.json.JSONArray().put(name)))));
+															children.put(new org.json.JSONObject()
+																	.put("_qualification",
+																			new org.json.JSONObject()
+																					.put("characteristic",
+																							new org.json.JSONObject().put("_code",
+																									"WriteDataIssue_TiempoReportado")))
+																	.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
+																			new org.json.JSONArray().put(new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").format(new java.util.Date()))))));
+															children.put(new org.json.JSONObject()
+																	.put("_qualification",
+																			new org.json.JSONObject()
+																			.put("characteristic",
+																					new org.json.JSONObject().put("_code",
+																							"WriteDataIssue_Detalle")))
+																	.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
+																			new org.json.JSONArray().put("No fue posible encontrar un identificador válido para la característica en la plantilla, posiblemente por contar con acotación y no estar actualizada. Valor proporcionado: " + cosos.getJSONObject(j).getString(name).substring(0, Integer.min(cosos.getJSONObject(j).getString(name).length(), 1825)))))));
+															writeDataFails
+																.put(new org.json.JSONObject()
+																		.put("_qualification",
+																				new JSONObject()
+																						.put("characteristic",
+																								new JSONObject().put("_code", "WriteDataIssue")))
+																		.put("_recordLang",
+																				new org.json.JSONArray()
+																						.put(new JSONObject().put("values", new org.json.JSONArray())))
+																		.put("_children", children));
+														}
+														/*
+														genericFieldErrors.put(new JSONObject().put("fields", new org.json.JSONArray().put( name ))
+																.put("values", new org.json.JSONArray().put( cosos.getJSONObject(j).get(name) ))
+																.put("message",
+																		"Problem identifying current value within valid lookup value list")
+																.put("characteristic", name)
+																.put("values", new org.json.JSONArray().put( cosos.getJSONObject(j).get(name) )));
+														*/
+														if("ItemGroup".equals(name)) {
+															log("2nd.- ValidCodes for BrandName (looking for: " + ("ItemGroup".equals(name) ? cosos.getJSONObject(j).getString(name).replaceAll("^[0-9]+ - ", "") : cosos.getJSONObject(j).get(name)) + "): " + validCodes + "<::::::::::::::::::::>");
+														}
 													}
 												}
-											}
-										} else {
-											codeValue = keepValueToFile( cosos.getJSONObject(j).getString(name), characteristicLookup, myId );
-											if(codeValue != null) {
-												charBody = new org.json.JSONObject()
-														.put("_datatype", "LOOKUP")
-														.put("_qualification",
-																new JSONObject().put("characteristic",
-																		new JSONObject().put("_code", name)))
-														.put("_recordLang", new org.json.JSONArray().put(
-																new JSONObject()
-																.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-																.put("values", new org.json.JSONArray().put(
-																		new org.json.JSONObject().put("_code", codeValue).put("_label", holder)
-																		))));
-												characteristicArray.put(charBody);
-											}else {
-												/********************************************/
-												// insert new value with object api.
-												/********************************************/
-
-												children = new org.json.JSONArray();
-												children.put(new org.json.JSONObject()
-														.put("_qualification",
-																new org.json.JSONObject()
-																		.put("characteristic",
-																				new org.json.JSONObject().put("_code",
-																						"WriteDataIssue_CharacteristicID")))
-														.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
-																new org.json.JSONArray().put(name)))));
-												children.put(new org.json.JSONObject()
-														.put("_qualification",
-																new org.json.JSONObject()
-																		.put("characteristic",
-																				new org.json.JSONObject().put("_code",
-																						"WriteDataIssue_TiempoReportado")))
-														.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
-																new org.json.JSONArray().put(new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").format(new java.util.Date()))))));
-												children.put(new org.json.JSONObject()
-														.put("_qualification",
-																new org.json.JSONObject()
-																.put("characteristic",
-																		new org.json.JSONObject().put("_code",
-																				"WriteDataIssue_Detalle")))
-														.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
-																new org.json.JSONArray().put("No fue posible encontrar un identificador válido para la característica en la plantilla, posiblemente por contar con acotación y no estar actualizada. Valor proporcionado: " + cosos.getJSONObject(j).getString(name).substring(0, Integer.min(cosos.getJSONObject(j).getString(name).length(), 1825)))))));
-												writeDataFails
-													.put(new org.json.JSONObject()
+											} else {
+												codeValue = keepValueToFile( cosos.getJSONObject(j).getString(name), characteristicLookup, myId );
+												if(codeValue != null) {
+													charBody = new org.json.JSONObject()
+															.put("_datatype", "LOOKUP")
 															.put("_qualification",
+																	new JSONObject().put("characteristic",
+																			new JSONObject().put("_code", name)))
+															.put("_recordLang", new org.json.JSONArray().put(
 																	new JSONObject()
+																	.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+																	.put("values", new org.json.JSONArray().put(
+																			new org.json.JSONObject().put("_code", codeValue).put("_label", holder)
+																			))));
+													characteristicArray.put(charBody);
+												}else {
+													/********************************************/
+													// insert new value with object api.
+													/********************************************/
+	
+													children = new org.json.JSONArray();
+													children.put(new org.json.JSONObject()
+															.put("_qualification",
+																	new org.json.JSONObject()
 																			.put("characteristic",
-																					new JSONObject().put("_code", "WriteDataIssue")))
-															.put("_recordLang",
-																	new org.json.JSONArray()
-																			.put(new JSONObject().put("values", new org.json.JSONArray())))
-															.put("_children", children));
-												log( "No lookup values found: " + new JSONObject().put("fields", new org.json.JSONArray().put( name ))
+																					new org.json.JSONObject().put("_code",
+																							"WriteDataIssue_CharacteristicID")))
+															.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
+																	new org.json.JSONArray().put(name)))));
+													children.put(new org.json.JSONObject()
+															.put("_qualification",
+																	new org.json.JSONObject()
+																			.put("characteristic",
+																					new org.json.JSONObject().put("_code",
+																							"WriteDataIssue_TiempoReportado")))
+															.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
+																	new org.json.JSONArray().put(new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").format(new java.util.Date()))))));
+													children.put(new org.json.JSONObject()
+															.put("_qualification",
+																	new org.json.JSONObject()
+																	.put("characteristic",
+																			new org.json.JSONObject().put("_code",
+																					"WriteDataIssue_Detalle")))
+															.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values",
+																	new org.json.JSONArray().put("No fue posible encontrar un identificador válido para la característica en la plantilla, posiblemente por contar con acotación y no estar actualizada. Valor proporcionado: " + cosos.getJSONObject(j).getString(name).substring(0, Integer.min(cosos.getJSONObject(j).getString(name).length(), 1825)))))));
+													writeDataFails
+														.put(new org.json.JSONObject()
+																.put("_qualification",
+																		new JSONObject()
+																				.put("characteristic",
+																						new JSONObject().put("_code", "WriteDataIssue")))
+																.put("_recordLang",
+																		new org.json.JSONArray()
+																				.put(new JSONObject().put("values", new org.json.JSONArray())))
+																.put("_children", children));
+													log( "No lookup values found: " + new JSONObject().put("fields", new org.json.JSONArray().put( name ))
+															.put("values", new org.json.JSONArray().put( cosos.getJSONObject(j).get(name) ))
+															.put("message", "Problem identifying current lookup values")
+															.put("characteristic", name));
+												}
+												/*
+												genericFieldErrors.put(new JSONObject().put("fields", new org.json.JSONArray().put( name ))
 														.put("values", new org.json.JSONArray().put( cosos.getJSONObject(j).get(name) ))
 														.put("message", "Problem identifying current lookup values")
 														.put("characteristic", name));
+												*/
 											}
-											/*
-											genericFieldErrors.put(new JSONObject().put("fields", new org.json.JSONArray().put( name ))
-													.put("values", new org.json.JSONArray().put( cosos.getJSONObject(j).get(name) ))
-													.put("message", "Problem identifying current lookup values")
-													.put("characteristic", name));
-											*/
 										}
 									}
-								}
-								if(tellme) {
-									tellme = false;
+									if(tellme) {
+										tellme = false;
+									}
 								}
 							}
 						}
 					}
-				}
-				if(business != null && !"".equals(business)) {
-					charBody = new org.json.JSONObject()
-							.put("_datatype", "LOOKUP")
-							.put("_qualification",
-									new JSONObject().put("characteristic", new JSONObject().put("_code", "Business")))
-							.put("_recordLang", new org.json.JSONArray().put(new JSONObject().put("values",
-									new org.json.JSONArray().put(new org.json.JSONObject().put("_label", business)))));
-					characteristicArray.put(charBody);
-					if (product.has("supplier")) {
+					if(business != null && !"".equals(business)) {
 						charBody = new org.json.JSONObject()
+								.put("_datatype", "LOOKUP")
 								.put("_qualification",
-										new JSONObject().put("characteristic", new JSONObject().put("_code", "SupplierID")))
-								.put("_recordLang", new org.json.JSONArray().put(new JSONObject()
-										.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-										.put("values",
-												new org.json.JSONArray().put(supplier = product.getString("supplier").replaceAll("^0+", "")))));
+										new JSONObject().put("characteristic", new JSONObject().put("_code", "Business")))
+								.put("_recordLang", new org.json.JSONArray().put(new JSONObject().put("values",
+										new org.json.JSONArray().put(new org.json.JSONObject().put("_label", business)))));
 						characteristicArray.put(charBody);
+						if (product.has("supplier")) {
+							charBody = new org.json.JSONObject()
+									.put("_qualification",
+											new JSONObject().put("characteristic", new JSONObject().put("_code", "SupplierID")))
+									.put("_recordLang", new org.json.JSONArray().put(new JSONObject()
+											.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+											.put("values",
+													new org.json.JSONArray().put(supplier = product.getString("supplier").replaceAll("^0+", "")))));
+							characteristicArray.put(charBody);
+						}
 					}
-				}
-				if( "Finished".equals(userAction) && ("SKU".equals(targetRole) || "Compras".equals(targetRole)) ) {
-					String rr = rc.getRequest("GET", listAPIArticleURL
-							+ java.net.URLEncoder.encode("ProductReference.ReferencedSupplierAid(\"" + externalProductId + "\") equals \"" + externalProductId + "\"", "UTF-8")
-							+ "&fields=Article.SupplierAID,ProductReference.ReferencedSupplierAid(%22" + externalProductId + "%22)", null);
-					resp = new org.json.JSONObject(rr);
-					org.json.JSONArray rows = resp.getJSONArray("rows");
-					numberOfCurrentVariantsReal += rows.length();
-					sapObjectType = "Marketplace".equals(business) ? "00" : numberOfCurrentVariantsReal > 1 ? "01" : numberOfCurrentVariantsReal.equals(1) ? "00" : null;
-					sapObjectTypeLabel = "Marketplace".equals(business) && "00".equals(sapObjectType) ? "Artículo genérico/individual" : "00".equals(sapObjectType) ? "Artículo individual" : "Artículo genérico";
-					if (sapObjectType != null) {
-						charBody = new org.json.JSONObject()
-								.put("_qualification",
-										new JSONObject().put("characteristic",
-												new JSONObject().put("_code", "SAPObjectType")))
-								.put("_recordLang",
-										new org.json.JSONArray().put(new JSONObject().put("values", new org.json.JSONArray()
-												.put(new org.json.JSONObject().put("_code", sapObjectType)))));
-						characteristicArray.put(charBody);
-						log("Placed SAPObjectType for generic part: " + sapObjectType);
-						if(variantes.length() > 0) {
-							for(int i0 = 0; i0 < variantes.length(); i0++) {
-								variantes.getJSONObject(i0).put("SAPObjectType", "01".equals(sapObjectType) ? "Variante" : "Artículo individual");
+					if( "Finished".equals(userAction) && ("SKU".equals(targetRole) || "Compras".equals(targetRole)) ) {
+						String rr = rc.getRequest("GET", listAPIArticleURL
+								+ java.net.URLEncoder.encode("ProductReference.ReferencedSupplierAid(\"" + externalProductId + "\") equals \"" + externalProductId + "\"", "UTF-8")
+								+ "&fields=Article.SupplierAID,ProductReference.ReferencedSupplierAid(%22" + externalProductId + "%22)", null);
+						resp = new org.json.JSONObject(rr);
+						org.json.JSONArray rows = resp.getJSONArray("rows");
+						numberOfCurrentVariantsReal += rows.length();
+						sapObjectType = "Marketplace".equals(business) ? "00" : numberOfCurrentVariantsReal > 1 ? "01" : numberOfCurrentVariantsReal.equals(1) ? "00" : null;
+						sapObjectTypeLabel = "Marketplace".equals(business) && "00".equals(sapObjectType) ? "Artículo genérico/individual" : "00".equals(sapObjectType) ? "Artículo individual" : "Artículo genérico";
+						if (sapObjectType != null) {
+							charBody = new org.json.JSONObject()
+									.put("_qualification",
+											new JSONObject().put("characteristic",
+													new JSONObject().put("_code", "SAPObjectType")))
+									.put("_recordLang",
+											new org.json.JSONArray().put(new JSONObject().put("values", new org.json.JSONArray()
+													.put(new org.json.JSONObject().put("_code", sapObjectType)))));
+							characteristicArray.put(charBody);
+							log("Placed SAPObjectType for generic part: " + sapObjectType);
+							if(variantes.length() > 0) {
+								for(int i0 = 0; i0 < variantes.length(); i0++) {
+									variantes.getJSONObject(i0).put("SAPObjectType", "01".equals(sapObjectType) ? "Variante" : "Artículo individual");
+								}
 							}
+							org.json.JSONArray jarr = new org.json.JSONArray(); 
+							for(int a = 0; a<rows.length(); a++) {
+								jarr.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + rows.getJSONObject(a).getJSONArray("values").getString(0) + "'@1")).put("values", new org.json.JSONArray().put("01".equals(sapObjectType) ? "02" : "00")));
+							}
+							java.util.Map<String, String> qp00 = new java.util.TreeMap<>();
+							qp00.put("includeObjectsInProtocol", "false");
+							rw.writeData("list", "Article", null, qp00, new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "ArticleCharacteristicValueLang.Value('SAPObjectType',root,\"0000.0000.RK\",'SAPObjectType',-1)"))).put("rows", jarr), this::log);
+						}else {
+							log("########################### Business: " + business + " ##############" + sapObjectType + "#######" + sapObjectTypeLabel + "#######");
 						}
-						org.json.JSONArray jarr = new org.json.JSONArray(); 
-						for(int a = 0; a<rows.length(); a++) {
-							jarr.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + rows.getJSONObject(a).getJSONArray("values").getString(0) + "'@1")).put("values", new org.json.JSONArray().put("01".equals(sapObjectType) ? "02" : "00")));
-						}
-						java.util.Map<String, String> qp00 = new java.util.TreeMap<>();
-						qp00.put("includeObjectsInProtocol", "false");
-						rw.writeData("list", "Article", null, qp00, new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "ArticleCharacteristicValueLang.Value('SAPObjectType',root,\"0000.0000.RK\",'SAPObjectType',-1)"))).put("rows", jarr), this::log);
 					}else {
-						log("########################### Business: " + business + " ##############" + sapObjectType + "#######" + sapObjectTypeLabel + "#######");
+						log("_______________________TTTTTTTTTTTTTTTTTTT ÑEL " + externalProductId);
 					}
-				}else {
-					log("_______________________TTTTTTTTTTTTTTTTTTT ÑEL " + externalProductId);
-				}
-				children = null;
-				int timesOwnersManual = 0;
-				int timesLiverpoolManual = 0;
-				int timesProductVideo = 0;
-				int timesNOM = 0;
-				multimediaArray = multimediaArray == null ? new org.json.JSONArray() : multimediaArray;
-				recordKey = null;
-				for (int j = 0; j < multimediaArray.length(); j++) {
+					children = null;
+					int timesOwnersManual = 0;
+					int timesLiverpoolManual = 0;
+					int timesProductVideo = 0;
+					int timesNOM = 0;
+					multimediaArray = multimediaArray == null ? new org.json.JSONArray() : multimediaArray;
+					recordKey = null;
+					for (int j = 0; j < multimediaArray.length(); j++) {
+						try {
+							multimedia = multimediaArray.getJSONObject(j);
+							if (multimedia.getString("MultimediaAssetType").startsWith("LiverpoolManual")) {
+								recordKey = timesLiverpoolManual == 0 ? "0000.0000.RK" : "0000." + ( timesLiverpoolManual < 10 ? "000" + timesLiverpoolManual : timesLiverpoolManual < 100 ? "00" + timesLiverpoolManual : timesLiverpoolManual < 1000 ? "0" + timesLiverpoolManual : timesLiverpoolManual ) + ".RK";
+								children = new org.json.JSONArray();
+								children.put(new org.json.JSONObject()
+										.put("_qualification",
+												new org.json.JSONObject()
+												.put("recordKey", recordKey)
+														.put("characteristic",
+																new org.json.JSONObject().put("_code",
+																		"LiverpoolManual_Name")))
+										.put("_recordLang",
+												new org.json.JSONArray().put(
+														new org.json.JSONObject()
+															.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+															.put("values", new org.json.JSONArray()
+																.put(multimedia.getString("MultimediaAssetName"))))));
+								children.put(new org.json.JSONObject()
+										.put("_qualification",
+												new org.json.JSONObject()
+												.put("recordKey", recordKey)
+														.put("characteristic",
+																new org.json.JSONObject().put("_code",
+																		"LiverpoolManual_URL")))
+										.put("_recordLang",
+												new org.json.JSONArray().put(
+														new org.json.JSONObject()
+															.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+															.put("values", new org.json.JSONArray()
+																.put(multimedia.getString("MultimediaAssetURL"))))));
+								characteristicArray
+								.put(new org.json.JSONObject()
+										.put("_qualification",
+												new JSONObject()
+												.put("recordKey", recordKey)
+												.put("characteristic",
+														new JSONObject().put("_code", "LiverpoolManual")))
+										.put("_recordLang",
+												new org.json.JSONArray().put(
+														new JSONObject()
+															.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+															.put("values", new org.json.JSONArray())))
+										.put("_children", children));
+								timesLiverpoolManual++;
+							} else if (multimedia.getString("MultimediaAssetType").startsWith("ProductVideo")) {
+								recordKey = timesProductVideo == 0 ? "0000.0000.RK" : "0000." + ( timesProductVideo < 10 ? "000" + timesProductVideo : timesProductVideo < 100 ? "00" + timesProductVideo : timesProductVideo < 1000 ? "0" + timesProductVideo : timesProductVideo ) + ".RK";
+								children = new org.json.JSONArray();
+								children.put(new org.json.JSONObject()
+										.put("_qualification",
+												new org.json.JSONObject()
+												.put("recordKey", recordKey)
+														.put("characteristic",
+																new org.json.JSONObject().put("_code",
+																		"ProductVideo_Name")))
+										.put("_recordLang",
+												new org.json.JSONArray().put(
+														new org.json.JSONObject()
+															.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+															.put("values", new org.json.JSONArray()
+																.put(multimedia.getString("MultimediaAssetName"))))));
+								children.put(new org.json.JSONObject()
+										.put("_qualification",
+												new org.json.JSONObject()
+												.put("recordKey", recordKey)
+														.put("characteristic",
+																new org.json.JSONObject().put("_code", "ProductVideo_URL")))
+										.put("_recordLang",
+												new org.json.JSONArray().put(
+														new org.json.JSONObject()
+															.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+															.put("values", new org.json.JSONArray()
+																.put(multimedia.getString("MultimediaAssetURL"))))));
+								characteristicArray
+										.put(new org.json.JSONObject()
+												.put("_qualification",
+														new JSONObject()
+														.put("recordKey", recordKey)
+																.put("characteristic",
+																		new JSONObject().put("_code", "ProductVideo")))
+												.put("_recordLang",
+														new org.json.JSONArray().put(
+																new JSONObject()
+																	.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+																	.put("values", new org.json.JSONArray())))
+												.put("_children", children));
+								timesProductVideo++;
+							} else if (multimedia.getString("MultimediaAssetType").startsWith("OwnersManual")) {
+								recordKey = timesOwnersManual == 0 ? "0000.0000.RK" : "0000." + ( timesOwnersManual < 10 ? "000" + timesOwnersManual : timesOwnersManual < 100 ? "00" + timesOwnersManual : timesOwnersManual < 1000 ? "0" + timesOwnersManual : timesOwnersManual ) + ".RK";
+								children = new org.json.JSONArray();
+								children.put(new org.json.JSONObject()
+										.put("_qualification",
+												new org.json.JSONObject()
+												.put("recordKey", recordKey)
+														.put("characteristic",
+																new org.json.JSONObject().put("_code",
+																		"OwnersManual_Name")))
+										.put("_recordLang",
+												new org.json.JSONArray().put(
+														new org.json.JSONObject()
+															.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+															.put("values", new org.json.JSONArray()
+																.put(multimedia.getString("MultimediaAssetName"))))));
+								children.put(new org.json.JSONObject()
+										.put("_qualification",
+												new org.json.JSONObject()
+												.put("recordKey", recordKey)
+														.put("characteristic",
+																new org.json.JSONObject().put("_code", "OwnersManual_URL")))
+										.put("_recordLang",
+												new org.json.JSONArray().put(
+														new org.json.JSONObject()
+															.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+															.put("values", new org.json.JSONArray()
+																.put(multimedia.getString("MultimediaAssetURL"))))));
+								characteristicArray
+										.put(new org.json.JSONObject()
+												.put("_qualification",
+														new JSONObject()
+														.put("recordKey", recordKey)
+																.put("characteristic",
+																		new JSONObject().put("_code", "OwnersManual")))
+												.put("_recordLang",
+														new org.json.JSONArray().put(
+																new JSONObject()
+																	.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+																	.put("values", new org.json.JSONArray())))
+												.put("_children", children));
+								timesOwnersManual++;
+							} else if (multimedia.getString("MultimediaAssetType").startsWith("NOM")) {
+								recordKey = timesNOM == 0 ? "0000.0000.RK" : "0000." + ( timesNOM < 10 ? "000" + timesNOM : timesNOM < 100 ? "00" + timesNOM : timesNOM < 1000 ? "0" + timesNOM : timesNOM ) + ".RK";
+								children = new org.json.JSONArray();
+								children.put(new org.json.JSONObject()
+										.put("_qualification",
+												new org.json.JSONObject()
+												.put("recordKey", recordKey)
+														.put("characteristic",
+																new org.json.JSONObject().put("_code",
+																		"NOM_Name")))
+										.put("_recordLang",
+												new org.json.JSONArray().put(
+														new org.json.JSONObject()
+															.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+															.put("values", new org.json.JSONArray()
+																.put(multimedia.getString("MultimediaAssetName"))))));
+								children.put(new org.json.JSONObject()
+										.put("_qualification",
+												new org.json.JSONObject()
+												.put("recordKey", recordKey)
+														.put("characteristic",
+																new org.json.JSONObject().put("_code", "NOM_URL")))
+										.put("_recordLang",
+												new org.json.JSONArray().put(
+														new org.json.JSONObject()
+															.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+															.put("values", new org.json.JSONArray()
+																.put(multimedia.getString("MultimediaAssetURL"))))));
+								characteristicArray
+										.put(new org.json.JSONObject()
+												.put("_qualification",
+														new JSONObject()
+														.put("recordKey", recordKey)
+																.put("characteristic",
+																		new JSONObject().put("_code", "NOM")))
+												.put("_recordLang",
+														new org.json.JSONArray().put(
+																new JSONObject()
+																	.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
+																	.put("values", new org.json.JSONArray())))
+												.put("_children", children));
+								timesNOM ++;
+							}else {
+								log("Multimedia element not found: " + multimedia);
+							}
+						} catch (org.json.JSONException | NullPointerException e) {
+							structureProblems.put(new org.json.JSONObject()
+									.put("Message",
+											"Error in structure, failed when processing multimedia object structure.")
+									.put("Object", multimedia));
+						}
+					}
+					
+					String[] typeMainBarCodeA = new String[1];
+					typeMainBarCodeA[0] = null;
+	
 					try {
-						multimedia = multimediaArray.getJSONObject(j);
-						if (multimedia.getString("MultimediaAssetType").startsWith("LiverpoolManual")) {
-							recordKey = timesLiverpoolManual == 0 ? "0000.0000.RK" : "0000." + ( timesLiverpoolManual < 10 ? "000" + timesLiverpoolManual : timesLiverpoolManual < 100 ? "00" + timesLiverpoolManual : timesLiverpoolManual < 1000 ? "0" + timesLiverpoolManual : timesLiverpoolManual ) + ".RK";
-							children = new org.json.JSONArray();
-							children.put(new org.json.JSONObject()
-									.put("_qualification",
-											new org.json.JSONObject()
-											.put("recordKey", recordKey)
-													.put("characteristic",
-															new org.json.JSONObject().put("_code",
-																	"LiverpoolManual_Name")))
-									.put("_recordLang",
-											new org.json.JSONArray().put(
-													new org.json.JSONObject()
-														.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-														.put("values", new org.json.JSONArray()
-															.put(multimedia.getString("MultimediaAssetName"))))));
-							children.put(new org.json.JSONObject()
-									.put("_qualification",
-											new org.json.JSONObject()
-											.put("recordKey", recordKey)
-													.put("characteristic",
-															new org.json.JSONObject().put("_code",
-																	"LiverpoolManual_URL")))
-									.put("_recordLang",
-											new org.json.JSONArray().put(
-													new org.json.JSONObject()
-														.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-														.put("values", new org.json.JSONArray()
-															.put(multimedia.getString("MultimediaAssetURL"))))));
-							characteristicArray
-							.put(new org.json.JSONObject()
-									.put("_qualification",
-											new JSONObject()
-											.put("recordKey", recordKey)
-											.put("characteristic",
-													new JSONObject().put("_code", "LiverpoolManual")))
-									.put("_recordLang",
-											new org.json.JSONArray().put(
-													new JSONObject()
-														.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-														.put("values", new org.json.JSONArray())))
-									.put("_children", children));
-							timesLiverpoolManual++;
-						} else if (multimedia.getString("MultimediaAssetType").startsWith("ProductVideo")) {
-							recordKey = timesProductVideo == 0 ? "0000.0000.RK" : "0000." + ( timesProductVideo < 10 ? "000" + timesProductVideo : timesProductVideo < 100 ? "00" + timesProductVideo : timesProductVideo < 1000 ? "0" + timesProductVideo : timesProductVideo ) + ".RK";
-							children = new org.json.JSONArray();
-							children.put(new org.json.JSONObject()
-									.put("_qualification",
-											new org.json.JSONObject()
-											.put("recordKey", recordKey)
-													.put("characteristic",
-															new org.json.JSONObject().put("_code",
-																	"ProductVideo_Name")))
-									.put("_recordLang",
-											new org.json.JSONArray().put(
-													new org.json.JSONObject()
-														.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-														.put("values", new org.json.JSONArray()
-															.put(multimedia.getString("MultimediaAssetName"))))));
-							children.put(new org.json.JSONObject()
-									.put("_qualification",
-											new org.json.JSONObject()
-											.put("recordKey", recordKey)
-													.put("characteristic",
-															new org.json.JSONObject().put("_code", "ProductVideo_URL")))
-									.put("_recordLang",
-											new org.json.JSONArray().put(
-													new org.json.JSONObject()
-														.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-														.put("values", new org.json.JSONArray()
-															.put(multimedia.getString("MultimediaAssetURL"))))));
-							characteristicArray
-									.put(new org.json.JSONObject()
-											.put("_qualification",
-													new JSONObject()
-													.put("recordKey", recordKey)
-															.put("characteristic",
-																	new JSONObject().put("_code", "ProductVideo")))
-											.put("_recordLang",
-													new org.json.JSONArray().put(
-															new JSONObject()
-																.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-																.put("values", new org.json.JSONArray())))
-											.put("_children", children));
-							timesProductVideo++;
-						} else if (multimedia.getString("MultimediaAssetType").startsWith("OwnersManual")) {
-							recordKey = timesOwnersManual == 0 ? "0000.0000.RK" : "0000." + ( timesOwnersManual < 10 ? "000" + timesOwnersManual : timesOwnersManual < 100 ? "00" + timesOwnersManual : timesOwnersManual < 1000 ? "0" + timesOwnersManual : timesOwnersManual ) + ".RK";
-							children = new org.json.JSONArray();
-							children.put(new org.json.JSONObject()
-									.put("_qualification",
-											new org.json.JSONObject()
-											.put("recordKey", recordKey)
-													.put("characteristic",
-															new org.json.JSONObject().put("_code",
-																	"OwnersManual_Name")))
-									.put("_recordLang",
-											new org.json.JSONArray().put(
-													new org.json.JSONObject()
-														.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-														.put("values", new org.json.JSONArray()
-															.put(multimedia.getString("MultimediaAssetName"))))));
-							children.put(new org.json.JSONObject()
-									.put("_qualification",
-											new org.json.JSONObject()
-											.put("recordKey", recordKey)
-													.put("characteristic",
-															new org.json.JSONObject().put("_code", "OwnersManual_URL")))
-									.put("_recordLang",
-											new org.json.JSONArray().put(
-													new org.json.JSONObject()
-														.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-														.put("values", new org.json.JSONArray()
-															.put(multimedia.getString("MultimediaAssetURL"))))));
-							characteristicArray
-									.put(new org.json.JSONObject()
-											.put("_qualification",
-													new JSONObject()
-													.put("recordKey", recordKey)
-															.put("characteristic",
-																	new JSONObject().put("_code", "OwnersManual")))
-											.put("_recordLang",
-													new org.json.JSONArray().put(
-															new JSONObject()
-																.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-																.put("values", new org.json.JSONArray())))
-											.put("_children", children));
-							timesOwnersManual++;
-						} else if (multimedia.getString("MultimediaAssetType").startsWith("NOM")) {
-							recordKey = timesNOM == 0 ? "0000.0000.RK" : "0000." + ( timesNOM < 10 ? "000" + timesNOM : timesNOM < 100 ? "00" + timesNOM : timesNOM < 1000 ? "0" + timesNOM : timesNOM ) + ".RK";
-							children = new org.json.JSONArray();
-							children.put(new org.json.JSONObject()
-									.put("_qualification",
-											new org.json.JSONObject()
-											.put("recordKey", recordKey)
-													.put("characteristic",
-															new org.json.JSONObject().put("_code",
-																	"NOM_Name")))
-									.put("_recordLang",
-											new org.json.JSONArray().put(
-													new org.json.JSONObject()
-														.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-														.put("values", new org.json.JSONArray()
-															.put(multimedia.getString("MultimediaAssetName"))))));
-							children.put(new org.json.JSONObject()
-									.put("_qualification",
-											new org.json.JSONObject()
-											.put("recordKey", recordKey)
-													.put("characteristic",
-															new org.json.JSONObject().put("_code", "NOM_URL")))
-									.put("_recordLang",
-											new org.json.JSONArray().put(
-													new org.json.JSONObject()
-														.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-														.put("values", new org.json.JSONArray()
-															.put(multimedia.getString("MultimediaAssetURL"))))));
-							characteristicArray
-									.put(new org.json.JSONObject()
-											.put("_qualification",
-													new JSONObject()
-													.put("recordKey", recordKey)
-															.put("characteristic",
-																	new JSONObject().put("_code", "NOM")))
-											.put("_recordLang",
-													new org.json.JSONArray().put(
-															new JSONObject()
-																.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "zxx")))
-																.put("values", new org.json.JSONArray())))
-											.put("_children", children));
-							timesNOM ++;
-						}else {
-							log("Multimedia element not found: " + multimedia);
-						}
-					} catch (org.json.JSONException | NullPointerException e) {
-						structureProblems.put(new org.json.JSONObject()
-								.put("Message",
-										"Error in structure, failed when processing multimedia object structure.")
-								.put("Object", multimedia));
-					}
-				}
-				
-				String[] typeMainBarCodeA = new String[1];
-				typeMainBarCodeA[0] = null;
-
-				try {
-						if(variantes != null && variantes.length() > 0) {
-							if(mainBarCode != null && !"".equals(mainBarCode) && variantes.length() == 1 && !variantes.getJSONObject(0).has("MainBarCode") && !variantes.getJSONObject(0).has("MainBarCodeS4H")) {
-								variantes.getJSONObject(0).put("MainBarCode", mainBarCode);
-								log("Moved main bar code to variant for an individual since it was only at product level.");
-							}
-							java.util.ArrayList<String> mbc = new java.util.ArrayList<>();
-							for(int n=0; n<variantes.length(); n++) {
-								variantResponsesArray.put(new org.json.JSONObject());
-								log( "Now checking values for variants... " );
-								validateVariants(
-										  variantes.getJSONObject(n)
-										, templateId
-										, business
-										, itemGroup != null && !"".equals(itemGroup) ? itemGroup : itemGroupS4H
-										, marca
-										, n
-										, selfAdded
-										, supplier
-										, typeMainBarCodeA
-									);
-								variantes.getJSONObject(n).put("SAPObjectType", variantes.length() > 1 ? "02" : "00" );
-								String mb = variantes.getJSONObject(n).has("MainBarCode") ? variantes.getJSONObject(n).getString("MainBarCode") : variantes.getJSONObject(n).has("MainBarCodeS4H") ? variantes.getJSONObject(n).getString("MainBarCodeS4H") : null;
-								if(mb != null && !"".equals(mb)) {
-									if(!variantes.getJSONObject(n).has("variantId") && (variantes.getJSONObject(n).has("MainBarCode") || variantes.getJSONObject(n).has("MainBarCodeS4H"))) {
-										if(mbc.contains(mb)) {
-											variantFieldErrors.put(
-													new JSONObject()
-														.put("values", new org.json.JSONArray().put( variantes.getJSONObject(n).has( "MainBarCode" ) ? variantes.getJSONObject(n).getString("MainBarCode") : variantes.getJSONObject(n).getString("MainBarCodeS4H")))
-														.put("message", "El valor del EAN está duplicado con el valor de otra variante.")
-														.put("characteristic", "MainBarCode")
-														.put("fields", new org.json.JSONArray().put("MainBarCode")))
-											;
-											log("HAVE A LOOK: " + variantes);
-											variantResponsesArray.getJSONObject(n).put("fieldProblems", variantFieldErrors);
-											variantFieldErrors = new org.json.JSONArray();
-										} else {
-											String toAdd = variantes.getJSONObject(n).has("MainBarCode") ? variantes.getJSONObject(n).getString("MainBarCode") : variantes.getJSONObject(n).getString("MainBarCodeS4H");
-											if(!"".equals(toAdd))
-												mbc.add(toAdd);
+							if(variantes != null && variantes.length() > 0) {
+								if(mainBarCode != null && !"".equals(mainBarCode) && variantes.length() == 1 && !variantes.getJSONObject(0).has("MainBarCode") && !variantes.getJSONObject(0).has("MainBarCodeS4H")) {
+									variantes.getJSONObject(0).put("MainBarCode", mainBarCode);
+									log("Moved main bar code to variant for an individual since it was only at product level.");
+								}
+								java.util.ArrayList<String> mbc = new java.util.ArrayList<>();
+								for(int n=0; n<variantes.length(); n++) {
+									variantResponsesArray.put(new org.json.JSONObject());
+									log( "Now checking values for variants... " );
+									validateVariants(
+											  variantes.getJSONObject(n)
+											, templateId
+											, business
+											, itemGroup != null && !"".equals(itemGroup) ? itemGroup : itemGroupS4H
+											, marca
+											, n
+											, selfAdded
+											, supplier
+											, typeMainBarCodeA
+										);
+									variantes.getJSONObject(n).put("SAPObjectType", variantes.length() > 1 ? "02" : "00" );
+									String mb = variantes.getJSONObject(n).has("MainBarCode") ? variantes.getJSONObject(n).getString("MainBarCode") : variantes.getJSONObject(n).has("MainBarCodeS4H") ? variantes.getJSONObject(n).getString("MainBarCodeS4H") : null;
+									if(mb != null && !"".equals(mb)) {
+										if(!variantes.getJSONObject(n).has("variantId") && (variantes.getJSONObject(n).has("MainBarCode") || variantes.getJSONObject(n).has("MainBarCodeS4H"))) {
+											if(mbc.contains(mb)) {
+												variantFieldErrors.put(
+														new JSONObject()
+															.put("values", new org.json.JSONArray().put( variantes.getJSONObject(n).has( "MainBarCode" ) ? variantes.getJSONObject(n).getString("MainBarCode") : variantes.getJSONObject(n).getString("MainBarCodeS4H")))
+															.put("message", "El valor del EAN está duplicado con el valor de otra variante.")
+															.put("characteristic", "MainBarCode")
+															.put("fields", new org.json.JSONArray().put("MainBarCode")))
+												;
+												log("HAVE A LOOK: " + variantes);
+												variantResponsesArray.getJSONObject(n).put("fieldProblems", variantFieldErrors);
+												variantFieldErrors = new org.json.JSONArray();
+											} else {
+												String toAdd = variantes.getJSONObject(n).has("MainBarCode") ? variantes.getJSONObject(n).getString("MainBarCode") : variantes.getJSONObject(n).getString("MainBarCodeS4H");
+												if(!"".equals(toAdd))
+													mbc.add(toAdd);
+											}
 										}
 									}
 								}
 							}
+						if(genericFieldErrors.length() > 0) {
+							log("Habían errores :) " + genericFieldErrors);
 						}
-					if(genericFieldErrors.length() > 0) {
-						log("Habían errores :) " + genericFieldErrors);
-					}
-						log("UwU :>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ");
-						if(externalProductId != null && !"".equals(externalProductId) && (internalStatus == null || "".equals(internalStatus))) {
-							java.util.Map<String, String> qp = new java.util.TreeMap<>();
-							qp.put("entityFilter", "Product2G");
-							qp.put("includeLabels", "true");
-							qp.put("includeIds", "true");
-							org.json.JSONObject laresponse = workshop.makeRequest("GET", "/object/Product2G/'" + externalProductId + "'@'MASTER'", qp, null);
-							if(laresponse != null) {
-								org.json.JSONObject ladata = laresponse.getJSONObject("_data");
-								if(ladata != null) {
-									internalStatus = !ladata.has("currentStatus")  ? "" : String.valueOf( ladata.getJSONObject("currentStatus").getInt("_key") );
-									previousStatus = !ladata.has("previousStatus") ? "" : String.valueOf( ladata.getJSONObject("previousStatus").getInt("_key") );
-									externalStatus = !ladata.has("externalStatus") ? "" : ladata.getJSONObject("externalStatus").getString("_code");
+							log("UwU :>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ");
+							if(externalProductId != null && !"".equals(externalProductId) && (internalStatus == null || "".equals(internalStatus))) {
+								java.util.Map<String, String> qp = new java.util.TreeMap<>();
+								qp.put("entityFilter", "Product2G");
+								qp.put("includeLabels", "true");
+								qp.put("includeIds", "true");
+								org.json.JSONObject laresponse = workshop.makeRequest("GET", "/object/Product2G/'" + externalProductId + "'@'MASTER'", qp, null);
+								if(laresponse != null) {
+									org.json.JSONObject ladata = laresponse.getJSONObject("_data");
+									if(ladata != null) {
+										internalStatus = !ladata.has("currentStatus")  ? "" : String.valueOf( ladata.getJSONObject("currentStatus").getInt("_key") );
+										previousStatus = !ladata.has("previousStatus") ? "" : String.valueOf( ladata.getJSONObject("previousStatus").getInt("_key") );
+										externalStatus = !ladata.has("externalStatus") ? "" : ladata.getJSONObject("externalStatus").getString("_code");
+									}
+								}else {
+									log("Error trying to retrieve status info: " + workshop.getRawResponse());
+									log("Error trying to retrieve status info (exception): " + workshop.getException());
+									logE(workshop.getException());
 								}
-							}else {
-								log("Error trying to retrieve status info: " + workshop.getRawResponse());
-								log("Error trying to retrieve status info (exception): " + workshop.getException());
-								logE(workshop.getException());
 							}
-						}
-						log((externalProductId == null ? "---" : externalProductId) +  " User Action: " + userAction + ", Target Role: " + product.optString("targetRole", "---"));
-						if(!"InProgress".equals(userAction)) {
-							previousStatus = "10031".equals(previousStatus) || "".equals(previousStatus) ? "" : previousStatus;
-							internalStatus = "10031".equals(internalStatus) || "".equals(internalStatus) ? "" : internalStatus;
-							if("||F|SKU".equals(previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole) || "||F|Compras".equals(previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole)) {
-								internalStatus = "1001";
-							}
-							if(userAction.startsWith("C")) {
-								targetRole = "";
-								log("Aquí lo debimos haber borrado. " + externalProductId);
-								java.util.Map<String, String> qp = new java.util.HashMap<>();
-								qp.put("includeObjectsInProtocol", "false");
-								RequestHandler rhP = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2G.EAN")).put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('MainBarCode',root,\"0000.0000.RK\",'MainBarCode',-1)")).put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('MainBarCodeS4H',root,\"0000.0000.RK\",'MainBarCodeS4H',-1)")), 100, request0 -> rw.writeData("list", "Product2G", null, qp, request0, this::log) );
-								RequestHandler rhA = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Article.EAN")).put(new org.json.JSONObject().put("identifier", "ArticleCharacteristicValueLang.Value('MainBarCode',root,\"0000.0000.RK\",'MainBarCode',-1)")).put(new org.json.JSONObject().put("identifier", "ArticleCharacteristicValueLang.Value('MainBarCodeS4H',root,\"0000.0000.RK\",'MainBarCodeS4H',-1)")).put(new org.json.JSONObject().put("identifier", "Article.CurrentStatus")), 100, request0 -> rw.writeData("list", "Article", null, qp, request0, this::log) );
-								rhP.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalProductId + "'@1")).put("values", new org.json.JSONArray().put("").put("").put("")));
-								rhP.sendData();
-								java.util.Map<String, String> qp0 = new java.util.HashMap<>();
-								qp0.put("products", "'" + externalProductId + "'@1");
-								qp0.put("pageSize", "100");
-								rw.collectData("list", "Article", null, "byProducts", qp0, row -> {
-									rhA.addRow(new org.json.JSONObject().put("object", row.getJSONObject("object")).put("values", new org.json.JSONArray().put("").put("").put("").put("Cancelado")));
-								});
-								rhA.sendData();
-								nextStatus = "1009";
-							} else {
-								nextStatus = this.nextStatusMap
-										.get(previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole);
-							}
-							if(nextStatus == null) {
-								log("No valid key found: " + previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole + ": " + nextStatus);
-								org.json.JSONObject responseObject = new org.json.JSONObject().put("faultCode", 400).put("message", "Problema técnico de incompatibilidad de estatus, acción y rol de destino, el valor de la llave \"userAction\": " + userAction + ", en conjunto con el valor de la llave \"targetRole\": " + targetRole + ", para el estatus actual de la propuesta: \"" + statusEnum.get(internalStatus) + "\" y estado previo de la propuesta: \"" + statusEnum.get(previousStatus) + "\", es desconocido, favor de reportarlo con el equipo de soporte.");
-								log("Incompatibilidad de estados. " + responseObject);
-								nextStatus = this.nextStatusMap
-										.get( "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole);
+							// { "userAction":"Finish|InProgress|Cancelada|Rescue|UndoRescue", "targetRol":"Compras|SKU|QA" }
+							log((externalProductId == null ? "---" : externalProductId) +  " User Action: " + userAction + ", Target Role: " + product.optString("targetRole", "---"));
+							if(!"InProgress".equals(userAction)) {
+								previousStatus = "10031".equals(previousStatus) || "".equals(previousStatus) ? "" : previousStatus;
+								internalStatus = "10031".equals(internalStatus) || "".equals(internalStatus) ? "" : internalStatus;
+								if("||F|SKU".equals(previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole) || "||F|Compras".equals(previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole)) {
+									internalStatus = "1001";
+								}
+								if(userAction.startsWith("C")) {
+									targetRole = "";
+									log("Aquí lo debimos haber borrado. " + externalProductId);
+									java.util.Map<String, String> qp = new java.util.HashMap<>();
+									qp.put("includeObjectsInProtocol", "false");
+									RequestHandler rhP = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2G.EAN")).put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('MainBarCode',root,\"0000.0000.RK\",'MainBarCode',-1)")).put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('MainBarCodeS4H',root,\"0000.0000.RK\",'MainBarCodeS4H',-1)")), 100, request0 -> rw.writeData("list", "Product2G", null, qp, request0, this::log) );
+									RequestHandler rhA = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Article.EAN")).put(new org.json.JSONObject().put("identifier", "ArticleCharacteristicValueLang.Value('MainBarCode',root,\"0000.0000.RK\",'MainBarCode',-1)")).put(new org.json.JSONObject().put("identifier", "ArticleCharacteristicValueLang.Value('MainBarCodeS4H',root,\"0000.0000.RK\",'MainBarCodeS4H',-1)")).put(new org.json.JSONObject().put("identifier", "Article.CurrentStatus")), 100, request0 -> rw.writeData("list", "Article", null, qp, request0, this::log) );
+									rhP.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalProductId + "'@1")).put("values", new org.json.JSONArray().put("").put("").put("")));
+									rhP.sendData();
+									java.util.Map<String, String> qp0 = new java.util.HashMap<>();
+									qp0.put("products", "'" + externalProductId + "'@1");
+									qp0.put("pageSize", "100");
+									rw.collectData("list", "Article", null, "byProducts", qp0, row -> {
+										rhA.addRow(new org.json.JSONObject().put("object", row.getJSONObject("object")).put("values", new org.json.JSONArray().put("").put("").put("").put("Cancelado")));
+									});
+									rhA.sendData();
+									nextStatus = "1009";
+								} else {
+									nextStatus = this.nextStatusMap.get(previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole);
+								}
 								if(nextStatus == null) {
-								
-									responses.put(responseObject);
-									continue;
-								}
-							}
-							log(" 1 For: " + previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole + ": " + nextStatus);
-							internalStatus = internalStatus == null || "".equals(internalStatus) ? "10031" : internalStatus;
-							previousStatus = nextStatus != null && !"".equals(nextStatus) ? internalStatus : previousStatus;
-							internalStatus = nextStatus != null && !"".equals(nextStatus) ? nextStatus : internalStatus;
-							externalStatus = this.externalStatusMap.get(internalStatus);
-							externalStatus = externalStatus == null ? "Borrador" : externalStatus;
-						}else{
-							nextStatus = this.nextStatusMap
-									.get(previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole);
-							log(" 2 For: " + previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole + ": " + nextStatus);
-							internalStatus = internalStatus == null || "".equals(internalStatus) ? "10031" : internalStatus;
-							externalStatus = this.externalStatusMap.get(internalStatus);
-							externalStatus = externalStatus == null ? "Borrador" : externalStatus;
-						} log("Los estatus: " + previousStatus + "|" + internalStatus + "|" + externalStatus);
-						log("<:::::IG::" + itemGroup + "::::::::><:::::::IGS4H::" + itemGroupS4H + "::::::::>" + productFromItemGroup + "<::>");
-//						if(productFromItemGroup != null && !"".equals(productFromItemGroup)) {
-//							characteristicArray.put( createCharacteristicValueObject("Suburbia".equals(business) ? "SB_0002" : "ProductTypeSAP", new org.json.JSONObject().put("_code", productFromItemGroup ) ) );
-//						}
-						if(!sections.isEmpty() || unMasiosare) {
-/*************************/ computeGeneric(externalProductId, characteristicArray, templateId, internalStatus, business, itemGroup == null || "".equals(itemGroup) ? itemGroupS4H : itemGroup, sections, variantes, unMasiosare); /*****************************************/
-							boolean fnd = false;
-							if("00".equals( sapObjectType ) ){
-								for(int p=0; p<characteristicArray.length(); p++) {
-									if(business.equals("Suburbia")) {
-										if("NUMTP_S4H".equals( characteristicArray.getJSONObject(p).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code") )) {
-											if(typeMainBarCodeA[0] != null) {
-												characteristicArray.getJSONObject(p).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).put("_code", typeMainBarCodeA[0]);
-												log("TypeMainBarCode on upperProduct part changed: " + characteristicArray.getJSONObject(p));
-											}
-											fnd = true;
-										}
-									}else {
-										if("TypeMainBarCode".equals( characteristicArray.getJSONObject(p).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code") )) {
-											if(typeMainBarCodeA[0] != null) {
-												characteristicArray.getJSONObject(p).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).put("_code", typeMainBarCodeA[0]);
-												log("TypeMainBarCode on upperProduct part changed: " + characteristicArray.getJSONObject(p));
-											}
-											fnd = true;
-										}
+									log("No valid key found: " + previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole + ": " + nextStatus);
+									org.json.JSONObject responseObject = new org.json.JSONObject().put("faultCode", 400).put("message", "Problema técnico de incompatibilidad de estatus, acción y rol de destino, el valor de la llave \"userAction\": " + userAction + ", en conjunto con el valor de la llave \"targetRole\": " + targetRole + ", para el estatus actual de la propuesta: \"" + statusEnum.get(internalStatus) + "\" y estado previo de la propuesta: \"" + statusEnum.get(previousStatus) + "\", es desconocido, favor de reportarlo con el equipo de soporte.");
+									log("Incompatibilidad de estados. " + responseObject);
+									nextStatus = this.nextStatusMap.get( "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole);
+									if(nextStatus == null) {
+										responses.put(responseObject);
+										continue;
 									}
 								}
-								if(!fnd) {
-									if(typeMainBarCodeA[0] != null) {
+								log(" 1 For: " + previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole + ": " + nextStatus);
+								internalStatus = internalStatus == null || "".equals(internalStatus) ? "10031" : internalStatus;
+								previousStatus = nextStatus != null && !"".equals(nextStatus) ? internalStatus : previousStatus;
+								internalStatus = nextStatus != null && !"".equals(nextStatus) ? nextStatus : internalStatus;
+								externalStatus = this.externalStatusMap.get(internalStatus);
+								externalStatus = externalStatus == null ? "Borrador" : externalStatus;
+							}else{
+								log(" 2 For: " + previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole + ": " + nextStatus);
+								internalStatus = internalStatus == null || "".equals(internalStatus) ? "10031" : internalStatus;
+								externalStatus = this.externalStatusMap.get(internalStatus);
+								externalStatus = externalStatus == null ? "Borrador" : externalStatus;
+							} log("Los estatus: " + previousStatus + "|" + internalStatus + "|" + externalStatus);
+							log("<:::::IG::" + itemGroup + "::::::::><:::::::IGS4H::" + itemGroupS4H + "::::::::>" + productFromItemGroup + "<::>");
+	//						if(productFromItemGroup != null && !"".equals(productFromItemGroup)) {
+	//							characteristicArray.put( createCharacteristicValueObject("Suburbia".equals(business) ? "SB_0002" : "ProductTypeSAP", new org.json.JSONObject().put("_code", productFromItemGroup ) ) );
+	//						}
+							if(!sections.isEmpty() || unMasiosare) {
+	/*************************/ computeGeneric(externalProductId, characteristicArray, templateId, internalStatus, business, itemGroup == null || "".equals(itemGroup) ? itemGroupS4H : itemGroup, sections, variantes, unMasiosare); /*****************************************/
+								boolean fnd = false;
+								if("00".equals( sapObjectType ) ){
+									for(int p=0; p<characteristicArray.length(); p++) {
 										if(business.equals("Suburbia")) {
-											characteristicArray.put( createCharacteristicValueObject("NUMTP_S4H", new org.json.JSONObject().put("_code", typeMainBarCodeA[0] )) );
+											if("NUMTP_S4H".equals( characteristicArray.getJSONObject(p).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code") )) {
+												if(typeMainBarCodeA[0] != null) {
+													characteristicArray.getJSONObject(p).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).put("_code", typeMainBarCodeA[0]);
+													log("TypeMainBarCode on upperProduct part changed: " + characteristicArray.getJSONObject(p));
+												}
+												fnd = true;
+											}
 										}else {
-											characteristicArray.put( createCharacteristicValueObject("TypeMainBarCode", new org.json.JSONObject().put("_code", typeMainBarCodeA[0] )) );
+											if("TypeMainBarCode".equals( characteristicArray.getJSONObject(p).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code") )) {
+												if(typeMainBarCodeA[0] != null) {
+													characteristicArray.getJSONObject(p).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).put("_code", typeMainBarCodeA[0]);
+													log("TypeMainBarCode on upperProduct part changed: " + characteristicArray.getJSONObject(p));
+												}
+												fnd = true;
+											}
+										}
+									}
+									if(!fnd) {
+										if(typeMainBarCodeA[0] != null) {
+											if(business.equals("Suburbia")) {
+												characteristicArray.put( createCharacteristicValueObject("NUMTP_S4H", new org.json.JSONObject().put("_code", typeMainBarCodeA[0] )) );
+											}else {
+												characteristicArray.put( createCharacteristicValueObject("TypeMainBarCode", new org.json.JSONObject().put("_code", typeMainBarCodeA[0] )) );
+											}
+										}else {
+											log("Not able to set TypeMainBarCode since there was no value obtained from articles.");
 										}
 									}else {
-										log("Not able to set TypeMainBarCode since there was no value obtained from articles.");
+										log("No TypeMainBarCode found on parent after computed fields.");
 									}
 								}else {
-									log("No TypeMainBarCode found on parent after computed fields.");
-								}
-							}else {
-								log("SAPObjectType was not individual -->" + java.util.Arrays.asList(typeMainBarCodeA) + "<--");
-							}
-						}
-					if(genericFieldErrors.length() == 0 && !errorInVariant() && variantFieldErrors.length() == 0 ) {
-						JSONObject reqObj = new org.json.JSONObject();
-						if(characteristicArray != null && characteristicArray.length() > 0) {
-							if(writeDataFails != null && writeDataFails.length() > 0) {
-								for(int k=0; k<writeDataFails.length(); k++) {
-									characteristicArray.put(writeDataFails.getJSONObject(k));
+									log("SAPObjectType was not individual -->" + java.util.Arrays.asList(typeMainBarCodeA) + "<--");
 								}
 							}
-							reqObj.put("_characteristicRecords", characteristicArray);
-						}
-						String pn = null;
-						if(externalProductId != null && !"".equals(externalProductId)) {
-							String drr = dr.getProductData(new org.json.JSONArray().put(externalProductId));
-							if(drr != null) {
-								org.json.JSONObject dro = new org.json.JSONObject(drr);
-								org.json.JSONArray items = dro.getJSONArray("items");
-								org.json.JSONObject item = items.getJSONObject(0);
-								if(("".equals(item.getString("ItemGroup")) && "".equals(item.getString("ItemGroupS4H"))) || "".equals(item.getString("Section"))) {
-									java.math.BigDecimal igConf = null;
-									java.math.BigDecimal se = null;
-									java.math.BigDecimal dirConf = null;
-									for(int idx=0; idx<characteristicArray.length(); idx++) {
-										if("ItemGroupIAConfidenceDir".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
-											dirConf = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
-										}else if("ItemGroupIAConfidenceIG".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
-											igConf = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
-										}else if("ItemGroupIAConfidenceSec".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
-											se = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
-										}else if("ProductName".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
-											pn = characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-										}
-									}
-									if( igConf != null || se != null || dirConf != null ) {
-										if(igConf != null) {
-											if(igConf.compareTo( new java.math.BigDecimal(0.999517) ) <= 0) {
-												internalStatus = "1021";
-											}
-										}
-										if(dirConf != null) {
-											if(dirConf.compareTo( new java.math.BigDecimal(0.999517) ) <= 0) {
-												internalStatus = "1021";
-											}
-										}
-										if(se != null) {
-											if(se.compareTo( new java.math.BigDecimal(0.999517) ) <= 0) {
-												internalStatus = "1021";
-											}
-										}
+						if(genericFieldErrors.length() == 0 && !errorInVariant() && variantFieldErrors.length() == 0 ) {
+							JSONObject reqObj = new org.json.JSONObject();
+							if(characteristicArray != null && characteristicArray.length() > 0) {
+								if(writeDataFails != null && writeDataFails.length() > 0) {
+									for(int k=0; k<writeDataFails.length(); k++) {
+										characteristicArray.put(writeDataFails.getJSONObject(k));
 									}
 								}
+								reqObj.put("_characteristicRecords", characteristicArray);
 							}
-						}else {
-							if(pn == null || "".equals(pn)) {
-								for(int idx=0; idx<characteristicArray.length(); idx++) {
-									if("ProductName".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
-										pn = characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-									}
-								}
-							}
-						}
-						
-						if(productName != null) {
-							pn = productName;
-						}
-						if(longDescription != null) {
-							if(reqObj.has("lang")) {
-								org.json.JSONArray lang = reqObj.getJSONArray("lang");
-								lang.put(
-										new org.json.JSONObject()
-											.put("descriptionLong", longDescription)
-											.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))))
-									;
-							}else {
-								reqObj.put("lang", new org.json.JSONArray().put(
-										new org.json.JSONObject()
-											.put("descriptionLong", longDescription)
-											.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))))
-									);
-							}
-						}
-						if(longDescription2 != null) {
-							if(reqObj.has("lang")) {
-								org.json.JSONArray lang = reqObj.getJSONArray("lang");
-								lang.put(
-										new org.json.JSONObject()
-											.put("descriptionLong2", longDescription2)
-											.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))))
-									;
-							}else {
-								reqObj.put("lang", new org.json.JSONArray().put(
-										new org.json.JSONObject()
-											.put("descriptionLong2", longDescription2)
-											.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))))
-									);
-							}
-						}
-						if(pn != null) {
-							if(reqObj.has("lang")) {
-								org.json.JSONArray lang = reqObj.getJSONArray("lang");
-								lang.put(
-										new org.json.JSONObject()
-											.put("productName", pn)
-											.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))))
-									;
-							}else {
-								reqObj.put("lang", new org.json.JSONArray().put(
-										new org.json.JSONObject()
-											.put("productName", pn)
-											.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))))
-									);
-							}
-						}
-						if(embedCodeWEB != null) {
-							reqObj.put("embedCodeWEB", embedCodeWEB);
-						}
-						if(embedCodeWAP != null) {
-							reqObj.put("embedCodeWAP", embedCodeWAP);
-						}
-						if(refundPolicy != null) {
-							reqObj.put("refundPolicy", refundPolicy);
-						}
-						if(externalEmail != null && !"".equals(externalEmail)) {
-							reqObj.put("lasModificationUserEmail", externalEmail);
-						}
-						if(mainBarCode != null && !"".equals(mainBarCode)) {
-							reqObj.put("gtin", mainBarCode);
-						}
-						if(templateId != null && !"".equals(templateId)) {
-							reqObj.put("structureGroupMap", new org.json.JSONArray().put(new org.json.JSONObject().put("_qualification", new org.json.JSONObject().put("structureGroup", new org.json.JSONObject().put("_externalId", "'" + templateId + "'@'PrimaryProductTaxonomy'") ) )));
-							log("Adding template: " + reqObj.getJSONArray("structureGroupMap"));
-						}
-						if(business != null) {
-							reqObj.put("business", new org.json.JSONObject().put("_label", business));
-						}
-						org.json.JSONObject jo1 = null;
-						for(int m=0; m<characteristicArray.length(); m++) {
-							jo1 = characteristicArray.getJSONObject(m);
-							String cid = jo1.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-							if("Direction".equals(cid)) {
-								direction = jo1.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-							}else if("Section".equals(cid)) {
-								section = jo1.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-							}
-						}
-						org.json.JSONObject extraData = new org.json.JSONObject();
-						if(itemGroupS4H != null) {
-							extraData.put("itemGroupS4H", new org.json.JSONObject().put("_code", itemGroupS4H) );
-						}
-						if(itemGroup != null) {
-							extraData.put("itemGroup", new org.json.JSONObject().put("_code", itemGroup) );
-						}
-						if(sapObjectType != null) {
-							extraData.put("sapObjectType", new org.json.JSONObject().put("_code", sapObjectType) );
-						}
-						if(supplier != null) {
-							extraData.put("supplierID", new org.json.JSONObject().put("_code", supplier) );
-						}
-						if(brandName != null) {
-							extraData.put("brandName", new org.json.JSONObject().put("_code", brandName));
-						}
-						if(brandIdS4H != null) {
-							extraData.put("brandIdS4H", new org.json.JSONObject().put("_code", brandIdS4H));
-						}
-						if(supplierPartNumber != null) {
-							extraData.put("supplierPartNumber", supplierPartNumber);
-						}
-						
-						if(extraData.length() > 0) {
-							extraData.put("_qualification", new org.json.JSONObject().put("targetMarket", new org.json.JSONObject().put("_code", "MX")));
-							reqObj.put("productExtraData", extraData);
-						}
-						
-						if(direction != null) {
-							extraData.put("direction", new org.json.JSONObject().put("_code", direction));
-						}
-						if(section != null) {
-							extraData.put("section", new org.json.JSONObject().put("_code", section));
-						}
-						
-						if(!sample) {
-
-//							if(!sample && !"".equals(externalProductId)) {
-//								reqObj = new org.json.JSONObject();
-								reqObj.put("currentStatus", new org.json.JSONObject().put("_code", internalStatus));
-								if (!"".equals(previousStatus) && previousStatus != null) {
-									log("Placing previous Status: " + previousStatus);
-									reqObj.put("previousStatus", new org.json.JSONObject().put("_code", previousStatus));
-								}
-								reqObj.put("externalStatus", new org.json.JSONObject().put("_code", externalStatus));
-//								log("External Product Id 2: " + (externalProductId));
-//								if(externalProductId != null && !"".equals(externalProductId)) {
-//									log("GOING WITH PUT <:>" + reqObj + "<:>");
-//									rawResp = this.rc.getRequest("PUT",
-//											this.objectAPIProduct2GURL + "/'" + externalProductId + "'@'MASTER'?includeLabels=true", reqObj.toString());
-//								}
-//							}
-							
-							log("External Product Id 2: " + (externalProductId));
+							String pn = null;
 							if(externalProductId != null && !"".equals(externalProductId)) {
-								log("GOING WITH PUT <:>" + reqObj + "<:>");
-								rawResp = this.rc.getRequest("PUT",
-										this.objectAPIProduct2GURL + "/'" + externalProductId + "'@'MASTER'?includeLabels=true", reqObj.toString());
-							}else {
-								log("GOING WITH POST <:>" + reqObj + "<:>");
-								rawResp = this.rc.getRequest("POST",
-										this.objectAPIProduct2GURL + "?includeLabels=true", reqObj.toString());
-								if(rawResp != null) {
-									log("OOP<::>" + rawResp);
-									org.json.JSONObject jo = new org.json.JSONObject(rawResp);
-									externalProductId = jo == null ? "" :
-										jo.getJSONObject("_entityItem").getString("_externalId").split("@")[0]
-												.replaceAll("^'|'$", "");
-									if(productFromItemGroup != null && !"".equals(productFromItemGroup)) {
-										java.util.Map<String, String> qpp = new java.util.HashMap<>();
-										qpp.put("includeObjectsInProtocol", "false");
-										RequestHandler rh = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('SB_0002',root,\"0000.0000.RK\",'SB_0002',-1)")), 1000, req -> rw.writeData("list", "Product2G", null, qpp, req, this::log) );
-										rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalProductId + "'@1")).put("values", new org.json.JSONArray().put(productFromItemGroup)));
-										rh.sendData();
-									}
-								}else {
-									log("See this: " + rawResp);
-								}
-							}
-						}
-						log("Tutul té? " + ex);
-						if (rawResp != null && rawResp.contains(" not found in enumeration 'Enum.CharacteristicLookupValueEnumProvider'. Either the code is not part of the enumeration or the user has no read permission")) {
-							log("Échale un vistazo a: " + reqObj);
-							java.util.regex.Matcher m = java.util.regex.Pattern.compile("'(.+)(?=' not found in enumeration)").matcher(rawResp);
-							org.json.JSONArray possibleProblems = new org.json.JSONArray();
-							if(m.find()) {
-								String v0 = m.group(1);
-								if(v0 != null && !"".equals(v0)) {
-									try {
-										for(int z = 0; z<characteristicArray.length(); z++) {
-											if( characteristicArray.getJSONObject(z).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").length() > 0 && characteristicArray.getJSONObject(z).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(0) instanceof org.json.JSONObject ) {
-												if(characteristicArray.getJSONObject(z).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).has("_code")) {
-													if(v0.equals(characteristicArray.getJSONObject(z).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code") ) ) {
-														possibleProblems.put(characteristicArray.getJSONObject(z).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"));
-													}
-												}else {
-													log("JSONObject without _code: " + characteristicArray.getJSONObject(z).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0));
+								String drr = dr.getProductData(new org.json.JSONArray().put(externalProductId));
+								if(drr != null) {
+									org.json.JSONObject dro = new org.json.JSONObject(drr);
+									org.json.JSONArray items = dro.getJSONArray("items");
+									org.json.JSONObject item = items.getJSONObject(0);
+									if(("".equals(item.getString("ItemGroup")) && "".equals(item.getString("ItemGroupS4H"))) || "".equals(item.getString("Section"))) {
+										java.math.BigDecimal igConf = null;
+										java.math.BigDecimal se = null;
+										java.math.BigDecimal dirConf = null;
+										for(int idx=0; idx<characteristicArray.length(); idx++) {
+											if("ItemGroupIAConfidenceDir".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
+												dirConf = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
+											}else if("ItemGroupIAConfidenceIG".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
+												igConf = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
+											}else if("ItemGroupIAConfidenceSec".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
+												se = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
+											}else if("ProductName".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
+												pn = characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+											}
+										}
+										if( igConf != null || se != null || dirConf != null ) {
+											if(igConf != null) {
+												if(igConf.compareTo( new java.math.BigDecimal(0.999517) ) <= 0) {
+													internalStatus = "1021";
+												}
+											}
+											if(dirConf != null) {
+												if(dirConf.compareTo( new java.math.BigDecimal(0.999517) ) <= 0) {
+													internalStatus = "1021";
+												}
+											}
+											if(se != null) {
+												if(se.compareTo( new java.math.BigDecimal(0.999517) ) <= 0) {
+													internalStatus = "1021";
 												}
 											}
 										}
-									}catch(org.json.JSONException e) {
-										logE(e);
 									}
-									log("Possible invalid fields: " + possibleProblems);
 								}
-							}
-							throw new org.json.JSONException(new org.json.JSONObject().put("rawMessage", "Valor de característica no conocido en lista de valores.").put("possibleFieldProblems", possibleProblems).toString());
-						}
-						if(rawResp != null && rawResp.startsWith("java.lang.NullPointerException")) {
-							log(reqObj.toString());
-							throw new org.json.JSONException("Internal error processing payload.");
-						}
-						org.json.JSONObject jo = sample ? null : new org.json.JSONObject(rawResp);
-						if(jo != null && jo.has("_protocol") && jo.getJSONObject("_protocol").getInt("errorCounter") > 0) {
-							log("Problem: " + jo + ", given req: " + reqObj.toString());
-							throw new org.json.JSONException("Problema persistiendo datos. Solicitar ayuda y presentar el siguiente código: " + myId + ", junto con la siguiente estampa temporal: " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()));
-						}
-						
-						log("On writing proposal... " + rawResp);
-						/** If there are any errors, should report them back **/
-						if(new org.json.JSONObject(rawResp).getJSONObject("_protocol").getInt("errorCounter") == 0) {
-							if("1021".equals(internalStatus))
-								ingresaWorkflow("'" + externalProductId + "'@1", "23543", "IGIAStewardship", "Item Group Review");
-							log("Bout to do");
-							if(!sample) { /*
-								log("Array ? " + (characteristicArray == null ? "x.x" : characteristicArray.length()));
-								if(characteristicArray != null) {
-									String ig = null;
-									String igs = null;
-									String bn = null;
-									String bids = null;
-									String bs = business;
-									String spl = supplier;
-									String tmpl = templateId;
-									String cs = internalStatus;
-									String atnt = "";
-									String sot = null;
-									String ftl = null;
-									String mbc = null;
-									String mbcs = null;
-									String cid = null;
-									try {
-										jo = null;
-										for(int m=0; m<characteristicArray.length(); m++) {
-											jo = characteristicArray.getJSONObject(m);
-											cid = jo.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-											if("Direction".equals(cid)) {
-												direction = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-											}else if("Section".equals(cid)) {
-												section = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-											}else if("ItemGroup".equals(cid)) {
-												ig = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-											}else if("ItemGroupS4H".equals(cid)) {
-												igs = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-											}else if("BrandName".equals(cid)) {
-												bn = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-											}else if("BRAND_ID_S4H".equals(cid)) {
-												bids = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-											}else if("Business".equals(cid)) {
-												bs = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(0) instanceof org.json.JSONObject ? jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).has("_code") ? jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code") : "Marketplace".equals( jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label") ) ? "MKP" : "Liverpool".equals( jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label") ) ? "LVP" : "SBB" : String.valueOf( jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(0) );
-											}else if("SAPObjectType".equals(cid)) {
-												sot = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-											}else if("FotoTomadaLiverpool".equals(cid)) {
-												ftl = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-											}else if("MainBarCode".equals(cid)) {
-												mbc = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-											}else if("MainBarCodeS4H".equals(cid)) {
-												mbcs = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-											}
-										}
-										DataRequestor dr = new DataRequestor();
-										if(externalProductId != null && !"".equals(externalProductId)) {
-											String r = dr.getProductData( new org.json.JSONArray().put(externalProductId) );
-											if(r != null) {
-												log("JK -> " + r);
-												org.json.JSONObject jr = new org.json.JSONObject(r);
-												org.json.JSONArray items = jr.getJSONArray("items");
-												org.json.JSONObject item = items.getJSONObject(0);
-												if(section != null)
-													item.put("Section", section);
-												if(ig != null)
-													item.put("ItemGroup", ig);
-												if(igs != null)
-													item.put("ItemGroupS4H", igs);
-												if(bn != null)
-													item.put("BrandName", bn);
-												if(bids != null)
-													item.put("BRAND_ID_S4H", bids);
-												if(bs != null)
-													item.put("Business", bs);
-												if(spl != null)
-													item.put("SupplierID", spl);
-												if(tmpl != null && !"".equals(tmpl))
-													item.put("Template", tmpl);
-												if(cs != null)
-													item.put("CurrentStatus", cs);
-												if(atnt != null)
-													item.put("AssignTakeNoTake", atnt);
-												if(sot != null)
-													item.put("SAPObjectType", sot);
-												if(ftl != null)
-													item.put("FotoTomadaLiverpool", ftl);
-												if(mbc != null)
-													item.put("MainBarCode", mbc);
-												if(mbcs != null)
-													item.put("MainBarCodeS4H", mbcs);
-												log( "to local admin: " + dr.putProductData(new org.json.JSONArray().put(item)) );
-												log("*** " + item + " ***");
-											}else {
-												log("Got null for " + externalProductId);
-											}
-										}else {
-											log("no productId this time... u.u ");
-										}
-									}catch(org.json.JSONException | NullPointerException e) {
-										logE(e);
-									}
-								} */
 							}else {
-								log("Yerk.");
-							}
-						}
-						try {
-							String labelPrevStat =  null;
-							String labelInternalStat = null;
-							String labelExternalStat = null;
-							labelPrevStat = statusEnum.get(previousStatus);
-							labelInternalStat = statusEnum.get(internalStatus);
-							labelExternalStat = externalStatusEnum.get(externalStatus); log("--->" + externalStatus + "|" + labelExternalStat + "<::>" + externalStatusEnum);
-							itemGroup = itemGroup != null
-									? itemGroup.matches("\\d+ ?- ?.+?") ? itemGroup.replaceAll(" ?- ?.+", "") : itemGroup
-									: null;
-							itemGroupS4H = itemGroupS4H != null
-									? itemGroupS4H.matches("\\d+ ?- ?.+?") ? itemGroupS4H.replaceAll(" ?- ?.+", "")
-											: itemGroupS4H
-									: null;
-							direccionSeccion = !"Marketplace".equals(business)
-									? getDireccionSeccion(itemGroup != null ? itemGroup : itemGroupS4H, business)
-									: null;
-							log("Item Group is: " + itemGroup);
-							if(direccionSeccion != null) {
-								log(java.util.Arrays.asList(direccionSeccion).toString());
-							} 
-							JSONObject rsp = rawResp == null ? null : new JSONObject(rawResp);
-							genericResponse = new JSONObject();
-							genericResponse.put("direccion", direccionSeccion != null ? direccionSeccion[0] : null)
-									.put("seccion",
-											direccionSeccion != null && direccionSeccion.length > 1 ? direccionSeccion[1]
-													: null)
-									.put("SAPObjectType", sapObjectTypeLabel)
-									.put("creationDate",
-											creationDate == null
-													? new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").format(
-															new java.util.Date())
-													: creationDate)
-									.put("previousStatus", labelPrevStat == null ? "" : labelPrevStat)
-									.put("internalStatus", labelInternalStat == null ? "" : labelInternalStat)
-									.put("externalStatus", labelExternalStat == null ? "" : labelExternalStat)
-									.put("structureProblems", structureProblems.length() > 0 ? structureProblems : null)
-									.put("proposalId", externalProductId = (rsp == null ? "" :
-															rsp.getJSONObject("_entityItem").getString("_externalId").split("@")[0]
-																	.replaceAll("^'|'$", "")
-													)
-										);
-							variantResponsesArray = new org.json.JSONArray();
-							log("<::> Status: " + internalStatus + "<::> " + previousStatus);
-							if( "1001".equals(internalStatus) || "1001".equals(previousStatus) ) {
-							}
-							for (int j = 0; j < variantes.length(); j++) {
-								variante = variantes.getJSONObject(j);
-								processVariant(
-										  externalProductId
-									    , variante
-										, this.rc, business
-										, templateId
-										, d
-										, internalStatus
-										, supplier
-										, sample
-									);
+								if(pn == null || "".equals(pn)) {
+									for(int idx=0; idx<characteristicArray.length(); idx++) {
+										if("ProductName".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
+											pn = characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+										}
+									}
+								}
 							}
 							
-							org.json.JSONArray tru = new org.json.JSONArray();
-							for(int m=0; m<variantResponsesArray.length(); m++) {
-								if(variantResponsesArray.getJSONObject(m).length() == 0) {
+							if(productName != null) {
+								pn = productName;
+							}
+							if(longDescription != null) {
+								if(reqObj.has("lang")) {
+									org.json.JSONArray lang = reqObj.getJSONArray("lang");
+									lang.put(
+											new org.json.JSONObject()
+												.put("descriptionLong", longDescription)
+												.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))))
+										;
 								}else {
-									variantResponsesArray.getJSONObject(m).put("variantPosition", m);
-									tru.put(variantResponsesArray.getJSONObject(m));
+									reqObj.put("lang", new org.json.JSONArray().put(
+											new org.json.JSONObject()
+												.put("descriptionLong", longDescription)
+												.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))))
+										);
 								}
 							}
-							genericResponse.put("variants", tru);
-							genericResponse.put("fieldProblems", genericFieldErrors);
-							responses.put(genericResponse);
-						} catch (org.json.JSONException e) {
-							logE(e);
-							log("There was an exception: " + e.getMessage() + ", received: " + rawResp);
-							try{
-								genericResponse = genericResponse == null ? new org.json.JSONObject() : genericResponse;
-								genericResponse.put("Error", new JSONObject(rawResp));
-							}catch(org.json.JSONException ex) {
-								genericResponse = genericResponse == null ? new org.json.JSONObject() : genericResponse;
-								genericResponse.put("Error", rawResp);
+							if(longDescription2 != null) {
+								if(reqObj.has("lang")) {
+									org.json.JSONArray lang = reqObj.getJSONArray("lang");
+									lang.put(
+											new org.json.JSONObject()
+												.put("descriptionLong2", longDescription2)
+												.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))))
+										;
+								}else {
+									reqObj.put("lang", new org.json.JSONArray().put(
+											new org.json.JSONObject()
+												.put("descriptionLong2", longDescription2)
+												.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))))
+										);
+								}
+							}
+							if(pn != null) {
+								if(reqObj.has("lang")) {
+									org.json.JSONArray lang = reqObj.getJSONArray("lang");
+									lang.put(
+											new org.json.JSONObject()
+												.put("productName", pn)
+												.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))))
+										;
+								}else {
+									reqObj.put("lang", new org.json.JSONArray().put(
+											new org.json.JSONObject()
+												.put("productName", pn)
+												.put("_qualification", new org.json.JSONObject().put("language", new org.json.JSONObject().put("_code", "es"))))
+										);
+								}
+							}
+							if(embedCodeWEB != null) {
+								reqObj.put("embedCodeWEB", embedCodeWEB);
+							}
+							if(embedCodeWAP != null) {
+								reqObj.put("embedCodeWAP", embedCodeWAP);
+							}
+							if(refundPolicy != null) {
+								reqObj.put("refundPolicy", refundPolicy);
+							}
+							if(externalEmail != null && !"".equals(externalEmail)) {
+								reqObj.put("lasModificationUserEmail", externalEmail);
+							}
+							if(mainBarCode != null && !"".equals(mainBarCode)) {
+								reqObj.put("gtin", mainBarCode);
+							}
+							if(templateId != null && !"".equals(templateId)) {
+								reqObj.put("structureGroupMap", new org.json.JSONArray().put(new org.json.JSONObject().put("_qualification", new org.json.JSONObject().put("structureGroup", new org.json.JSONObject().put("_externalId", "'" + templateId + "'@'PrimaryProductTaxonomy'") ) )));
+								log("Adding template: " + reqObj.getJSONArray("structureGroupMap"));
+							}
+							if(business != null) {
+								reqObj.put("business", new org.json.JSONObject().put("_label", business));
+							}
+							org.json.JSONObject jo1 = null;
+							for(int m=0; m<characteristicArray.length(); m++) {
+								jo1 = characteristicArray.getJSONObject(m);
+								String cid = jo1.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+								if("Direction".equals(cid)) {
+									direction = jo1.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+								}else if("Section".equals(cid)) {
+									section = jo1.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+								}
+							}
+							org.json.JSONObject extraData = new org.json.JSONObject();
+							if(itemGroupS4H != null) {
+								extraData.put("itemGroupS4H", new org.json.JSONObject().put("_code", itemGroupS4H) );
+							}
+							if(itemGroup != null) {
+								extraData.put("itemGroup", new org.json.JSONObject().put("_code", itemGroup) );
+							}
+							if(sapObjectType != null) {
+								extraData.put("sapObjectType", new org.json.JSONObject().put("_code", sapObjectType) );
+							}
+							if(supplier != null) {
+								extraData.put("supplierID", new org.json.JSONObject().put("_code", supplier) );
+							}
+							if(brandName != null) {
+								extraData.put("brandName", new org.json.JSONObject().put("_code", brandName));
+							}
+							if(brandIdS4H != null) {
+								extraData.put("brandIdS4H", new org.json.JSONObject().put("_code", brandIdS4H));
+							}
+							if(supplierPartNumber != null) {
+								extraData.put("supplierPartNumber", supplierPartNumber);
+							}
+							
+							if(extraData.length() > 0) {
+								extraData.put("_qualification", new org.json.JSONObject().put("targetMarket", new org.json.JSONObject().put("_code", "MX")));
+								reqObj.put("productExtraData", extraData);
+							}
+							
+							if(direction != null) {
+								extraData.put("direction", new org.json.JSONObject().put("_code", direction));
+							}
+							if(section != null) {
+								extraData.put("section", new org.json.JSONObject().put("_code", section));
+							}
+							
+							if(!sample) {
+	
+	//							if(!sample && !"".equals(externalProductId)) {
+	//								reqObj = new org.json.JSONObject();
+									reqObj.put("currentStatus", new org.json.JSONObject().put("_code", internalStatus));
+									if (!"".equals(previousStatus) && previousStatus != null) {
+										log("Placing previous Status: " + previousStatus);
+										reqObj.put("previousStatus", new org.json.JSONObject().put("_code", previousStatus));
+									}
+									reqObj.put("externalStatus", new org.json.JSONObject().put("_code", externalStatus));
+	//								log("External Product Id 2: " + (externalProductId));
+	//								if(externalProductId != null && !"".equals(externalProductId)) {
+	//									log("GOING WITH PUT <:>" + reqObj + "<:>");
+	//									rawResp = this.rc.getRequest("PUT",
+	//											this.objectAPIProduct2GURL + "/'" + externalProductId + "'@'MASTER'?includeLabels=true", reqObj.toString());
+	//								}
+	//							}
+								
+								log("External Product Id 2: " + (externalProductId));
+								if(externalProductId != null && !"".equals(externalProductId)) {
+									log("GOING WITH PUT <:>" + reqObj + "<:>");
+									rawResp = this.rc.getRequest("PUT",
+											this.objectAPIProduct2GURL + "/'" + externalProductId + "'@'MASTER'?includeLabels=true", reqObj.toString());
+								}else {
+									log("GOING WITH POST <:>" + reqObj + "<:>");
+									rawResp = this.rc.getRequest("POST",
+											this.objectAPIProduct2GURL + "?includeLabels=true", reqObj.toString());
+									if(rawResp != null) {
+										log("OOP<::>" + rawResp);
+										org.json.JSONObject jo = new org.json.JSONObject(rawResp);
+										externalProductId = jo == null ? "" :
+											jo.getJSONObject("_entityItem").getString("_externalId").split("@")[0]
+													.replaceAll("^'|'$", "");
+										if(productFromItemGroup != null && !"".equals(productFromItemGroup)) {
+											java.util.Map<String, String> qpp = new java.util.HashMap<>();
+											qpp.put("includeObjectsInProtocol", "false");
+											RequestHandler rh = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('SB_0002',root,\"0000.0000.RK\",'SB_0002',-1)")), 1000, req -> rw.writeData("list", "Product2G", null, qpp, req, this::log) );
+											rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalProductId + "'@1")).put("values", new org.json.JSONArray().put(productFromItemGroup)));
+											rh.sendData();
+										}
+									}else {
+										log("See this: " + rawResp);
+									}
+								}
+							}
+							log("Tutul té? " + ex);
+							if (rawResp != null && rawResp.contains(" not found in enumeration 'Enum.CharacteristicLookupValueEnumProvider'. Either the code is not part of the enumeration or the user has no read permission")) {
+								log("Échale un vistazo a: " + reqObj);
+								java.util.regex.Matcher m = java.util.regex.Pattern.compile("'(.+)(?=' not found in enumeration)").matcher(rawResp);
+								org.json.JSONArray possibleProblems = new org.json.JSONArray();
+								if(m.find()) {
+									String v0 = m.group(1);
+									if(v0 != null && !"".equals(v0)) {
+										try {
+											for(int z = 0; z<characteristicArray.length(); z++) {
+												if( characteristicArray.getJSONObject(z).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").length() > 0 && characteristicArray.getJSONObject(z).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(0) instanceof org.json.JSONObject ) {
+													if(characteristicArray.getJSONObject(z).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).has("_code")) {
+														if(v0.equals(characteristicArray.getJSONObject(z).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code") ) ) {
+															possibleProblems.put(characteristicArray.getJSONObject(z).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"));
+														}
+													}else {
+														log("JSONObject without _code: " + characteristicArray.getJSONObject(z).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0));
+													}
+												}
+											}
+										}catch(org.json.JSONException e) {
+											logE(e);
+										}
+										log("Possible invalid fields: " + possibleProblems);
+									}
+								}
+								throw new org.json.JSONException(new org.json.JSONObject().put("rawMessage", "Valor de característica no conocido en lista de valores.").put("possibleFieldProblems", possibleProblems).toString());
+							}
+							if(rawResp != null && rawResp.startsWith("java.lang.NullPointerException")) {
+								log(reqObj.toString());
+								throw new org.json.JSONException("Internal error processing payload.");
+							}
+							org.json.JSONObject jo = sample ? null : new org.json.JSONObject(rawResp);
+							if(jo != null && jo.has("_protocol") && jo.getJSONObject("_protocol").getInt("errorCounter") > 0) {
+								log("Problem: " + jo + ", given req: " + reqObj.toString());
+								throw new org.json.JSONException("Problema persistiendo datos. Solicitar ayuda y presentar el siguiente código: " + myId + ", junto con la siguiente estampa temporal: " + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()));
+							}
+							
+							log("On writing proposal... " + rawResp);
+							/** If there are any errors, should report them back **/
+							if(new org.json.JSONObject(rawResp).getJSONObject("_protocol").getInt("errorCounter") == 0) {
+								if("1021".equals(internalStatus))
+									ingresaWorkflow("'" + externalProductId + "'@1", "23543", "IGIAStewardship", "Item Group Review");
+								log("Bout to do");
+								if(!sample) { /*
+									log("Array ? " + (characteristicArray == null ? "x.x" : characteristicArray.length()));
+									if(characteristicArray != null) {
+										String ig = null;
+										String igs = null;
+										String bn = null;
+										String bids = null;
+										String bs = business;
+										String spl = supplier;
+										String tmpl = templateId;
+										String cs = internalStatus;
+										String atnt = "";
+										String sot = null;
+										String ftl = null;
+										String mbc = null;
+										String mbcs = null;
+										String cid = null;
+										try {
+											jo = null;
+											for(int m=0; m<characteristicArray.length(); m++) {
+												jo = characteristicArray.getJSONObject(m);
+												cid = jo.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+												if("Direction".equals(cid)) {
+													direction = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+												}else if("Section".equals(cid)) {
+													section = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+												}else if("ItemGroup".equals(cid)) {
+													ig = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+												}else if("ItemGroupS4H".equals(cid)) {
+													igs = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+												}else if("BrandName".equals(cid)) {
+													bn = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+												}else if("BRAND_ID_S4H".equals(cid)) {
+													bids = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+												}else if("Business".equals(cid)) {
+													bs = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(0) instanceof org.json.JSONObject ? jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).has("_code") ? jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code") : "Marketplace".equals( jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label") ) ? "MKP" : "Liverpool".equals( jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label") ) ? "LVP" : "SBB" : String.valueOf( jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(0) );
+												}else if("SAPObjectType".equals(cid)) {
+													sot = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+												}else if("FotoTomadaLiverpool".equals(cid)) {
+													ftl = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+												}else if("MainBarCode".equals(cid)) {
+													mbc = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+												}else if("MainBarCodeS4H".equals(cid)) {
+													mbcs = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+												}
+											}
+											DataRequestor dr = new DataRequestor();
+											if(externalProductId != null && !"".equals(externalProductId)) {
+												String r = dr.getProductData( new org.json.JSONArray().put(externalProductId) );
+												if(r != null) {
+													log("JK -> " + r);
+													org.json.JSONObject jr = new org.json.JSONObject(r);
+													org.json.JSONArray items = jr.getJSONArray("items");
+													org.json.JSONObject item = items.getJSONObject(0);
+													if(section != null)
+														item.put("Section", section);
+													if(ig != null)
+														item.put("ItemGroup", ig);
+													if(igs != null)
+														item.put("ItemGroupS4H", igs);
+													if(bn != null)
+														item.put("BrandName", bn);
+													if(bids != null)
+														item.put("BRAND_ID_S4H", bids);
+													if(bs != null)
+														item.put("Business", bs);
+													if(spl != null)
+														item.put("SupplierID", spl);
+													if(tmpl != null && !"".equals(tmpl))
+														item.put("Template", tmpl);
+													if(cs != null)
+														item.put("CurrentStatus", cs);
+													if(atnt != null)
+														item.put("AssignTakeNoTake", atnt);
+													if(sot != null)
+														item.put("SAPObjectType", sot);
+													if(ftl != null)
+														item.put("FotoTomadaLiverpool", ftl);
+													if(mbc != null)
+														item.put("MainBarCode", mbc);
+													if(mbcs != null)
+														item.put("MainBarCodeS4H", mbcs);
+													log( "to local admin: " + dr.putProductData(new org.json.JSONArray().put(item)) );
+													log("*** " + item + " ***");
+												}else {
+													log("Got null for " + externalProductId);
+												}
+											}else {
+												log("no productId this time... u.u ");
+											}
+										}catch(org.json.JSONException | NullPointerException e) {
+											logE(e);
+										}
+									} */
+								}else {
+									log("Yerk.");
+								}
+							}
+							try {
+								String labelPrevStat =  null;
+								String labelInternalStat = null;
+								String labelExternalStat = null;
+								labelPrevStat = statusEnum.get(previousStatus);
+								labelInternalStat = statusEnum.get(internalStatus);
+								labelExternalStat = externalStatusEnum.get(externalStatus); log("--->" + externalStatus + "|" + labelExternalStat + "<::>" + externalStatusEnum);
+								itemGroup = itemGroup != null
+										? itemGroup.matches("\\d+ ?- ?.+?") ? itemGroup.replaceAll(" ?- ?.+", "") : itemGroup
+										: null;
+								itemGroupS4H = itemGroupS4H != null
+										? itemGroupS4H.matches("\\d+ ?- ?.+?") ? itemGroupS4H.replaceAll(" ?- ?.+", "")
+												: itemGroupS4H
+										: null;
+								direccionSeccion = !"Marketplace".equals(business)
+										? getDireccionSeccion(itemGroup != null ? itemGroup : itemGroupS4H, business)
+										: null;
+								log("Item Group is: " + itemGroup);
+								if(direccionSeccion != null) {
+									log(java.util.Arrays.asList(direccionSeccion).toString());
+								} 
+								JSONObject rsp = rawResp == null ? null : new JSONObject(rawResp);
+								genericResponse = new JSONObject();
+								genericResponse.put("direccion", direccionSeccion != null ? direccionSeccion[0] : null)
+										.put("seccion",
+												direccionSeccion != null && direccionSeccion.length > 1 ? direccionSeccion[1]
+														: null)
+										.put("SAPObjectType", sapObjectTypeLabel)
+										.put("creationDate",
+												creationDate == null
+														? new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").format(
+																new java.util.Date())
+														: creationDate)
+										.put("previousStatus", labelPrevStat == null ? "" : labelPrevStat)
+										.put("internalStatus", labelInternalStat == null ? "" : labelInternalStat)
+										.put("externalStatus", labelExternalStat == null ? "" : labelExternalStat)
+										.put("structureProblems", structureProblems.length() > 0 ? structureProblems : null)
+										.put("proposalId", externalProductId = (rsp == null ? "" :
+																rsp.getJSONObject("_entityItem").getString("_externalId").split("@")[0]
+																		.replaceAll("^'|'$", "")
+														)
+											);
+								variantResponsesArray = new org.json.JSONArray();
+								log("<::> Status: " + internalStatus + "<::> " + previousStatus);
+								if( "1001".equals(internalStatus) || "1001".equals(previousStatus) ) {
+								}
+								for (int j = 0; j < variantes.length(); j++) {
+									variante = variantes.getJSONObject(j);
+									processVariant(
+											  externalProductId
+										    , variante
+											, this.rc, business
+											, templateId
+											, d
+											, internalStatus
+											, supplier
+											, sample
+										);
+								}
+								
+								org.json.JSONArray tru = new org.json.JSONArray();
+								for(int m=0; m<variantResponsesArray.length(); m++) {
+									if(variantResponsesArray.getJSONObject(m).length() == 0) {
+									}else {
+										variantResponsesArray.getJSONObject(m).put("variantPosition", m);
+										tru.put(variantResponsesArray.getJSONObject(m));
+									}
+								}
+								genericResponse.put("variants", tru);
+								genericResponse.put("fieldProblems", genericFieldErrors);
+								responses.put(genericResponse);
+							} catch (org.json.JSONException e) {
+								logE(e);
+								log("There was an exception: " + e.getMessage() + ", received: " + rawResp);
+								try{
+									genericResponse = genericResponse == null ? new org.json.JSONObject() : genericResponse;
+									genericResponse.put("Error", new JSONObject(rawResp));
+								}catch(org.json.JSONException ex) {
+									genericResponse = genericResponse == null ? new org.json.JSONObject() : genericResponse;
+									genericResponse.put("Error", rawResp);
+								}
+								responses.put(genericResponse);
+							}
+						} else {
+							log("Los errores...");
+							genericResponse = new JSONObject();
+							if(!"InProgress".equals(userAction)) {
+								genericResponse.put("fieldProblems", genericFieldErrors);
+								if(variantResponsesArray != null && variantResponsesArray.length() > 0) {
+									org.json.JSONArray tru = new org.json.JSONArray();
+									for(int m=0; m<variantResponsesArray.length(); m++) {
+										if(variantResponsesArray.getJSONObject(m).length() == 0) {
+										}else {
+											variantResponsesArray.getJSONObject(m).put("variantPosition", m);
+											tru.put(variantResponsesArray.getJSONObject(m));
+										}
+									}
+									genericResponse.put("variants", tru);
+								}
+							}else {
+								if(genericFieldErrors.length() > 0) {
+									genericResponse.put("fieldProblems", genericFieldErrors);
+								}
+								if(variantResponsesArray != null && variantResponsesArray.length() > 0) {
+									org.json.JSONArray tru = new org.json.JSONArray();
+									for(int m=0; m<variantResponsesArray.length(); m++) {
+										if(variantResponsesArray.getJSONObject(m).length() == 0) {
+										}else {
+											variantResponsesArray.getJSONObject(m).put("variantPosition", m);
+											tru.put(variantResponsesArray.getJSONObject(m));
+										}
+									}
+									genericResponse.put("variants", tru);
+								}
 							}
 							responses.put(genericResponse);
 						}
-					} else {
-						log("Los errores...");
-						genericResponse = new JSONObject();
-						if(!"InProgress".equals(userAction)) {
-							genericResponse.put("fieldProblems", genericFieldErrors);
-							if(variantResponsesArray != null && variantResponsesArray.length() > 0) {
-								org.json.JSONArray tru = new org.json.JSONArray();
-								for(int m=0; m<variantResponsesArray.length(); m++) {
-									if(variantResponsesArray.getJSONObject(m).length() == 0) {
-									}else {
-										variantResponsesArray.getJSONObject(m).put("variantPosition", m);
-										tru.put(variantResponsesArray.getJSONObject(m));
-									}
-								}
-								genericResponse.put("variants", tru);
-							}
-						}else {
-							if(genericFieldErrors.length() > 0) {
-								genericResponse.put("fieldProblems", genericFieldErrors);
-							}
-							if(variantResponsesArray != null && variantResponsesArray.length() > 0) {
-								org.json.JSONArray tru = new org.json.JSONArray();
-								for(int m=0; m<variantResponsesArray.length(); m++) {
-									if(variantResponsesArray.getJSONObject(m).length() == 0) {
-									}else {
-										variantResponsesArray.getJSONObject(m).put("variantPosition", m);
-										tru.put(variantResponsesArray.getJSONObject(m));
-									}
-								}
-								genericResponse.put("variants", tru);
-							}
+					} catch (Exception e) {
+						logE(e);
+						log("There was an exception: " + e.getMessage() + ", received: " + rawResp);
+						try{
+							genericResponse = genericResponse == null ? new org.json.JSONObject() : genericResponse;
+							genericResponse.put("Error", rawResp == null ? "Not known error" : "Error al procesar petición. " + e.getMessage());
+						}catch(org.json.JSONException ex) {
+							genericResponse = genericResponse == null ? new org.json.JSONObject() : genericResponse;
+							genericResponse.put("Error", "Error al procesar petición: " + ex.getMessage());
 						}
 						responses.put(genericResponse);
 					}
-				} catch (Exception e) {
-					logE(e);
-					log("There was an exception: " + e.getMessage() + ", received: " + rawResp);
-					try{
-						genericResponse = genericResponse == null ? new org.json.JSONObject() : genericResponse;
-						genericResponse.put("Error", rawResp == null ? "Not known error" : "Error al procesar petición. " + e.getMessage());
-					}catch(org.json.JSONException ex) {
-						genericResponse = genericResponse == null ? new org.json.JSONObject() : genericResponse;
-						genericResponse.put("Error", "Error al procesar petición: " + ex.getMessage());
-					}
-					responses.put(genericResponse);
+					genericFieldErrors = new org.json.JSONArray();
+					genericResponse = new JSONObject();
+					variantResponsesArray = new org.json.JSONArray();
 				}
-				genericFieldErrors = new org.json.JSONArray();
-				genericResponse = new JSONObject();
-				variantResponsesArray = new org.json.JSONArray();
+			}catch (ServiceUnavailableException e) {
+				logE(e);
+				logLookupPerformanceSummary();
+				clearLookupCaches();
+				log("Elapsed time response: " + workshop.formatTime(System.currentTimeMillis() - init));
+				throw e;
+			}catch (Exception e) {
+				try {
+					response = new org.json.JSONObject().put("Error", "Petición mal formada.").toString();
+				} catch (org.json.JSONException ignore) {
+				}
+				logE(e);
 			}
-		}catch (ServiceUnavailableException e) {
-			logE(e);
+	
+			response = response != null ? response
+					: new JSONObject().put("responses", responses).put("notFoundOrInactiveCharacteristics", notFound)
+							.toString();
+			responses = new org.json.JSONArray();
+			notFound = new org.json.JSONArray();
+			charCategories.clear();
+			genericResponse = null;
+			genericFieldErrors = new org.json.JSONArray();
+			variantFieldErrors = new org.json.JSONArray();
+			nextStatusMap.clear();
+			externalStatusMap.clear();
+			if(deleteInputFile) {
+			}
 			logLookupPerformanceSummary();
-			clearLookupCaches();
 			log("Elapsed time response: " + workshop.formatTime(System.currentTimeMillis() - init));
-			throw e;
-		}catch (Exception e) {
-			try {
-				response = new org.json.JSONObject().put("Error", "Petición mal formada.").toString();
-			} catch (org.json.JSONException ignore) {
-			}
-			logE(e);
+		}	finally {
+			clearLookupCaches();
+			dastub.close();
+			
 		}
-
-		response = response != null ? response
-				: new JSONObject().put("responses", responses).put("notFoundOrInactiveCharacteristics", notFound)
-						.toString();
-		responses = new org.json.JSONArray();
-		notFound = new org.json.JSONArray();
-		charCategories.clear();
-		genericResponse = null;
-		genericFieldErrors = new org.json.JSONArray();
-		variantFieldErrors = new org.json.JSONArray();
-		nextStatusMap.clear();
-		externalStatusMap.clear();
-		if(deleteInputFile) {
-		}
-		logLookupPerformanceSummary();
-		clearLookupCaches();
-		log("Elapsed time response: " + workshop.formatTime(System.currentTimeMillis() - init));
-		dastub.close();
 		return response;
 	}
 
@@ -4339,7 +4265,6 @@ public class CreateProposal {
 			RestClient rc, String business, String template, String d, String proposalStatus
 			, String supplier, boolean sample)
 			throws Exception {
-		DataRequestor dr = new DataRequestor();
 		String rawResp = null;
 		String internalItemId = null;
 		JSONObject resp = null;
@@ -4912,13 +4837,12 @@ public class CreateProposal {
 					java.time.LocalDate ld = java.time.LocalDate.now();
 					java.time.LocalDate cd = ld;
 					int added = 0;
-					int toAdd = 2;
+					int toAdd = 3;
 					java.time.DayOfWeek dow = null;
 					while (added < toAdd) {
 					    cd = cd.plusDays(1);
 					    dow = cd.getDayOfWeek();
-					    if (dow != java.time.DayOfWeek.SATURDAY
-					            && dow != java.time.DayOfWeek.SUNDAY) {
+					    if (dow != java.time.DayOfWeek.SATURDAY && dow != java.time.DayOfWeek.SUNDAY) {
 					        added++;
 					    }
 					}
@@ -5290,46 +5214,26 @@ public class CreateProposal {
 
 	    if (globalLookupValues.containsKey(cacheKey)) {
 	        perfGlobalLookupCacheHits++;
-	        java.util.Map<String, String> cached = globalLookupValues.get(cacheKey);
-	        log(
-	                "PERF procedeACargarValoresLookup"
-	                + " lookup=" + lookup
-	                + " cache=HIT"
-	                + " resultValues=" + cached.size()
-	        );
-	        return cached;
+	        return globalLookupValues.get(cacheKey);
 	    }
 
 	    perfGlobalLookupCacheMisses++;
 	    long start = System.nanoTime();
-	    int resultCount = -1;
-
 	    try {
-	        java.util.Map<String, String> loadedValues =
-	                dastub.getLookupValueCodeNameMap(
-	                        cacheKey,
-	                        10,
-	                        true
-	                );
-
-	        java.util.Map<String, String> immutableValues = immutableMapCopy(loadedValues);
-	        globalLookupValues.put(cacheKey, immutableValues);
-	        resultCount = immutableValues.size();
-
-	        return immutableValues;
+            java.util.Map<String, String> lazyValues =
+                    new LazyLookupMap(null, null, cacheKey, null, false);
+            globalLookupValues.put(cacheKey, lazyValues);
+            return lazyValues;
 	    } finally {
 	        long elapsed = System.nanoTime() - start;
-
 	        perfFallbackLookupCalls++;
 	        perfFallbackLookupNanos += elapsed;
-
 	        log(
 	                "PERF procedeACargarValoresLookup"
 	                + " lookup=" + lookup
 	                + " cache=MISS"
-	                + " elapsedMs="
-	                + formatNanosAsMillis(elapsed)
-	                + " resultValues=" + resultCount
+                    + " mode=LAZY"
+	                + " elapsedMs=" + formatNanosAsMillis(elapsed)
 	        );
 	    }
 	}
@@ -5357,12 +5261,12 @@ public class CreateProposal {
 	    );
 	}
 
-	private java.util.Map<String, String> immutableMapCopy(java.util.Map<String, String> values) {
-		if (values == null || values.isEmpty()) {
-			return java.util.Collections.emptyMap();
-		}
-		return java.util.Collections.unmodifiableMap(new java.util.HashMap<>(values));
-	}
+//	private java.util.Map<String, String> immutableMapCopy(java.util.Map<String, String> values) {
+//		if (values == null || values.isEmpty()) {
+//			return java.util.Collections.emptyMap();
+//		}
+//		return java.util.Collections.unmodifiableMap(new java.util.HashMap<>(values));
+//	}
 
 	private String specificLookupCacheKey(String templateId, String characteristic) {
 		return String.valueOf(templateId) + "\u001F" + String.valueOf(characteristic);
@@ -5390,56 +5294,29 @@ public class CreateProposal {
 		resolvedLookupCodes.clear();
 	}
 	
-	private String resolveLookupCode(
-	        String template,
-	        String characteristic,
-	        String lookup,
-	        String rawValue) {
-
+	private String resolveLookupCode(String template, String characteristic, String lookup, String rawValue) {
 	    String value = trimToNull(
 	            rawValue == null
 	                    ? null
 	                    : rawValue.replaceAll(" {2,}", " ").trim()
 	    );
-
 	    if (value == null || lookup == null) {
 	        return null;
 	    }
-
-	    String cacheKey = lookupValueCacheKey(
-	            template,
-	            characteristic,
-	            lookup,
-	            value
-	    );
-
+	    String cacheKey = lookupValueCacheKey(template,characteristic,lookup,value);
 	    if (resolvedLookupCodes.containsKey(cacheKey)) {
 	        return resolvedLookupCodes.get(cacheKey);
 	    }
-
-	    String rawValidValues =
-	            getValidValues(dastub, template, characteristic);
-
-	    java.util.Set<String> allowedCodes =
-	            parseValidValues(rawValidValues);
-
-	    String candidate =
-	            dastub.getLookupValueCodeByName(
-	                    lookup,
-	                    10,
-	                    value,
-	                    true
-	            );
-
+	    String rawValidValues = getValidValues(dastub, template, characteristic);
+	    java.util.Set<String> allowedCodes = parseValidValues(rawValidValues);
+	    String candidate = dastub.getLookupValueCodeByName(lookup,10,value,true);
 	    String resolvedCode =
 	            candidate != null
 	                    && (allowedCodes == null
 	                            || allowedCodes.contains(candidate))
 	                    ? candidate
 	                    : null;
-
 	    resolvedLookupCodes.put(cacheKey, resolvedCode);
-
 	    return resolvedCode;
 	}
 
@@ -5530,116 +5407,46 @@ public class CreateProposal {
         String cacheKey = specificLookupCacheKey(templateId, characteristic);
         if (specificLookupValues.containsKey(cacheKey)) {
             perfSpecificLookupCacheHits++;
-            java.util.Map<String, String> cached = specificLookupValues.get(cacheKey);
-            log(
-                    "PERF procedeACargarValoresValidos"
-                    + " template=" + templateId
-                    + " characteristic=" + characteristic
-                    + " cache=HIT"
-                    + " resultValues=" + cached.size()
-            );
-            return cached;
+            return specificLookupValues.get(cacheKey);
         }
 
         perfSpecificLookupCacheMisses++;
         long totalStart = System.nanoTime();
-
         long characteristicDataNanos = 0L;
         long templateValidValuesNanos = 0L;
-        long lookupRowsNanos = 0L;
-        long buildMapNanos = 0L;
-
-        int lookupRowsCount = 0;
-        int allowedCodesCount = -1;
-        int resultCount = 0;
-
         String lookup = null;
-
-        java.util.Map<String, String> validValues =
-                new java.util.HashMap<>();
+        int allowedCodesCount = -1;
 
         try {
             long stepStart = System.nanoTime();
-
-            org.json.JSONObject characteristicData =
-                    dastub.getCharacteristicData(characteristic);
-
-            characteristicDataNanos =
-                    System.nanoTime() - stepStart;
-
-            lookup = trimToNull(
-                    characteristicData.optString("lookup", "")
-            );
+            org.json.JSONObject characteristicData = dastub.getCharacteristicData(characteristic);
+            characteristicDataNanos = System.nanoTime() - stepStart;
+            lookup = trimToNull(characteristicData.optString("lookup", ""));
 
             stepStart = System.nanoTime();
+            String rawValidValues = getValidValues(dastub, templateId, characteristic);
+            java.util.Set<String> allowedCodes = parseValidValues(rawValidValues);
+            templateValidValuesNanos = System.nanoTime() - stepStart;
 
-            String rawValidValues =
-                    getValidValues(dastub, templateId, characteristic);
-
-            java.util.Set<String> allowedCodes =
-                    parseValidValues(rawValidValues);
-
-            templateValidValuesNanos =
-                    System.nanoTime() - stepStart;
-
-            if (allowedCodes != null) {
-                allowedCodesCount = allowedCodes.size();
+            if (allowedCodes == null || allowedCodes.isEmpty() || lookup == null) {
+                java.util.Map<String, String> empty = java.util.Collections.emptyMap();
+                specificLookupValues.put(cacheKey, empty);
+                return empty;
             }
 
-            stepStart = System.nanoTime();
-
-            java.util.List<org.json.JSONObject> lookupRows =
-                    dastub.getLookupValueCodeNameExternalCodeRows(
-                            lookup,
-                            10,
-                            "ATG",
-                            true
-                    );
-
-            lookupRowsNanos =
-                    System.nanoTime() - stepStart;
-
-            lookupRowsCount =
-                    lookupRows == null ? 0 : lookupRows.size();
-
-            stepStart = System.nanoTime();
-
-            if (lookupRows != null) {
-                for (org.json.JSONObject lookupRow : lookupRows) {
-                    String code =
-                            lookupRow.optString("code", "");
-
-                    if (allowedCodes != null
-                            && !allowedCodes.contains(code)) {
-                        continue;
-                    }
-
-                    String name =
-                            lookupRow.optString("name", "");
-
-                    if (name != null && !"".equals(name)) {
-                        validValues.put(name, code);
-                    }
-                }
-            }
-
-            buildMapNanos =
-                    System.nanoTime() - stepStart;
-
-            java.util.Map<String, String> immutableValues = immutableMapCopy(validValues);
-            specificLookupValues.put(cacheKey, immutableValues);
-            resultCount = immutableValues.size();
-
-            return immutableValues;
+            allowedCodesCount = allowedCodes.size();
+            java.util.Map<String, String> lazyValues = new LazyLookupMap(
+                    templateId,
+                    characteristic,
+                    lookup,
+                    java.util.Collections.unmodifiableSet(new java.util.HashSet<>(allowedCodes)),
+                    true);
+            specificLookupValues.put(cacheKey, lazyValues);
+            return lazyValues;
         } finally {
-            long totalNanos =
-                    System.nanoTime() - totalStart;
-
+            long totalNanos = System.nanoTime() - totalStart;
             perfCharacteristicDataNanos += characteristicDataNanos;
             perfTemplateValidValuesNanos += templateValidValuesNanos;
-            perfLookupRowsNanos += lookupRowsNanos;
-            perfBuildLookupMapNanos += buildMapNanos;
-            perfLookupRowsRead += lookupRowsCount;
 
             log(
                     "PERF procedeACargarValoresValidos"
@@ -5647,23 +5454,98 @@ public class CreateProposal {
                     + " characteristic=" + characteristic
                     + " lookup=" + lookup
                     + " cache=MISS"
-                    + " characteristicDataMs="
-                    + formatNanosAsMillis(characteristicDataNanos)
-                    + " templateValidValuesMs="
-                    + formatNanosAsMillis(templateValidValuesNanos)
-                    + " lookupRowsMs="
-                    + formatNanosAsMillis(lookupRowsNanos)
-                    + " buildMapMs="
-                    + formatNanosAsMillis(buildMapNanos)
-                    + " totalMs="
-                    + formatNanosAsMillis(totalNanos)
-                    + " allowedCodes=" + allowedCodesCount
-                    + " lookupRows=" + lookupRowsCount
-                    + " resultValues=" + resultCount
-            );
+                    + " mode=LAZY"
+                    + " characteristicDataMs=" + formatNanosAsMillis(characteristicDataNanos)
+                    + " templateValidValuesMs=" + formatNanosAsMillis(templateValidValuesNanos)
+                    + " totalMs=" + formatNanosAsMillis(totalNanos)
+                    + " allowedCodes=" + allowedCodesCount);
         }
     }
-    
+
+    /**
+     * Mapa compatible con el código existente, pero sin materializar la LOV.
+     * Solamente resuelve los nombres que realmente aparecen en la petición.
+     */
+    private final class LazyLookupMap extends java.util.AbstractMap<String, String> {
+        private final String template;
+        private final String characteristic;
+        private final String lookup;
+        private final java.util.Set<String> allowedCodes;
+        private final boolean bounded;
+        private final java.util.Map<String, String> resolved = new java.util.HashMap<>();
+
+        private LazyLookupMap(
+                String template,
+                String characteristic,
+                String lookup,
+                java.util.Set<String> allowedCodes,
+                boolean bounded) {
+            this.template = template;
+            this.characteristic = characteristic;
+            this.lookup = lookup;
+            this.allowedCodes = allowedCodes;
+            this.bounded = bounded;
+        }
+
+        @Override
+        public String get(Object key) {
+            if (!(key instanceof String)) {
+                return null;
+            }
+            String rawValue = trimToNull((String) key);
+            if (rawValue == null) {
+                return null;
+            }
+
+            if (resolved.containsKey(rawValue)) {
+                return resolved.get(rawValue);
+            }
+
+            String cacheKey = lookupValueCacheKey(template, characteristic, lookup, rawValue);
+            if (resolvedLookupCodes.containsKey(cacheKey)) {
+                String cached = resolvedLookupCodes.get(cacheKey);
+                resolved.put(rawValue, cached);
+                return cached;
+            }
+
+            String candidate = dastub.getLookupValueCodeByName(lookup, 10, rawValue, true);
+            String result = candidate != null
+                    && (!bounded || allowedCodes.contains(candidate))
+                            ? candidate
+                            : null;
+
+            resolvedLookupCodes.put(cacheKey, result);
+            resolved.put(rawValue, result);
+            return result;
+        }
+
+        @Override
+        public boolean isEmpty() {
+            return lookup == null || lookup.isBlank() || (bounded && (allowedCodes == null || allowedCodes.isEmpty()));
+        }
+
+        @Override
+        public int size() {
+            if (isEmpty()) {
+                return 0;
+            }
+            return bounded ? allowedCodes.size() : Math.max(1, resolved.size());
+        }
+
+        @Override
+        public java.util.Set<java.util.Map.Entry<String, String>> entrySet() {
+            return java.util.Collections.unmodifiableMap(resolved).entrySet();
+        }
+
+        @Override
+        public String toString() {
+            return "LazyLookupMap{lookup=" + lookup
+                    + ", bounded=" + bounded
+                    + ", allowedCodes=" + (allowedCodes == null ? "ALL" : allowedCodes.size())
+                    + ", resolved=" + resolved.size() + "}";
+        }
+    }
+
     /*
 	private java.util.Map<String, String> procedeACargarValoresValidos(String templateId, String characteristic) {
 //		java.util.Map<String, String> validValues = specificLookupValues.get(templateId + "<::>" + characteristic);
@@ -7019,6 +6901,11 @@ public class CreateProposal {
 	    record.setThrown(ex);
 
 	    LOGGER.log(record);
+	}
+
+	@Override
+	public void close() throws IOException {
+		dastub.close();
 	}
 	
 	

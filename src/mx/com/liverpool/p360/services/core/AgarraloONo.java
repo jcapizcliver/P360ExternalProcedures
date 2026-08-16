@@ -15,7 +15,12 @@ import mx.com.liverpool.p360.services.core.net.DataRequestor;
 public class AgarraloONo {
 	
 	private final RESTWrapper rw = new RESTWrapper();
-
+	private final DBAccessDataStub dastub;
+	
+	public AgarraloONo(DBAccessDataStub dastub) {
+		this.dastub = dastub;
+	}
+	
 	public void checale(String externalId, String baseUrl) throws JSONException, ServiceUnavailableException {
 		checale(externalId, baseUrl, new java.util.TreeSet<>());
 	}
@@ -41,7 +46,7 @@ public class AgarraloONo {
 		String seccion = null;
 		String template = null;
 		org.json.JSONArray productCrs = new org.json.JSONArray();
-		DataRequestor dr = new DataRequestor();
+		DataRequestor dr = new DataRequestor(dastub);
 		String resp = dr.getProductData(new org.json.JSONArray().put(externalId));
 		org.json.JSONObject j = new org.json.JSONObject(resp);
 		org.json.JSONArray items = j.getJSONArray("items");
@@ -144,7 +149,7 @@ public class AgarraloONo {
 		new java.util.TreeMap<>();
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
 
-		DataRequestor dr = new DataRequestor();
+		DataRequestor dr = new DataRequestor(dastub);
 		java.util.Set<String> variants = dr.getVariants(externalId);
 		org.json.JSONArray items = new org.json.JSONArray();
 		org.json.JSONObject response = null;
@@ -218,7 +223,7 @@ public class AgarraloONo {
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
 		java.util.LinkedList<java.util.Map.Entry<String, Integer>> entries = null;
 		java.util.Set<String> toWrite = new java.util.TreeSet<>();
-		DataRequestor dr = new DataRequestor();
+		DataRequestor dr = new DataRequestor(dastub);
 		java.util.Set<String> variants = dr.getVariants(externalId);
 		org.json.JSONArray items = new org.json.JSONArray();
 		org.json.JSONObject response = null;
@@ -257,10 +262,11 @@ public class AgarraloONo {
 			rows = response.getJSONArray("items");
 			for (int i = 0; i < rows.length(); i++) {
 				item = rows.getJSONObject(i);
+				articleId = items.getString(i);
+
 				if(!"".equals(item.getString("ProductImage"))) {
 					losConImagen.add(articleId);
 				}
-				articleId = items.getString(i);
 				values = new org.json.JSONArray();
 				values.put(articleId);
 				values.put(new org.json.JSONArray().put( item.getString("ColoursLiverpoolAtt")) );
@@ -347,18 +353,6 @@ public class AgarraloONo {
 							: o2.getValue() == null ? -1 : o1.getValue().compareTo(o2.getValue()));
 					java.util.Map.Entry<String, Integer> winner = entries.removeFirst();
 					log("Gonna do... " + externalId + " ### " + entries);
-					try( DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
-						
-						@Override
-						public void logE(Exception e) {
-							AgarraloONo.this.logE(e);
-						}
-						
-						@Override
-						public void log(String message) {
-							AgarraloONo.this.log(message);
-						}
-					} ) ){
 						if (winner.getValue() == null) {
 							entries.addFirst(winner);
 							for (String varianteDelMismoColor : variantesDelMismoColor) {
@@ -471,7 +465,6 @@ public class AgarraloONo {
 									log("Ya se había calculado para: " + varianteDelMismoColor);
 								}
 							}
-						}
 					}
 				} else {
 					// ¿No hubieron variantes?

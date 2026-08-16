@@ -1,16 +1,32 @@
 package mx.com.liverpool.p360.services.core.net;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 
 public class CliTest {
 	
 	public static final RESTWrapper rw = new RESTWrapper();
+	private static final DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			e.printStackTrace();
+		}
+		
+		@Override
+		public void log(String message) {
+			System.out.println(message);
+		}
+	} );
+	
+	private static final DataRequestor dr = new DataRequestor(dastub);
 	
 	public static void main(String[] args) {
 		long init = System.currentTimeMillis();
-		DataRequestor dr = new DataRequestor();
-		try {
+		
+		try (dastub) {
 			if("HELP".equals(args[0])) {
 				help();
 			}else if("dump".equals(args[0])) {
@@ -49,13 +65,6 @@ public class CliTest {
 			} else if("getVariants".equals(args[0])) {
 				System.out.println( dr.getVariants(args[1]) );
 			} else if("variantBySKU".equals(args[0])){
-				String resp = dr.sendRequest(
-						new org.json.JSONObject()
-							.put("action", "variantBySKU")
-							.put("skus", new org.json.JSONArray().put( args[1] ))
-						.toString()
-					);
-				System.out.println(resp);
 				java.util.Map<String, java.util.Set<String>> l = dr.articleBySKUs( new org.json.JSONArray().put( args[1] ));
 				System.out.println(l);
 			} else if("refreshProductLinks".equals(args[0])){
@@ -141,7 +150,6 @@ public class CliTest {
 	}
 	
 	public static void sendCharacteristicData() {
-		DataRequestor dr = new DataRequestor();
 		java.util.Map<String, String> qp = new java.util.HashMap<>();
 		qp.put("query", "Characteristic.IsActive = true and not Characteristic.Entities is empty and not Characteristic.DataType = \"NONE\"");
 		qp.put("pageSize", "5000");
@@ -171,7 +179,6 @@ public class CliTest {
 	}
 	
 	public static void cargaValorDeDiccionario(String diccionario, String llave) {
-		DataRequestor dr = new DataRequestor();
 		java.util.Map<String, String> qp = new java.util.HashMap<>();
 		qp.put("dictionaryProxy", "'" + diccionario + "'");
 		qp.put("pageSize", "25000");
@@ -205,7 +212,6 @@ public class CliTest {
 	}
 	
 	public static void cargaDiccionario(String diccionario) {
-		DataRequestor dr = new DataRequestor();
 		java.util.Map<String, String> qp = new java.util.HashMap<>();
 		qp.put("dictionary", "'" + diccionario + "'");
 		qp.put("pageSize", "25000");
@@ -238,7 +244,6 @@ public class CliTest {
 	}
 	
 	public static void sendTemplateNames() {
-		DataRequestor dr = new DataRequestor();
 		java.util.Map<String, String> qp = new java.util.HashMap<>();
 		qp.put("query", "StructureGroup.Identifier startsWith \"EU4-\"");
 		qp.put("pageSize", "5000");
@@ -267,7 +272,6 @@ public class CliTest {
 	}
 	
 	public static void sendGlobalMetaDataToAdmin() {
-		DataRequestor dr = new DataRequestor();
 		java.util.Map<String, String> qp = new java.util.HashMap<>();
 		qp.put("dictionary", "'GlobalTemplateAttributeConfiguration'");
 		qp.put("pageSize", "5000");
@@ -299,7 +303,6 @@ public class CliTest {
 	}
 	
 	public static void sendTemplateCharacteristicMetaDataToAdmin() {
-		DataRequestor dr = new DataRequestor();
 		java.util.Map<String, String> qp = new java.util.HashMap<>();
 		qp.put("dictionary", "'ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla'");
 		qp.put("pageSize", "5000");
@@ -362,7 +365,6 @@ public class CliTest {
 		qp.put("pageSize", "20000");
 		java.util.List<String> pids = new java.util.ArrayList<>();
 		org.json.JSONArray items = new org.json.JSONArray();
-		DataRequestor dr = new DataRequestor();
 		System.out.println("Now requesting variants data...");
 		rw.collectData("list", "Product2G", null, "byCatalog", qp, row -> {
 			org.json.JSONArray values = row.getJSONArray("values");
@@ -461,7 +463,6 @@ public class CliTest {
 	}
 	
 	public static void refreshSKUProductNoReferences2(String id) {
-		DataRequestor dr = new DataRequestor();
 		org.json.JSONArray items = new org.json.JSONArray();
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
 		qp.put("fields", "Product2GCharacteristicValueLang.Value('SKU',root,\"0000.0000.RK\",'SKU',-1),Product2G.ProductNo");
@@ -490,7 +491,6 @@ public class CliTest {
 	}
 	
 	public static void refreshSKUProductNoReferences() {
-		DataRequestor dr = new DataRequestor();
 		org.json.JSONArray items = new org.json.JSONArray();
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
 		qp.put("fields", "Product2GCharacteristicValueLang.Value('SKU',root,\"0000.0000.RK\",'SKU',-1),Product2G.ProductNo");
@@ -519,7 +519,6 @@ public class CliTest {
 	}
 	
 	public static void sendSkuProductNo(String productNo, String sku) {
-		DataRequestor dr = new DataRequestor();
 		org.json.JSONArray items = new org.json.JSONArray();
 		if(!"".equals(sku)) {
 			items.put(new org.json.JSONObject().put("productNo", productNo).put("sku", sku));
@@ -528,7 +527,6 @@ public class CliTest {
 	}
 	
 	public static void sendSkuProductNo(String productNo) {
-		DataRequestor dr = new DataRequestor();
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
 		qp.put("fields", "Product2GCharacteristicValueLang.Value('SKU',root,\"0000.0000.RK\",'SKU',-1)");
 		qp.put("items", "'" + productNo + "'@1");
@@ -545,7 +543,6 @@ public class CliTest {
 	}
 	
 	public static void refreshProductLinks(String modificationDateLower, String modificationDateUpper) {
-		DataRequestor dr = new DataRequestor();
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
 		qp.put("fields", "Product2G.ProductNo");
 		qp.put("query", "Product2GLog.ModificationDate(PIM) >= " + modificationDateLower + ( modificationDateUpper != null ? " and Product2GLog.ModificationDate(PIM) < " + modificationDateUpper : "" ));
@@ -574,7 +571,6 @@ public class CliTest {
 	}
 	
 	public static void enviaDataArticulo(String supplierAid) {
-		DataRequestor dr = new DataRequestor();
 		org.json.JSONArray items = new org.json.JSONArray();
 		org.json.JSONObject obj = new org.json.JSONObject();
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
@@ -640,7 +636,6 @@ public class CliTest {
 			);
 		System.out.println("Going on " + productNo);
 		qp.put("items", "'" + productNo + "'@1");
-		DataRequestor dr = new DataRequestor();
 		org.json.JSONArray items = new org.json.JSONArray();
 		rw.collectData("list", "Product2G", null, "byItems", qp, row -> {
 			org.json.JSONArray values = row.getJSONArray("values");
@@ -740,7 +735,6 @@ public class CliTest {
 				+ ",Product2GCharacteristicValueLang.Value('MainBarCodeS4H',root,\"0000.0000.RK\",'MainBarCodeS4H',-1)"
 			);
 		qp.put("items", "'" + productNo + "'@1");
-		DataRequestor dr = new DataRequestor();
 		org.json.JSONArray items = new org.json.JSONArray();
 		rw.collectData("list", "Product2G", null, "byItems", qp, row -> {
 			org.json.JSONArray values = row.getJSONArray("values");
@@ -805,7 +799,6 @@ public class CliTest {
 //			);
 
 		qp.put("query", "Product2G.CurrentStatus = \"Creación de SKU\" and characteristic('SKU') is empty and characteristic('Business') = 'MKP'@'BusinessQualified' and Product2GLog.CreationDate(PIM) >= 2026-01-28T00:00:00");
-		DataRequestor dr = new DataRequestor();
 		org.json.JSONArray items = new org.json.JSONArray();
 		rw.collectData("list", "Product2G", null, "bySearch", qp, row -> {
 			org.json.JSONArray values = row.getJSONArray("values");

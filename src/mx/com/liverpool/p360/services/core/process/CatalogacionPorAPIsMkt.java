@@ -5,7 +5,6 @@ import java.util.Set;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
-import mx.com.liverpool.p360.services.core.RequestHandler;
 import mx.com.liverpool.p360.services.core.process.ImageCheck.Result;
 
 public class CatalogacionPorAPIsMkt {

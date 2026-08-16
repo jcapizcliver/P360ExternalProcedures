@@ -7,7 +7,8 @@ public class LabToSeeIfApplicableSKUs {
 	private static final RESTWrapper rw = new RESTWrapper();
 	
 	public static void main(String[] args) {
-		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "LabToCheckIfSendableSKUs.yxy").toFile())))){
+		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "Validar pords.txt").toFile())))){
+//		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "LabToCheckIfSendableSKUs.yxy").toFile())))){
 //		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "LabToCheckIfSendableSKUs.yxy").toFile())))){
 			String line = null;
 			java.util.Map<String, String> qp = new java.util.HashMap<>();

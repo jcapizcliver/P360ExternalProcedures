@@ -1,6 +1,5 @@
 package com.example.ei.forfun.logic;
 
-import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -16,7 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import static com.example.ei.forfun.logic.P360SplitMacroPlanBuilder.StageType;
+import com.example.ei.forfun.logic.P360SplitMacroPlanBuilder.StageType;
 
 public class P360MacroPlanExecutor {
 

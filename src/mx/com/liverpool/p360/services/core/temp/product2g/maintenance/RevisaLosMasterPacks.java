@@ -1,7 +1,5 @@
 package mx.com.liverpool.p360.services.core.temp.product2g.maintenance;
 
-import java.util.jar.Attributes;
-
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 
 public class RevisaLosMasterPacks {

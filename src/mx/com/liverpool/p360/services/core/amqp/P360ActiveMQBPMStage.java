@@ -1,5 +1,6 @@
 package mx.com.liverpool.p360.services.core.amqp;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
@@ -36,6 +37,8 @@ import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.xml.sax.SAXException;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.PubSubGCP;
 import mx.com.liverpool.p360.services.core.PublicationExceptions;
@@ -53,7 +56,7 @@ import mx.com.liverpool.p360.services.core.temp.exports.RealExportProducts;
 import mx.com.liverpool.p360.services.core.temp.exports.RealExportProducts2Mirakl;
 import mx.com.liverpool.p360.services.xmlutils.XMLMisc;
 
-public class P360ActiveMQBPMStage extends Thread {
+public class P360ActiveMQBPMStage extends Thread implements Closeable {
 
 	private RESTWrapper rw = new RESTWrapper();
 	private RESTWorkshop workshop = rw.getRw();
@@ -84,8 +87,20 @@ public class P360ActiveMQBPMStage extends Thread {
 	private boolean running = true;
 	
 	private final int bs = 2000;
-
-	private final DataRequestor dr = new DataRequestor();
+	private DBAccessDataStub dastub = new DBAccessDataStub( (ELog) new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			P360ActiveMQBPMStage.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			P360ActiveMQBPMStage.this.log(message);
+		}
+	} );
+	
+	private final DataRequestor dr = new DataRequestor(dastub);
 	
 	private static final String USER_ECC = PropertiesManager.get( "p360.contingency.ecc.userp360" ); //username: userp360 SFTP 
 	private static final String HOST_ECC = PropertiesManager.get( "p360.contingency.ecc.host" );// SFTP server address: 172.16.204.243
@@ -195,28 +210,36 @@ public class P360ActiveMQBPMStage extends Thread {
 		Thread t = new Thread(()->{
 			log("Running sender watcher...");
 			while(running) {
+				try {
+					sendData("Product2G", reqEnriquecidoEnForo);
+					sendData("Product2G", reqLastSentToMarketplace);
+					sendData("Product2G", reqPublishMktMessage);
+					sendData("Product2G", reqFechaUltimaAprobacion);
+					sendData("Product2G", reqFechaUltimaPublicacion);
+					sendData("Product2G", reqFirstApprovedDate);
+					sendData("Product2G", reqFirstDateApproved);
+					sendData("Product2G", reqPublishMessage);
+					sendData("Product2G", reqCurrentStatus);
+					sendData("Product2G", reqExternalStatus);
+					sendData("Product2G", reqPrevStatus);
 
-				sendData("Product2G", reqEnriquecidoEnForo);
-				sendData("Product2G", reqLastSentToMarketplace);
-				sendData("Product2G", reqPublishMktMessage);
-				sendData("Product2G", reqFechaUltimaAprobacion);
-				sendData("Product2G", reqFechaUltimaPublicacion);
-				sendData("Product2G", reqFirstApprovedDate);
-				sendData("Product2G", reqFirstDateApproved);
-				sendData("Product2G", reqPublishMessage);
-				sendData("Product2G", reqCurrentStatus);
-				sendData("Product2G", reqExternalStatus);
-				sendData("Product2G", reqPrevStatus);
+					sendData("Article", reqProcedeNoProcede);
+					sendData("Article", reqCurrentStatusA);
+					sendData("Article", reqExternalStatusA);
+					sendData("Article", reqPrevStatusA);
 
-				sendData("Article", reqProcedeNoProcede);
-				sendData("Article", reqCurrentStatusA);
-				sendData("Article", reqExternalStatusA);
-				sendData("Article", reqPrevStatusA);
-				
+					// Los buffers de PACVCP se vacían una sola vez por ciclo, no una vez por cada familia.
+					pacvcp.sendData();
+				} catch (RuntimeException e) {
+					// Una caída transitoria del REST local no debe matar el watcher.
+					logE(e);
+				}
+
 				try{
 					Thread.sleep(10000);
 				}catch(InterruptedException e) {
-					logE(e);
+					Thread.currentThread().interrupt();
+					break;
 				}
 			}
 			this.pacvcp.setRunning(false);
@@ -484,23 +507,23 @@ public class P360ActiveMQBPMStage extends Thread {
 		try{
 			log("Now running...");
 			while(running){
-				responseMessage = consumer.receive(30);
-			    if (responseMessage != null && responseMessage instanceof TextMessage) {
-			     	try{
-			     		log("Now processing message...");
-			     		messageProcessor(((TextMessage) responseMessage).getText());
-			     	}catch(javax.net.ssl.SSLHandshakeException | org.json.JSONException e) {
-			     		logE(e);
-			     	}
-			     	log("Doney");
+				try {
+					responseMessage = consumer.receive(30);
+					if (responseMessage != null && responseMessage instanceof TextMessage) {
+						try{
+							log("Now processing message...");
+							messageProcessor(((TextMessage) responseMessage).getText());
+						}catch(Exception e) {
+							// Un mensaje defectuoso o una indisponibilidad transitoria no debe matar el consumer principal.
+							logE(e);
+						}
+						log("Doney");
+					}
+				}catch(JMSException e) {
+					logE(e);
+					break;
 				}
 			}
-		}catch(ParserConfigurationException | SAXException | java.io.IOException e){
-			logE(e);
-		}catch(org.json.JSONException e){
-    		logE(e);
-    	} catch (JMSException e) {
-    		logE(e);
 		}finally {
 			disconnect();
 		}
@@ -515,7 +538,14 @@ public class P360ActiveMQBPMStage extends Thread {
 			ccpT.join();
 			pacvcpT.join();
 			sgcpT.join();
+			this.ccp.close();
+			this.ladp.close();
+			this.pacvcp.close();
+//			this.pacp.setRunning(false);
+//			this.sgcp.setRunning(false);
 		}catch(InterruptedException e) {
+			e.printStackTrace();
+		} catch (java.io.IOException e) {
 			e.printStackTrace();
 		}
 	}
@@ -876,12 +906,16 @@ public class P360ActiveMQBPMStage extends Thread {
 								qp.put("includeLabels", "true");
 								log("requesting: " + workshop.getBaseUrl() + "/object/" + entity + "/" + internalId);
 								response = workshop.makeRequest("GET", "/object/" + entity + "/" + internalId, qp, null);
-								org.json.JSONObject data = response.getJSONObject("_data");
-								rejectionInfo  = data.optString("rejectionInfo", null);
-								characteristicRecords = data.has("_characteristicRecords") ? data.getJSONArray("_characteristicRecords") : new org.json.JSONArray();
-								java.util.Map<String, java.util.LinkedList< org.json.JSONObject >> characteristicRecordsMap = new java.util.TreeMap<>();
-								characteristicsToMap(characteristicRecords, characteristicRecordsMap, rechazos);
-								complementaRechazos(rechazos, internalId,  rejectionInfo, "Product2G", externalId);
+								if(response == null || !response.has("_data")) {
+									log("No fue posible leer el objeto para complementar rechazos. entity=" + entity + ", internalId=" + internalId + ", rawResponse=" + workshop.getRawResponse());
+								} else {
+									org.json.JSONObject data = response.getJSONObject("_data");
+									rejectionInfo  = data.optString("rejectionInfo", null);
+									characteristicRecords = data.has("_characteristicRecords") ? data.getJSONArray("_characteristicRecords") : new org.json.JSONArray();
+									java.util.Map<String, java.util.LinkedList< org.json.JSONObject >> characteristicRecordsMap = new java.util.TreeMap<>();
+									characteristicsToMap(characteristicRecords, characteristicRecordsMap, rechazos);
+									complementaRechazos(rechazos, internalId, rejectionInfo, "Product2G", externalId);
+								}
 							}else if("1023".equals(currentStatusOld) && "1007".equals(currentStatusNew)) {
 //								log("Elm: " + workshop.getRawResponse());
 							}
@@ -909,9 +943,8 @@ public class P360ActiveMQBPMStage extends Thread {
 								response = workshop.makeRequest("GET", "/list/" + entity + "/byItems", qp, null);
 								if(response == null) {
 									log("Error, got null response from requested url -->" + workshop.getRawResponse() + "<--");
-									this.running = false;
-									log("Message: " + json);
-									throw new IllegalStateException("Error, got null response from requested url -->" + workshop.getRawResponse() + "<--");
+									log("Message skipped without stopping the consumer: " + json);
+									return;
 								}
 								org.json.JSONArray rws = response.has("rows") ? response.getJSONArray("rows") : null;
 								if(rws != null && rws.length() > 0) {
@@ -944,12 +977,16 @@ public class P360ActiveMQBPMStage extends Thread {
 								qp.put("includeLabels", "true");
 								log("requesting: " + workshop.getBaseUrl() + "/object/" + entity + "/" + internalId);
 								response = workshop.makeRequest("GET", "/object/" + entity + "/" + internalId, qp, null);
-								org.json.JSONObject data = response.getJSONObject("_data");
-								rejectionInfo  = data.optString("rejectionInfo", null);
-								characteristicRecords = data.has("_characteristicRecords") ? data.getJSONArray("_characteristicRecords") : new org.json.JSONArray();
-								java.util.Map<String, java.util.LinkedList< org.json.JSONObject >> characteristicRecordsMap = new java.util.TreeMap<>();
-								characteristicsToMap(characteristicRecords, characteristicRecordsMap, rechazos);
-								complementaRechazos(rechazos, internalId,  rejectionInfo, "Product2G", externalId);
+								if(response == null || !response.has("_data")) {
+									log("No fue posible leer el objeto para complementar rechazos. entity=" + entity + ", internalId=" + internalId + ", rawResponse=" + workshop.getRawResponse());
+								} else {
+									org.json.JSONObject data = response.getJSONObject("_data");
+									rejectionInfo  = data.optString("rejectionInfo", null);
+									characteristicRecords = data.has("_characteristicRecords") ? data.getJSONArray("_characteristicRecords") : new org.json.JSONArray();
+									java.util.Map<String, java.util.LinkedList< org.json.JSONObject >> characteristicRecordsMap = new java.util.TreeMap<>();
+									characteristicsToMap(characteristicRecords, characteristicRecordsMap, rechazos);
+									complementaRechazos(rechazos, internalId, rejectionInfo, "Product2G", externalId);
+								}
 							}else if("1007".equals(currentStatusNew)) {
 								log("About to send the request to ATG,OMS,MKT: " + externalId + " (" + workshop.getBaseUrl() + ")");
 								try {
@@ -1101,11 +1138,30 @@ public class P360ActiveMQBPMStage extends Thread {
 			if(req.equals(reqEnriquecidoEnForo)) {
 				log("Sending list of values for enriquecidoEnForo (" + rows.length() + " elements)");
 			}
-			java.util.Map<String, String> qp = new java.util.HashMap<>();
-			qp.put("includeObjectsInProtocol", "false");
-			rw.writeData("list", entity, null, qp, req, this::log);
+			writeListDataKeepingRowsOnFailure(entity, req);
 		}
-		pacvcp.sendData();
+	}
+
+	private boolean writeListDataKeepingRowsOnFailure(String entity, org.json.JSONObject request) {
+		org.json.JSONArray rows = request.getJSONArray("rows");
+		if(rows.length() == 0) {
+			return true;
+		}
+		int rowCount = rows.length();
+		String url = workshop.getBaseUrl() + "/list/" + entity + "?includeObjectsInProtocol=false";
+		try {
+			String rawResponse = workshop.getRc().getRequest("POST", url, request.toString());
+			log(rawResponse);
+			while(rows.length() > 0) {
+				rows.remove(0);
+			}
+			return true;
+		} catch(Exception e) {
+			// Importante: NO vaciar rows si P360/localhost:1512 no confirmó la escritura.
+			log("Write failed; keeping " + rowCount + " pending rows for " + entity + " to retry on the next watcher cycle.");
+			logE(e);
+			return false;
+		}
 	}
 	
 	private void addCurrentStatus(String externalId, String currentStatus) {
@@ -2112,11 +2168,22 @@ public class P360ActiveMQBPMStage extends Thread {
     }
 
 	public static void main(String[] args) throws ServiceUnavailableException {
-		P360ActiveMQBPMStage o = new P360ActiveMQBPMStage(PropertiesManager.get("p360.contingency.base_url", "http://172.18.237.162:1512/rest/V2.0"));
-		o.launchListenerThread();
-		o.launchTimeSenderThread();
-		Runtime.getRuntime().addShutdownHook(o);
-		o.process(args[0], args[1], args[2]);
+		try(P360ActiveMQBPMStage o = new P360ActiveMQBPMStage(PropertiesManager.get("p360.contingency.base_url", "http://172.18.237.162:1512/rest/V2.0"))){
+			o.launchListenerThread();
+			o.launchTimeSenderThread();
+			Runtime.getRuntime().addShutdownHook(o);
+			o.process(args[0], args[1], args[2]);
+		}catch(java.io.IOException e) {
+			e.printStackTrace();
+		}
+	}
+
+	@Override
+	public void close() throws IOException {
+		dastub.close();
+		this.ccp.close();
+		this.ladp.close();
+		this.pacvcp.close();
 	}
 
 }

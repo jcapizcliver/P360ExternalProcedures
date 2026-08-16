@@ -308,12 +308,21 @@ public class AnotherXMLHandlerSecondOpinionOnSpecificProducts {
     	
         private final java.util.LinkedList<Product> productStack = new java.util.LinkedList<>();
         private final java.util.List<Product> finished = new ArrayList<>();
+        private final java.util.function.Consumer<Product> rootProductConsumer;
         
         private final java.util.Map<String, Asset> assetMap = new java.util.TreeMap<>();
         private final java.util.LinkedList<Asset> assetStack = new java.util.LinkedList<>();
     	private Integer productsCounter = 0;
     	private boolean assetName = false;
     	private boolean gettingName = false;
+
+        public Handler() {
+            this(null);
+        }
+
+        public Handler(java.util.function.Consumer<Product> rootProductConsumer) {
+            this.rootProductConsumer = rootProductConsumer;
+        }
 
         @Override
         public void startElement(String uri, String localName, String qName, Attributes attributes) {
@@ -420,7 +429,9 @@ public class AnotherXMLHandlerSecondOpinionOnSpecificProducts {
                 	productsCounter++;
                 	if(!productStack.isEmpty()) {
                 		productStack.getLast().addProduct(product);
-                	}else {
+                	}else if(rootProductConsumer != null) {
+                        rootProductConsumer.accept(product);
+                    }else {
                 		finished.add(product);
                 	}
                 }
@@ -454,12 +465,23 @@ public class AnotherXMLHandlerSecondOpinionOnSpecificProducts {
     private static final java.util.Map<String, String[]> data = new java.util.HashMap<>();
     
     public static int processContent(String content) throws SAXException, IOException, ParserConfigurationException {
-    	AnotherXMLHandlerSecondOpinionOnSpecificProducts an = new AnotherXMLHandlerSecondOpinionOnSpecificProducts();
-		LoadProductDataRemainingFieldsOnSpecificProducts elp = new LoadProductDataRemainingFieldsOnSpecificProducts();
-    	an.qp.put("includeObjectsInProtocol", "false");
-		an.loadItemGroups();
-		int a = an.procesaArchivoYProducto(content);
-		elp.processContent(content);
+        AnotherXMLHandlerSecondOpinionOnSpecificProducts an = new AnotherXMLHandlerSecondOpinionOnSpecificProducts();
+        LoadProductDataRemainingFieldsOnSpecificProducts elp = new LoadProductDataRemainingFieldsOnSpecificProducts();
+        an.qp.put("includeObjectsInProtocol", "false");
+        an.loadItemGroups();
+        int a = an.procesaArchivoYProducto(content);
+        elp.processContent(content);
+        elp.processRemaining();
+        return a;
+    }
+
+    public static int processPath(java.nio.file.Path path) throws SAXException, IOException, ParserConfigurationException {
+        AnotherXMLHandlerSecondOpinionOnSpecificProducts an = new AnotherXMLHandlerSecondOpinionOnSpecificProducts();
+        LoadProductDataRemainingFieldsOnSpecificProducts elp = new LoadProductDataRemainingFieldsOnSpecificProducts();
+        an.qp.put("includeObjectsInProtocol", "false");
+        an.loadItemGroups();
+        int a = an.procesaArchivoYProducto(path);
+        elp.processPath(path);
         elp.processRemaining();
         return a;
     }
@@ -515,71 +537,99 @@ public class AnotherXMLHandlerSecondOpinionOnSpecificProducts {
     }
     
     private int procesaArchivoYProducto(String content) throws ParserConfigurationException, SAXException {
-    	SAXParserFactory factory = SAXParserFactory.newInstance();
-        factory.setNamespaceAware(true);
-        try {
-            factory.setFeature("http://xml.org/sax/features/external-general-entities",          false);
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities",        false);
-            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-        } catch (Exception ignored) {}
-        SAXParser parser = factory.newSAXParser();
-        Handler handler = new Handler();
+        SAXParser parser = createSafeSaxParserFactory().newSAXParser();
+        Handler handler = new Handler(this::processProduct);
         Integer refProductsCount = 0;
         long in = System.currentTimeMillis();
-        java.util.List<Product> finished = null;
         try {
-        	parser.parse( new java.io.ByteArrayInputStream(content.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)) , handler);
-        	finished = handler.getFinished();
-	        refProductsCount += handler.getPrductsCounter();
-	        for(Product p : finished) {
-	        	processProduct(p);
-	        }
-        }catch(org.xml.sax.SAXParseException e) {
-        	log("Problem processing content");
+            parser.parse(new java.io.ByteArrayInputStream(
+                    content.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)), handler);
+            refProductsCount += handler.getPrductsCounter();
+        } catch (org.xml.sax.SAXParseException e) {
+            log("Problem processing content");
         } catch (IOException e) {
-        	log("Problem processing content");
-        	logE(e);
-		}
+            log("Problem processing content");
+            logE(e);
+        }
         log("Parsing files took: " + rw.getRw().formatTime(System.currentTimeMillis() - in));
-		if(rows.length() > 0) {
-			rw.writeData("list", "Product2G", null, qp, request, this::log);
-		}
-		rw.writeData("list", "Product2G", "Product2GStructureMap", qp, requestStructureGroup, System.out::println);
-		reqPID.sendData();
-		reqAID.sendData();
-		reqArticleAltID.sendData();
-		reqAltID.sendData();
-		reqProductStatus.sendData();
-		reqSuppressSKUAndEAN.sendData();
-		reqArticleStatus.sendData();
-		reqSuppressSKUAndEANArticle.sendData();
-        org.json.JSONArray columns = new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "ProductReference.ReferencedSupplierAid"));
-        org.json.JSONArray rows = new org.json.JSONArray();
-        org.json.JSONObject request = new org.json.JSONObject();
-        request.put("columns", columns);
-        request.put("rows", rows);
-        for(java.util.Map.Entry<String, String> entry : childParent.entrySet()) {
-        	rows.put(
-        			new org.json.JSONObject()
-        				.put("object", new org.json.JSONObject().put("id", "'" + entry.getKey() + "'@1"))
-        				.put("qualification", new org.json.JSONObject().put("referencedSupplierAid", entry.getValue()))
-        				.put("values", new org.json.JSONArray().put(entry.getValue())));
-        	if(rows.length() == 5000) {
-        		rw.writeData("list", "Article", "ProductReference", qp, request, System.out::println);
-        		while(rows.length() > 0) {
-        			rows.remove(0);
-        		}
-        	}
-        }
-        if(rows.length() > 0) {
-        	rw.writeData("list", "Article", "ProductReference", qp, request, System.out::println);
-    		while(rows.length() > 0) {
-    			rows.remove(0);
-    		}
-        }
+        flushProcessedData();
         return refProductsCount;
     }
-    
+
+    private int procesaArchivoYProducto(java.nio.file.Path path) throws ParserConfigurationException, SAXException {
+        SAXParser parser = createSafeSaxParserFactory().newSAXParser();
+        Handler handler = new Handler(this::processProduct);
+        Integer refProductsCount = 0;
+        long in = System.currentTimeMillis();
+        try {
+            parser.parse(path.toFile(), handler);
+            refProductsCount += handler.getPrductsCounter();
+        } catch (org.xml.sax.SAXParseException e) {
+            log("Problem processing following file: " + path);
+        } catch (IOException e) {
+            log("Problem processing following file: " + path);
+            logE(e);
+        }
+        log("Parsing files took: " + rw.getRw().formatTime(System.currentTimeMillis() - in));
+        flushProcessedData();
+        return refProductsCount;
+    }
+
+    private SAXParserFactory createSafeSaxParserFactory() {
+        SAXParserFactory factory = SAXParserFactory.newInstance();
+        factory.setNamespaceAware(true);
+        try {
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        } catch (Exception ignored) {
+        }
+        return factory;
+    }
+
+    private void flushProcessedData() {
+        if (rows.length() > 0) {
+            rw.writeData("list", "Product2G", null, qp, request, this::log);
+        }
+        rw.writeData("list", "Product2G", "Product2GStructureMap", qp, requestStructureGroup, System.out::println);
+        reqPID.sendData();
+        reqAID.sendData();
+        reqArticleAltID.sendData();
+        reqAltID.sendData();
+        reqProductStatus.sendData();
+        reqSuppressSKUAndEAN.sendData();
+        reqArticleStatus.sendData();
+        reqSuppressSKUAndEANArticle.sendData();
+
+        org.json.JSONArray relationColumns = new org.json.JSONArray()
+                .put(new org.json.JSONObject().put("identifier", "ProductReference.ReferencedSupplierAid"));
+        org.json.JSONArray relationRows = new org.json.JSONArray();
+        org.json.JSONObject relationRequest = new org.json.JSONObject();
+        relationRequest.put("columns", relationColumns);
+        relationRequest.put("rows", relationRows);
+
+        for (java.util.Map.Entry<String, String> entry : childParent.entrySet()) {
+            relationRows.put(
+                    new org.json.JSONObject()
+                            .put("object", new org.json.JSONObject().put("id", "'" + entry.getKey() + "'@1"))
+                            .put("qualification", new org.json.JSONObject()
+                                    .put("referencedSupplierAid", entry.getValue()))
+                            .put("values", new org.json.JSONArray().put(entry.getValue())));
+            if (relationRows.length() == 5000) {
+                rw.writeData("list", "Article", "ProductReference", qp, relationRequest, System.out::println);
+                while (relationRows.length() > 0) {
+                    relationRows.remove(0);
+                }
+            }
+        }
+        if (relationRows.length() > 0) {
+            rw.writeData("list", "Article", "ProductReference", qp, relationRequest, System.out::println);
+            while (relationRows.length() > 0) {
+                relationRows.remove(0);
+            }
+        }
+    }
+
     private void procesaArchivoYProducto(String file, String productId) throws ParserConfigurationException, SAXException {
     	SAXParserFactory factory = SAXParserFactory.newInstance();
         factory.setNamespaceAware(true);
@@ -822,10 +872,7 @@ public class AnotherXMLHandlerSecondOpinionOnSpecificProducts {
 	    			String item = dastub.getSkuProductNo(sku.getText());
 		    		if(item != null && !"".equals(item)) {
 		    			if(!item.equals(externalId)) {
-		    				org.json.JSONObject rsp = dastub.getProductData(externalId);
-	    					org.json.JSONObject r0 = new org.json.JSONObject(rsp);
-	    					org.json.JSONArray a0 = r0.getJSONArray("items");
-	    					org.json.JSONObject i0 = a0.getJSONObject(0);
+		    				org.json.JSONObject i0 = dastub.getProductData(externalId);
 	    					boolean skip = ! (
 	    							   "".equals(i0.getString("Section")) 
 	    							&& "".equals(i0.getString("ItemGroup")) 
@@ -969,54 +1016,65 @@ public class AnotherXMLHandlerSecondOpinionOnSpecificProducts {
 		String externalId = child.getId();
 		String internalId = null;
 		if(sku != null && sku.getText() != null && !"".equals(sku.getText())) {
-    		DataRequestor dr = new DataRequestor();
-    		String rsp = dr.getProductBySKU(new org.json.JSONArray().put(sku.getText()));
-    		org.json.JSONObject jr = new org.json.JSONObject(rsp);
-    		org.json.JSONArray items = jr.getJSONArray("items");
-    		String item = items.getString(0);
-    		if(!"".equals(item)) {
-    			if(!item.equals(externalId)) {
-    				rsp = dr.getArticleData(new org.json.JSONArray().put(externalId));
-    				boolean skip = false;
-    				if(rsp != null) {
-    					org.json.JSONObject r0 = new org.json.JSONObject(rsp);
-    					org.json.JSONArray a0 = r0.getJSONArray("items");
-    					org.json.JSONObject i0 = a0.getJSONObject(0);
-    					skip = ! (
-    							   "".equals(i0.getString("ProductNo")) 
-    							&& "".equals(i0.getString("ColoursLiverpoolAtt")) 
-    							&& "".equals(i0.getString("TamanoUnico")) 
-    							&& "".equals(i0.getString("ProductImage")) 
-    							&& "".equals(i0.getString("AssignTakeNoTake")) 
-    							&& "".equals(i0.getString("SKU")) 
-    							&& "".equals(i0.getString("MainBarCode")) 
-    							&& "".equals(i0.getString("MainBarCodeS4H")) 
-    							&& "".equals(i0.getString("SupplierPartNumber")) 
-    						);
-    				}
-    				if(!skip) {
-    					if(item.length() < 15) {
-    						java.util.Map<String, String> qp = new java.util.HashMap<>();
-    						qp.put("items", "'" + item + "'@1");
-    						String[] data = new String[1];
-    						data[0] = null;
-    						rw.collectData("list", "Article", null, "byItems", qp, row -> {
-    							data[0] = row.getJSONObject("object").getString("id");
-    						});
-    						internalId = data[0];
-    						reqArticleAltID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", internalId)).put("values", new org.json.JSONArray().put(item)));
-    						reqAID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", internalId)).put("values", new org.json.JSONArray().put(externalId)));
-    						dr.putSkuSupplierAID(new org.json.JSONArray().put(new org.json.JSONObject().put("supplierAID", externalId).put("productNo", parentExternalId).put("sku", sku.getText())));
-    					}else {
-    						reqArticleAltID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + item + "'@1")).put("values", new org.json.JSONArray().put(externalId)));
-    						reqArticleAltID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(item)));
-    					}
-    				}else {
-    					if(item.length() < 15) {
-    						reqSuppressSKUAndEANArticle.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + item + "'@1" )).put("values", new org.json.JSONArray().put("").put("").put("").put("").put("")));
-    					} 
-    				}
-    			}
+    		try(DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+				
+				@Override
+				public void logE(Exception e) {
+				}
+				
+				@Override
+				public void log(String message) {
+				}
+			} )){
+				DataRequestor dr = new DataRequestor(dastub);
+	    		String rsp = dr.getProductBySKU(new org.json.JSONArray().put(sku.getText()));
+	    		org.json.JSONObject jr = new org.json.JSONObject(rsp);
+	    		org.json.JSONArray items = jr.getJSONArray("items");
+	    		String item = items.getString(0);
+	    		if(!"".equals(item)) {
+	    			if(!item.equals(externalId)) {
+	    				rsp = dr.getArticleData(new org.json.JSONArray().put(externalId));
+	    				boolean skip = false;
+	    				if(rsp != null) {
+	    					org.json.JSONObject r0 = new org.json.JSONObject(rsp);
+	    					org.json.JSONArray a0 = r0.getJSONArray("items");
+	    					org.json.JSONObject i0 = a0.getJSONObject(0);
+	    					skip = ! (
+	    							   "".equals(i0.getString("ProductNo")) 
+	    							&& "".equals(i0.getString("ColoursLiverpoolAtt")) 
+	    							&& "".equals(i0.getString("TamanoUnico")) 
+	    							&& "".equals(i0.getString("ProductImage")) 
+	    							&& "".equals(i0.getString("AssignTakeNoTake")) 
+	    							&& "".equals(i0.getString("SKU")) 
+	    							&& "".equals(i0.getString("MainBarCode")) 
+	    							&& "".equals(i0.getString("MainBarCodeS4H")) 
+	    							&& "".equals(i0.getString("SupplierPartNumber")) 
+	    						);
+	    				}
+	    				if(!skip) {
+	    					if(item.length() < 15) {
+	    						java.util.Map<String, String> qp = new java.util.HashMap<>();
+	    						qp.put("items", "'" + item + "'@1");
+	    						String[] data = new String[1];
+	    						data[0] = null;
+	    						rw.collectData("list", "Article", null, "byItems", qp, row -> {
+	    							data[0] = row.getJSONObject("object").getString("id");
+	    						});
+	    						internalId = data[0];
+	    						reqArticleAltID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", internalId)).put("values", new org.json.JSONArray().put(item)));
+	    						reqAID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", internalId)).put("values", new org.json.JSONArray().put(externalId)));
+	    						dr.putSkuSupplierAID(new org.json.JSONArray().put(new org.json.JSONObject().put("supplierAID", externalId).put("productNo", parentExternalId).put("sku", sku.getText())));
+	    					}else {
+	    						reqArticleAltID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + item + "'@1")).put("values", new org.json.JSONArray().put(externalId)));
+	    						reqArticleAltID.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(item)));
+	    					}
+	    				}else {
+	    					if(item.length() < 15) {
+	    						reqSuppressSKUAndEANArticle.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + item + "'@1" )).put("values", new org.json.JSONArray().put("").put("").put("").put("").put("")));
+	    					} 
+	    				}
+	    			}
+	    		}
     		}
 		}
 		

@@ -1,5 +1,7 @@
 package mx.com.liverpool.p360.services.core.temp.product2g.maintenance2;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 
@@ -42,26 +44,37 @@ public class TryOnProductVariantInfoAdmin {
 		qp.clear();
 		qp.put("fields", "Article.SupplierAID");
 		qp.put("products", sb.toString());
-		DataRequestor dr = new DataRequestor();
-		java.util.List<String> thoseWhoAre = new java.util.ArrayList<>();
-		java.util.List<String> thoseConsulted = new java.util.ArrayList<>();
-		java.util.List<String> notIn = new java.util.ArrayList<>();
-		rw.collectData("list", "Article", null, "byProducts", qp, row -> {
-			org.json.JSONArray values = row.getJSONArray("values");
-			String resp = null;
-			System.out.println( resp = dr.getProductByVariant(new org.json.JSONArray().put(values.getString(0))) );
-			org.json.JSONObject r = new org.json.JSONObject(resp);
-			org.json.JSONArray items = r.getJSONArray("items");
-			if(!"".equals(items.get(0))) {
-				thoseWhoAre.add(values.getString(0));
-			}else {
-				notIn.add(values.getString(0));
+		try(DBAccessDataStub dastub = new DBAccessDataStub(new ELog() {
+			
+			@Override
+			public void logE(Exception e) {
 			}
-			thoseConsulted.add(values.getString(0));
-		});
-		System.out.println("A: " + thoseWhoAre.size() + "/" + thoseConsulted.size());
-		System.out.println("Not in: ");
-		notIn.forEach(System.out::println);
+			
+			@Override
+			public void log(String message) {
+			}
+		})){
+			DataRequestor dr = new DataRequestor(dastub);
+			java.util.List<String> thoseWhoAre = new java.util.ArrayList<>();
+			java.util.List<String> thoseConsulted = new java.util.ArrayList<>();
+			java.util.List<String> notIn = new java.util.ArrayList<>();
+			rw.collectData("list", "Article", null, "byProducts", qp, row -> {
+				org.json.JSONArray values = row.getJSONArray("values");
+				String resp = null;
+				System.out.println( resp = dr.getProductByVariant(new org.json.JSONArray().put(values.getString(0))) );
+				org.json.JSONObject r = new org.json.JSONObject(resp);
+				org.json.JSONArray items = r.getJSONArray("items");
+				if(!"".equals(items.get(0))) {
+					thoseWhoAre.add(values.getString(0));
+				}else {
+					notIn.add(values.getString(0));
+				}
+				thoseConsulted.add(values.getString(0));
+			});
+			System.out.println("A: " + thoseWhoAre.size() + "/" + thoseConsulted.size());
+			System.out.println("Not in: ");
+			notIn.forEach(System.out::println);
+		}
 	}
 
 }

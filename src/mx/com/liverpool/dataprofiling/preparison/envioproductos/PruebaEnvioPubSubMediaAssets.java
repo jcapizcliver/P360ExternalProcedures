@@ -7,22 +7,28 @@ import mx.com.liverpool.p360.services.core.PubSubGCP;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 import mx.com.liverpool.p360.services.core.xml.ProcessXMLFiles;
 import mx.com.liverpool.p360.services.core.xml.ProductFileAssetElement;
+import mx.com.liverpool.p360.services.core.xml.ProductFileClassificationElement;
 import mx.com.liverpool.p360.services.core.xml.ProductFileHandler;
+import mx.com.liverpool.p360.services.core.xml.ProductFileMultiValueElement;
 import mx.com.liverpool.p360.services.core.xml.ProductFileProductElement;
 import mx.com.liverpool.p360.services.core.xml.ProductFileValueElement;
 
 public class PruebaEnvioPubSubMediaAssets extends ProcessXMLFiles {
 	
-	private static final java.util.Map<String, String> globalVendorCenterSections = getMeTemplateData();
+    private static final long REFERENCE_DATA_TTL_MILLIS = 15L * 60L * 1000L;
+    private static final Object REFERENCE_DATA_LOCK = new Object();
+    private static volatile ReferenceData cachedReferenceData;
 
 	private final RESTWrapper rw = new RESTWrapper();
 	private final java.util.regex.Pattern p = java.util.regex.Pattern.compile("(?<=Flujo Actual: )([^|]+)");
 	private final java.util.regex.Pattern p0 = java.util.regex.Pattern.compile("(?<=Estado en el WF: )([^|]+)");
 	private final java.util.Set<String> parentsToResend = new java.util.TreeSet<>();
 	private final org.json.JSONArray products = new org.json.JSONArray();
-	private final java.util.Map<String, String> internalStatusMap = loadInternalStatusMap();
-	private final java.util.Map<String, String> externalStatusMap = loadExternalStatusMap();
-	private final java.util.Map<String, String> internalToExternalStatusMap = loadInternalToExternalStatusMap();
+    private final ReferenceData referenceData = getReferenceData();
+	private final java.util.Map<String, String> internalStatusMap = referenceData.internalStatusMap;
+	private final java.util.Map<String, String> externalStatusMap = referenceData.externalStatusMap;
+	private final java.util.Map<String, String> internalToExternalStatusMap = referenceData.internalToExternalStatusMap;
+    private final java.util.Map<String, String> globalVendorCenterSections = referenceData.vendorCenterSections;
 	private final java.util.Map<String, String> qp = new java.util.HashMap<>();
 	private final org.json.JSONObject listWriteBody;
 	private final java.util.Map<String, java.util.Set<String>> idsToFiles = new java.util.HashMap<>();
@@ -42,11 +48,10 @@ public class PruebaEnvioPubSubMediaAssets extends ProcessXMLFiles {
 				.put("rows", products);
 	}
 
-	private PubSubGCP pub = new PubSubGCP(
-			 PropertiesManager.get( "p360.contingency.gcp.service_account_back" ),
-			 PropertiesManager.get( "p360.contingency.gcp.project_back" ), 
-			 PropertiesManager.get( "p360.contingency.gcp.post_products_topic" )
-			);
+    private static final PubSubGCP PUB = new PubSubGCP(
+            PropertiesManager.get("p360.contingency.gcp.service_account_back"),
+            PropertiesManager.get("p360.contingency.gcp.project_back"),
+            PropertiesManager.get("p360.contingency.gcp.post_products_topic"));
 	private org.json.JSONArray jps = new org.json.JSONArray();
 	private org.json.JSONObject body = new org.json.JSONObject().put("products", jps);
 	
@@ -343,7 +348,7 @@ public class PruebaEnvioPubSubMediaAssets extends ProcessXMLFiles {
 				}
 				gc++;
 				if(gc % 500 == 0) {
-					pub.publishMessage( body.toString() );
+					PUB.publishMessage( body.toString() );
 					if(unaVez) {
 						log(body.toString());
 						unaVez = false;
@@ -489,6 +494,11 @@ public class PruebaEnvioPubSubMediaAssets extends ProcessXMLFiles {
 	}
 	
 	private static java.util.Map<String, String> loadInternalStatusMap(){
+		/*
+		 * Esta es la única lectura de referencia que todavía usa la REST API porque
+		 * DBAccessDataStub aún no tiene equivalente para Enum.Status. Al quedar bajo
+		 * el cache TTL ya no se ejecuta por cada STEP.
+		 */
 		java.util.Map<String, String> qp = new java.util.HashMap<>();
 		org.json.JSONObject response = null;
 		org.json.JSONArray rows = null;
@@ -502,92 +512,170 @@ public class PruebaEnvioPubSubMediaAssets extends ProcessXMLFiles {
 				row = rows.getJSONObject(i);
 				statusEnum.put(row.getString("key"), row.getString("label"));
 			}
-		} catch (org.json.JSONException e) {
+		} catch (Exception e) {
+            logStatic(e);
 		}
 		return statusEnum;
 	}
-	
-	private static java.util.Map<String, String> loadExternalStatusMap(){
-		java.util.Map<String, String> qp = new java.util.HashMap<>();
-		java.util.Map<String, String> statusEnum = new java.util.TreeMap<>();
-		RESTWrapper rw = new RESTWrapper();
-		qp.put("lookup", "'ExternalStatus'");
-		qp.put("fields", "LookupValue.Code,LookupValueLang.Name(es)");
-		rw.collectData("list", "LookupValue", null, "byLookup", qp, row -> statusEnum.put(row.getJSONArray("values").getString(0), row.getJSONArray("values").getString(1)));
-		return statusEnum;
-	}
-	
-	private static java.util.Map<String, String> loadInternalToExternalStatusMap(){
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("fields", "StandardizationValue.Value,StandardizationValue.AlternativeValue");
-		qp.put("dictionary", "ExternalStatus");
-		java.util.Map<String, String> data = new java.util.HashMap<>();
-		RESTWrapper rw = new RESTWrapper();
-		rw.collectData("list", "StandardizationValue", null, "byDictionary", qp, row -> data.put(row.getJSONArray("values").getString(0), row.getJSONArray("values").getString(1)));
-		return data;
-	}
-	
-	private static java.util.Map<String, String> getMeTemplateData() {
-		RESTWrapper rw = new RESTWrapper();
-		java.util.Map<String, String> qp = new java.util.HashMap<>();
-		qp.put("dictionaryProxy", "'GlobalTemplateAttributeConfiguration'");
-		qp.put("query", "StandardizationValue.Property->LookupValue.Code = \"SentToVendorCenter\" and StandardizationValue.PropertyValue = \"1\" and StandardizationValue.Dictionary->StandardizationDictionary.Identifier = \"GlobalTemplateAttributeConfiguration\"");
-		qp.put("fields", "StandardizationValue.Characteristic->Characteristic.Identifier");
-		qp.put("pageSize", "25000");
-		java.util.Set<String> globalSendToVendorCenter = new java.util.TreeSet<>();
-		java.util.Map<String, String> globalVendorCenterSections = new java.util.TreeMap<>();
-		java.util.Set<String> localSendToVendorCenter = new java.util.TreeSet<>();
-		java.util.Map<String, String> localVendorCenterSections = new java.util.HashMap<>();
-		rw.collectData("list", "StandardizationValue", null, "bySearch", qp, row -> {
-			globalSendToVendorCenter.add(row.getJSONArray("values").getString(0));
-		});
-		qp.put("query",  "StandardizationValue.Property->LookupValue.Code = \"VendorCenterSection\" and StandardizationValue.Dictionary->StandardizationDictionary.Identifier = \"GlobalTemplateAttributeConfiguration\"");
-		qp.put("fields", "StandardizationValue.Characteristic->Characteristic.Identifier,StandardizationValue.PropertyValue");
-		rw.collectData("list", "StandardizationValue", null, "bySearch", qp, row -> {
-			org.json.JSONArray values = row.getJSONArray("values");
-			globalVendorCenterSections.put(values.getString(0), values.getString(1));
-		});
-		qp.put("dictionaryProxy", "'ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla'");
-		qp.put("query", "StandardizationValue.Property->LookupValue.Code = \"SentToVendorCenter\" and StandardizationValue.PropertyValue = \"1\" and StandardizationValue.Dictionary->StandardizationDictionary.Identifier = \"ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla\"");
-		qp.put("fields", "StandardizationValue.Characteristic->Characteristic.Identifier");
-		rw.collectData("list", "StandardizationValue", null, "bySearch", qp, row -> {
-			localSendToVendorCenter.add(row.getJSONArray("values").getString(0));
-		});
-		qp.put("query",  "StandardizationValue.Property->LookupValue.Code = \"VendorCenterSection\" and StandardizationValue.Dictionary->StandardizationDictionary.Identifier = \"ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla\"");
-		qp.put("fields", "StandardizationValue.Characteristic->Characteristic.Identifier,StandardizationValue.PropertyValue");
-		rw.collectData("list", "StandardizationValue", null, "bySearch", qp, row -> {
-			org.json.JSONArray values = row.getJSONArray("values");
-			localVendorCenterSections.put(values.getString(0), values.getString(1));
-		});
-		qp.clear();
-		qp.put("dictionary", "SeccionesEntradaUnicaCatalogacion");
-		qp.put("fields",     "StandardizationValue.Value,StandardizationValue.AlternativeValue");
-		java.util.Map<String, String> sectionInterpretation = new java.util.HashMap<>();
-		rw.collectData("list", "StandardizationValue", null, "byDictionary", qp, row -> {
-			org.json.JSONArray values = row.getJSONArray("values");
-			sectionInterpretation.put(values.getString(0), values.getString(1));
-		});
-		String t = null;
-		for(java.util.Map.Entry<String, String> entry : globalVendorCenterSections.entrySet()) {
-			t = sectionInterpretation.get(entry.getValue());
-			if(t != null && !"".equals(t)) {
-				globalVendorCenterSections.put(entry.getKey(), t);
-			}else {
-				System.out.println("--->" + entry.getValue());
-			}
-		}
-		t = null;
-		for(java.util.Map.Entry<String, String> entry : localVendorCenterSections.entrySet()) {
-			t = sectionInterpretation.get(entry.getValue());
-			if(t != null && !"".equals(t)) {
-				globalVendorCenterSections.put(entry.getKey(), t);
-			}else {
-				System.out.println("--->" + entry.getValue());
-			}
-		}
-		return globalVendorCenterSections;
-	}
-	
+
+    private static ReferenceData getReferenceData() {
+        long now = System.currentTimeMillis();
+        ReferenceData current = cachedReferenceData;
+        if (current != null && now - current.loadedAt < REFERENCE_DATA_TTL_MILLIS) {
+            return current;
+        }
+
+        synchronized (REFERENCE_DATA_LOCK) {
+            now = System.currentTimeMillis();
+            current = cachedReferenceData;
+            if (current != null && now - current.loadedAt < REFERENCE_DATA_TTL_MILLIS) {
+                return current;
+            }
+
+            java.util.Map<String, String> internalStatus = loadInternalStatusMap();
+            java.util.Map<String, String> externalStatus = new java.util.TreeMap<>();
+            java.util.Map<String, String> internalToExternal = new java.util.HashMap<>();
+            java.util.Map<String, String> vendorCenterSections = new java.util.TreeMap<>();
+
+            mx.com.liverpool.p360.services.core.ELog elog = new mx.com.liverpool.p360.services.core.ELog() {
+                @Override
+                public void logE(Exception e) {
+                    logStatic(e);
+                }
+
+                @Override
+                public void log(String message) {
+                    logStatic(message);
+                }
+            };
+
+            try(mx.com.liverpool.p360.services.core.DBAccessDataStub dastub = new mx.com.liverpool.p360.services.core.DBAccessDataStub(elog)){
+	            try {
+	                externalStatus.putAll(dastub.getLookupValueCodeNameMap("ExternalStatus", 10, false));
+	                internalToExternal.putAll(dastub.getDictionaryValueAlternativeValueMap("ExternalStatus"));
+	                vendorCenterSections.putAll(loadVendorCenterSections(dastub));
+	            } catch (Exception e) {
+	                logStatic(e);
+	            }
+            }
+
+            /* Si una recarga falla, conserva la última copia válida por componente. */
+            if (current != null) {
+                if (internalStatus.isEmpty()) {
+                    internalStatus = current.internalStatusMap;
+                }
+                if (externalStatus.isEmpty()) {
+                    externalStatus = current.externalStatusMap;
+                }
+                if (internalToExternal.isEmpty()) {
+                    internalToExternal = current.internalToExternalStatusMap;
+                }
+                if (vendorCenterSections.isEmpty()) {
+                    vendorCenterSections = current.vendorCenterSections;
+                }
+            }
+
+            ReferenceData loaded = new ReferenceData(
+                    immutableCopy(internalStatus),
+                    immutableCopy(externalStatus),
+                    immutableCopy(internalToExternal),
+                    immutableCopy(vendorCenterSections),
+                    now);
+            cachedReferenceData = loaded;
+            return loaded;
+        }
+    }
+
+    private static java.util.Map<String, String> loadVendorCenterSections(
+            mx.com.liverpool.p360.services.core.DBAccessDataStub dastub) {
+
+        java.util.Map<String, String> result = new java.util.TreeMap<>();
+        java.util.Map<String, String> sectionInterpretation =
+                dastub.getDictionaryValueAlternativeValueMap("SeccionesEntradaUnicaCatalogacion");
+
+        org.json.JSONObject globalMetadata = dastub.getGlobalMetadata("CreateProposal");
+        String characteristic = null;
+        for (Object characteristicO : globalMetadata.keySet()) {
+        	if(characteristicO instanceof String) {
+        		characteristic = (String) characteristicO;
+	            org.json.JSONObject properties = globalMetadata.optJSONObject(characteristic);
+	            if (properties == null) {
+	                continue;
+	            }
+	            String rawSection = properties.optString("VendorCenterSection", "");
+	            if (rawSection == null || rawSection.isBlank()) {
+	                continue;
+	            }
+	            String interpreted = sectionInterpretation.get(rawSection);
+	            result.put(characteristic,
+	                    interpreted == null || interpreted.isBlank() ? rawSection : interpreted);
+        	}
+        }
+
+        /*
+         * Mantiene la precedencia del código anterior: la metadata local pisa la
+         * global solamente cuando su sección puede interpretarse.
+         */
+        java.util.Map<String, String> localSections = dastub.getVendorCenterSectionOverrides();
+        for (java.util.Map.Entry<String, String> entry : localSections.entrySet()) {
+            String interpreted = sectionInterpretation.get(entry.getValue());
+            if (interpreted != null && !interpreted.isBlank()) {
+                result.put(entry.getKey(), interpreted);
+            }
+        }
+
+        return result;
+    }
+
+    private static java.util.Map<String, String> immutableCopy(java.util.Map<String, String> source) {
+        if (source == null || source.isEmpty()) {
+            return java.util.Collections.emptyMap();
+        }
+        return java.util.Collections.unmodifiableMap(new java.util.HashMap<>(source));
+    }
+
+    private static final class ReferenceData {
+        private final java.util.Map<String, String> internalStatusMap;
+        private final java.util.Map<String, String> externalStatusMap;
+        private final java.util.Map<String, String> internalToExternalStatusMap;
+        private final java.util.Map<String, String> vendorCenterSections;
+        private final long loadedAt;
+
+        private ReferenceData(
+                java.util.Map<String, String> internalStatusMap,
+                java.util.Map<String, String> externalStatusMap,
+                java.util.Map<String, String> internalToExternalStatusMap,
+                java.util.Map<String, String> vendorCenterSections,
+                long loadedAt) {
+            this.internalStatusMap = internalStatusMap;
+            this.externalStatusMap = externalStatusMap;
+            this.internalToExternalStatusMap = internalToExternalStatusMap;
+            this.vendorCenterSections = vendorCenterSections;
+            this.loadedAt = loadedAt;
+        }
+    }
+
+    private static void logStatic(String message) {
+        try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
+                new java.io.FileOutputStream("../logs/pruebaEnvioPubSubMediaAssets.log", true)))) {
+            pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(new java.util.Date()))
+                    + "] " + message);
+        } catch (java.io.IOException ignored) {
+        }
+    }
+
+    private static void logStatic(Exception ex) {
+        try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
+                new java.io.FileOutputStream("../logs/pruebaEnvioPubSubMediaAssets.log", true)))) {
+            ex.printStackTrace(pw);
+        } catch (java.io.IOException ignored) {
+        }
+    }
+
+    public static void closeSharedPublisher() {
+        PUB.close();
+    }
+
 	private synchronized void log(String message) {
 		try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
 				new java.io.FileOutputStream("../logs/pruebaEnvioPubSubMediaAssets.log", true)))) {
@@ -614,41 +702,317 @@ public class PruebaEnvioPubSubMediaAssets extends ProcessXMLFiles {
 //		System.out.println( java.util.Arrays.asList( a.computeStatus(b, c, d, e) ) );
 //	}
 	
+    /**
+     * Streaming Path entry point used by ReceiveSTEPFile / NeoSTEPFileProcessor.
+     *
+     * Two SAX passes are intentional:
+     *   1) read only Asset definitions, because an Asset may be declared after
+     *      a Product that references it;
+     *   2) stream one root Product tree at a time and process it immediately.
+     *
+     * The STEP is never materialized as one String and the Product roots are not
+     * accumulated in ProductFileHandler.finished.
+     */
+    public static void process(java.nio.file.Path path) {
+        long init = System.currentTimeMillis();
+        PruebaEnvioPubSubMediaAssets r = new PruebaEnvioPubSubMediaAssets();
+        try {
+            java.util.Map<String, ProductFileAssetElement> assetMap =
+                    readAssetMapStreaming(path);
+            r.processProductsStreaming(path, assetMap);
+            finishProcess(r);
+            r.log("Done. " + r.rw.getRw().formatTime(System.currentTimeMillis() - init));
+        } catch (Exception e) {
+            r.logE(e);
+            throw new IllegalStateException("Error processing STEP MediaAssets: " + path, e);
+        }
+    }
+
+    private static javax.xml.parsers.SAXParser newSafeSaxParser()
+            throws javax.xml.parsers.ParserConfigurationException, org.xml.sax.SAXException {
+        javax.xml.parsers.SAXParserFactory factory = javax.xml.parsers.SAXParserFactory.newInstance();
+        factory.setNamespaceAware(true);
+        try {
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        } catch (Exception ignored) {
+        }
+        return factory.newSAXParser();
+    }
+
+    private static java.util.Map<String, ProductFileAssetElement> readAssetMapStreaming(
+            java.nio.file.Path path) throws Exception {
+
+        java.util.Map<String, ProductFileAssetElement> assetMap = new java.util.TreeMap<>();
+        javax.xml.parsers.SAXParser parser = newSafeSaxParser();
+
+        parser.parse(path.toFile(), new org.xml.sax.helpers.DefaultHandler() {
+            private final java.util.LinkedList<ProductFileAssetElement> assetStack =
+                    new java.util.LinkedList<>();
+            private boolean assetName;
+
+            @Override
+            public void startElement(
+                    String uri,
+                    String localName,
+                    String qName,
+                    org.xml.sax.Attributes attributes) {
+
+                String name = localName != null && !localName.isEmpty() ? localName : qName;
+
+                if ("Asset".equals(name)) {
+                    assetStack.addLast(new ProductFileAssetElement(
+                            attributes.getValue("ID"),
+                            attributes.getValue("UserTypeID")));
+                    return;
+                }
+
+                if (assetStack.isEmpty()) {
+                    return;
+                }
+
+                ProductFileAssetElement asset = assetStack.getLast();
+                if ("Name".equals(name)) {
+                    assetName = true;
+                } else if ("Value".equals(name)) {
+                    asset.setCurrentValue(new ProductFileValueElement(
+                            attributes.getValue("AttributeID"), null, null));
+                }
+            }
+
+            @Override
+            public void characters(char[] ch, int start, int length) {
+                if (assetStack.isEmpty()) {
+                    return;
+                }
+
+                ProductFileAssetElement asset = assetStack.getLast();
+                ProductFileValueElement value = asset.getCurrentValue();
+                if (value != null) {
+                    String old = value.getText();
+                    StringBuilder sb = new StringBuilder(old == null ? "" : old);
+                    sb.append(ch, start, length);
+                    value.setText(sb.toString());
+                } else if (assetName) {
+                    StringBuilder sb = new StringBuilder(
+                            asset.getName() == null ? "" : asset.getName());
+                    sb.append(ch, start, length);
+                    asset.setName(sb.toString());
+                }
+            }
+
+            @Override
+            public void endElement(String uri, String localName, String qName) {
+                if (assetStack.isEmpty()) {
+                    return;
+                }
+
+                String name = localName != null && !localName.isEmpty() ? localName : qName;
+                ProductFileAssetElement asset = assetStack.getLast();
+
+                if ("Value".equals(name)) {
+                    asset.addValue();
+                } else if ("Name".equals(name)) {
+                    assetName = false;
+                } else if ("Asset".equals(name)) {
+                    assetStack.removeLast();
+                    if (asset.getId() != null) {
+                        assetMap.put(asset.getId(), asset);
+                    }
+                }
+            }
+        });
+
+        return assetMap;
+    }
+
+    private void processProductsStreaming(
+            java.nio.file.Path path,
+            java.util.Map<String, ProductFileAssetElement> assetMap) throws Exception {
+
+        currentWorkingFile = path.toAbsolutePath().toString();
+        javax.xml.parsers.SAXParser parser = newSafeSaxParser();
+
+        parser.parse(path.toFile(), new org.xml.sax.helpers.DefaultHandler() {
+            private final java.util.LinkedList<ProductFileProductElement> productStack =
+                    new java.util.LinkedList<>();
+            private final java.util.LinkedList<String> elementStack =
+                    new java.util.LinkedList<>();
+            private final java.util.Set<ProductFileProductElement> valuesOpen =
+                    java.util.Collections.newSetFromMap(
+                            new java.util.IdentityHashMap<ProductFileProductElement, Boolean>());
+
+            @Override
+            public void startElement(
+                    String uri,
+                    String localName,
+                    String qName,
+                    org.xml.sax.Attributes attributes) {
+
+                String name = localName != null && !localName.isEmpty() ? localName : qName;
+                String parentTag = elementStack.isEmpty() ? null : elementStack.getLast();
+
+                if ("Product".equals(name)) {
+                    String parentId = attributes.getValue("ParentID");
+                    if (parentId == null && !productStack.isEmpty()) {
+                        parentId = productStack.getLast().getId();
+                    }
+
+                    ProductFileProductElement product = new ProductFileProductElement(
+                            attributes.getValue("ID"),
+                            parentId,
+                            attributes.getValue("UserTypeID"));
+                    /* Avoid null maps even for malformed/minimal Products. */
+                    product.createList();
+                    product.createMultiValueList();
+                    productStack.addLast(product);
+
+                } else if (!productStack.isEmpty()) {
+                    ProductFileProductElement product = productStack.getLast();
+
+                    /* Only the Product's direct <Values> block owns Product values. */
+                    if ("Values".equals(name) && "Product".equals(parentTag)) {
+                        valuesOpen.add(product);
+
+                    } else if ("Value".equals(name) && valuesOpen.contains(product)) {
+                        product.prepareValue(new ProductFileValueElement(
+                                attributes.getValue("AttributeID"),
+                                attributes.getValue("ID"),
+                                attributes.getValue("UnitID")));
+
+                    } else if ("MultiValue".equals(name) && valuesOpen.contains(product)) {
+                        product.prepareMultiValue(new ProductFileMultiValueElement(
+                                attributes.getValue("AttributeID")));
+
+                    } else if ("ClassificationReference".equals(name)) {
+                        product.prepareClassification(new ProductFileClassificationElement(
+                                attributes.getValue("ClassificationID"),
+                                attributes.getValue("Type")));
+
+                    } else if ("AssetCrossReference".equals(name)) {
+                        product.putAssetCrossReference(
+                                attributes.getValue("AssetID"),
+                                attributes.getValue("Type"));
+                    }
+                }
+
+                elementStack.addLast(name);
+            }
+
+            @Override
+            public void characters(char[] ch, int start, int length) {
+                if (productStack.isEmpty()) {
+                    return;
+                }
+
+                ProductFileValueElement value = productStack.getLast().getWorkingValue();
+                if (value != null) {
+                    StringBuilder sb = new StringBuilder(
+                            value.getText() == null ? "" : value.getText());
+                    sb.append(ch, start, length);
+                    value.setText(sb.toString());
+                }
+            }
+
+            @Override
+            public void endElement(String uri, String localName, String qName) {
+                String name = localName != null && !localName.isEmpty() ? localName : qName;
+
+                if (!productStack.isEmpty()) {
+                    ProductFileProductElement product = productStack.getLast();
+
+                    if ("Value".equals(name) && product.getWorkingValue() != null) {
+                        product.addValue();
+
+                    } else if ("MultiValue".equals(name)
+                            && product.getWorkingMultiValue() != null) {
+                        product.addMultiValue();
+
+                    } else if ("ClassificationReference".equals(name)
+                            && product.getWorkingClassification() != null) {
+                        product.addClassification();
+
+                    } else if ("Values".equals(name) && valuesOpen.contains(product)) {
+                        if (product.getWorkingMultiValue() != null) {
+                            product.addMultiValue();
+                        } else if (product.getWorkingValue() != null) {
+                            product.addValue();
+                        }
+                        valuesOpen.remove(product);
+
+                    } else if ("Product".equals(name)) {
+                        if (product.getWorkingMultiValue() != null) {
+                            product.addMultiValue();
+                        } else if (product.getWorkingValue() != null) {
+                            product.addValue();
+                        }
+                        if (product.getWorkingClassification() != null) {
+                            product.addClassification();
+                        }
+
+                        valuesOpen.remove(product);
+                        productStack.removeLast();
+
+                        if (productStack.isEmpty()) {
+                            processProductElement(
+                                    product,
+                                    globalVendorCenterSections,
+                                    assetMap);
+                        } else {
+                            productStack.getLast().addProduct(product);
+                        }
+                    }
+                }
+
+                if (!elementStack.isEmpty()) {
+                    elementStack.removeLast();
+                }
+            }
+        });
+    }
+
 	public static void process(String content) {
 		long init = System.currentTimeMillis();
 		PruebaEnvioPubSubMediaAssets r = new PruebaEnvioPubSubMediaAssets();
 		r.processFile(content);
-		if(r.jps.length() > 0) {
-			r.pub.publishMessage( r.body.toString() );
-			while(r.jps.length() > 0) {
-				r.jps.remove(0);
-			}
-			r.log("Veces que estuvo un id de genérico, individual o variante perdida: " + r.vecesQueUnIDYaEstaba);
-			r.log("\n\n\tDone. " + r.gc);
-			try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.nio.file.Paths.get("/", "u01", "workshop", "land", "padres_a_rebuscar_" + new java.text.SimpleDateFormat("yyyyMMddHHmmss.SSS").format(new java.util.Date())).toFile())))){
-				java.util.Set<String> archivos = null;
-				java.util.List<String> els = null;
-				for(String missingFada : r.parentsToResend) {
-					archivos = r.idsToFiles.get(missingFada);
-					String[] chunk = new String[archivos == null ? 2 : archivos.size() + 1];
-					chunk[0] = missingFada;
-					if(archivos == null) {
-						chunk[1] = "";
-					}else {
-						els = new java.util.ArrayList<>(archivos);
-						for(int i=1; i<archivos.size(); i++) {
-							chunk[i] = els.get(i-0);
-						}
-					}
-					pw.println( r.rw.getRw().serializeChunk( chunk ) );
-				}
-			}catch(java.io.IOException e) {
-				r.logE(e);
-			}
-		}
+        finishProcess(r);
 		r.log("Done. " + r.rw.getRw().formatTime(System.currentTimeMillis() - init));
 	}
-	
+
+    private static void finishProcess(PruebaEnvioPubSubMediaAssets r) {
+        if (r.jps.length() > 0) {
+            PUB.publishMessage(r.body.toString());
+            while (r.jps.length() > 0) {
+                r.jps.remove(0);
+            }
+            r.log("Veces que estuvo un id de genérico, individual o variante perdida: " + r.vecesQueUnIDYaEstaba);
+            r.log("\n\n\tDone. " + r.gc);
+            try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
+                    new java.io.FileOutputStream(java.nio.file.Paths.get(
+                            "/", "u01", "workshop", "land",
+                            "padres_a_rebuscar_" + new java.text.SimpleDateFormat("yyyyMMddHHmmss.SSS")
+                                    .format(new java.util.Date())).toFile())))) {
+                for (String missingFada : r.parentsToResend) {
+                    java.util.Set<String> archivos = r.idsToFiles.get(missingFada);
+                    String[] chunk = new String[archivos == null ? 2 : archivos.size() + 1];
+                    chunk[0] = missingFada;
+                    if (archivos == null) {
+                        chunk[1] = "";
+                    } else {
+                        java.util.List<String> els = new java.util.ArrayList<>(archivos);
+                        for (int i = 1; i < chunk.length; i++) {
+                            chunk[i] = els.get(i - 1);
+                        }
+                    }
+                    pw.println(r.rw.getRw().serializeChunk(chunk));
+                }
+            } catch (java.io.IOException e) {
+                r.logE(e);
+            }
+        }
+    }
+
 	public static void main(String[] args) {
 		long init = System.currentTimeMillis();
 		java.io.File[] files = new java.io.File(args[0]).listFiles();
@@ -671,7 +1035,7 @@ public class PruebaEnvioPubSubMediaAssets extends ProcessXMLFiles {
 		t.start();
 		r.processFiles(files);
 		if(r.jps.length() > 0) {
-			r.pub.publishMessage( r.body.toString() );
+			PUB.publishMessage( r.body.toString() );
 			while(r.jps.length() > 0) {
 				r.jps.remove(0);
 			}

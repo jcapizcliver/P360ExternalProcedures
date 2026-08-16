@@ -1,15 +1,13 @@
 package mx.com.liverpool.p360.services.core;
 
+import java.io.Closeable;
+import java.io.IOException;
+
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 
-public class EchamelosCompa {
-
-//	private final String baseUrl; // = "http://172.18.237.162:1512/rest/V2.0";
-//	private final RestClient rc; // = new RestClient("Accept: application/json", "Content-Type: application/json", "Authorization: Basic " + encoded);
-
+public class EchamelosCompa implements Closeable {
+	
 	public EchamelosCompa(String baseUrl, String encoded) {
-//		this.baseUrl = baseUrl;
-//		rc = new RestClient("Accept: application/json", "Content-Type: application/json", "Authorization: Basic " + encoded);
 	}
 	
 	private final ELog el = new ELog() {
@@ -25,6 +23,9 @@ public class EchamelosCompa {
 		}
 	};
 	
+	private final DBAccessDataStub dastub = new DBAccessDataStub(el);
+	private final DataRequestor dr = new DataRequestor(dastub);
+	
 	public org.json.JSONObject processRequest(String[] args) throws ServiceUnavailableException {
 		org.json.JSONObject globalResponse = null;
 		String rawRequest = args[0];
@@ -35,7 +36,6 @@ public class EchamelosCompa {
 //		StringBuilder productItems = new StringBuilder();
 //		int timesProduct = 0;
 		org.json.JSONArray matrix = null;
-		DataRequestor dr = new DataRequestor();
 		try {
 			org.json.JSONObject request = new org.json.JSONObject(rawRequest);
 			if(request.has("products")) {
@@ -418,22 +418,12 @@ public class EchamelosCompa {
 //	}
 	
 	private org.json.JSONArray collectData(java.util.Set<String> externalIds) {
-		String resp = null;
 		String resp2 = null;
 		org.json.JSONArray r = new org.json.JSONArray();
 		org.json.JSONArray newValues = null;
-//		DataRequestor dr = new DataRequestor();
 		try(DBAccessDataStub dastub = new DBAccessDataStub(el)){
-//			org.json.JSONArray items0 = new org.json.JSONArray();
-//			org.json.JSONArray items = new org.json.JSONArray();
-//			org.json.JSONArray items2 = new org.json.JSONArray();
 			java.util.List<String> asList = new java.util.ArrayList<>(externalIds);
-//			asList.forEach(items::put);
-//			asList.forEach(items0::put);
 			log("Los pedidos: " + externalIds);
-//			resp = dr.getProductData(items);
-//			resp2 = dr.getProductExtraData(items);
-//			resp = dastub.getProductData(resp2)
 			java.util.Map<String, org.json.JSONObject> datas = dastub.getProductData(asList);
 			java.util.Map<String, org.json.JSONObject> datasE = dastub.getProductExtraData(asList, new String[] {
 					"supplierShopId"
@@ -947,6 +937,11 @@ public class EchamelosCompa {
 			ex.printStackTrace(pw);
 		} catch (java.io.IOException e) {
 		}
+	}
+
+	@Override
+	public void close() throws IOException {
+		dastub.close();
 	}
 	
 //	private static final String[] A_HEADER = new String[] {

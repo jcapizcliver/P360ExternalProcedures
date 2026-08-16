@@ -1,11 +1,12 @@
 package mx.com.liverpool.p360.tmp;
 
-import mx.com.liverpool.p360.services.core.ServiceUnavailableException;
-
 import org.json.JSONException;
 
 import mx.com.liverpool.p360.services.core.AgarraloONo;
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
+import mx.com.liverpool.p360.services.core.ServiceUnavailableException;
 
 public class AplicalesTomarNoTomar {
 
@@ -29,8 +30,23 @@ public class AplicalesTomarNoTomar {
 
 	private static void elAgarraloONo(String externalId) throws JSONException, ServiceUnavailableException {
 		if(externalId != null && !"".equals(externalId)) {
-			AgarraloONo a = new AgarraloONo();
-			a.checale(externalId, rw.getBaseUrl());
+			try(DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+				
+				@Override
+				public void logE(Exception e) {
+					// TODO Auto-generated method stub
+					
+				}
+				
+				@Override
+				public void log(String message) {
+					// TODO Auto-generated method stub
+					
+				}
+			} )){
+				AgarraloONo a = new AgarraloONo(dastub);
+				a.checale(externalId, rw.getBaseUrl());
+			}
 		}
 	}
 

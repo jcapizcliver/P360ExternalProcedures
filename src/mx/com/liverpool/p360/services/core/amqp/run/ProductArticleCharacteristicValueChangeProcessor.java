@@ -1,5 +1,6 @@
 package mx.com.liverpool.p360.services.core.amqp.run;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.logging.FileHandler;
@@ -29,6 +30,8 @@ import org.xml.sax.SAXException;
 
 import mx.com.liverpool.p360.services.core.AgarraloONo;
 import mx.com.liverpool.p360.services.core.ConfigurableProduct;
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
@@ -37,8 +40,23 @@ import mx.com.liverpool.p360.services.core.amqp.CrearArchivosParaSKU;
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 import mx.com.liverpool.p360.services.xmlutils.XMLMisc;
 
-public class ProductArticleCharacteristicValueChangeProcessor {
+public class ProductArticleCharacteristicValueChangeProcessor implements Closeable {
 
+	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			ProductArticleCharacteristicValueChangeProcessor.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			ProductArticleCharacteristicValueChangeProcessor.this.log(message);
+		}
+	} );
+	
+	private final DataRequestor dr = new DataRequestor(dastub);
+	
 	private boolean running = true;
 	
 	private final RESTWrapper rw;
@@ -170,7 +188,6 @@ public class ProductArticleCharacteristicValueChangeProcessor {
 //				    	brandIdS4HLabel = getValueLabel("BRAND_ID_S4H", characteristicRecordsMap);
 //						currentStatus  = !data.has("currentStatus")  ? "" : String.valueOf( data.getJSONObject("currentStatus" ).getInt("_key") );
 //						internalStatus = !data.has("currentStatus")  ? "" : data.getJSONObject("currentStatus" ).getString("_label");
-						DataRequestor dr = new DataRequestor();
 						if(changedFieldSet.contains("Product2GCharacteristicValueLang.Value")){
 							java.util.LinkedList<Node> crs = xmm.listImmediateChildElements( xmm.byName(rootElement, "product")).get("_characteristicRecords");
 							String charId = null;
@@ -242,7 +259,16 @@ public class ProductArticleCharacteristicValueChangeProcessor {
 									log("Got launched for producto configurable pv -->" + prevValue + "<--, cv -->" + valueChange + "<--... " + externalId);
 								}else if("ProcessingTomarNoTomar".equals(charId) && Boolean.parseBoolean(valueChange)) {
 									log("Got launched for Tomar No Tomar...");
-									new AgarraloONo().checale(externalId, workshop.getBaseUrl());
+									try(DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+										
+										@Override
+										public void logE(Exception e) {
+										}
+										
+										@Override
+										public void log(String message) {
+										}
+									} )){ new AgarraloONo(dastub).checale(externalId, workshop.getBaseUrl()); }
 									addCharacteristicValue(characteristicRecordsForUpdate, "ProcessingTomarNoTomar", false, false, false);
 								}else if("ProductName".equals(charId)) {
 									String brandName = jp.getString("BrandName");
@@ -261,10 +287,11 @@ public class ProductArticleCharacteristicValueChangeProcessor {
 									addCharacteristicValue(characteristicRecordsForUpdate, "TituloSinMarca", sinMarca, false, false);
 								}else if("ResendToSKUCreation".equals(charId)) {
 									if(Boolean.parseBoolean( valueChange )) {
-										CrearArchivosParaSKU crear = new CrearArchivosParaSKU();
-										String[] content = crear.creacionDeArchivos(externalId, (short) 0);
-										crear.handleContent(externalId, content);
-										addCharacteristicValue(characteristicRecordsForUpdate, "ResendToSKUCreation", "", false, false);
+										try(CrearArchivosParaSKU crear = new CrearArchivosParaSKU()){
+											String[] content = crear.creacionDeArchivos(externalId, (short) 0);
+											crear.handleContent(externalId, content);
+											addCharacteristicValue(characteristicRecordsForUpdate, "ResendToSKUCreation", "", false, false);
+										}
 									}
 								}
 								if(
@@ -530,41 +557,42 @@ public class ProductArticleCharacteristicValueChangeProcessor {
 									logE(e);
 								}
 								if(sku != null && !"".equals(sku)) {
-									CrearArchivosParaSKU caps = new CrearArchivosParaSKU();
-									log("Ya vinimos aquí -.- (" + internalStatus + "," + sapObjectType + "," + business + ")");
-									String[] info = new String[] { sapObjectType, business, sku, internalStatus }; // checkProduct(externalId);
-									log("With actual data: " + java.util.Arrays.asList(info));
-									try {
-										if("MKP".equals(info[1])) {
-											if(!"".equals(info[2])) {
-												String[] contenido = caps.creacionDeArchivos(externalId, (short) 0); // CREA
-												caps.handleContent(externalId, contenido);
-												
-												contenido = caps.creacionDeArchivos(externalId, (short) 1); // MODIF
-												caps.handleContent(externalId, contenido);
+									try(CrearArchivosParaSKU caps = new CrearArchivosParaSKU()){
+										log("Ya vinimos aquí -.- (" + internalStatus + "," + sapObjectType + "," + business + ")");
+										String[] info = new String[] { sapObjectType, business, sku, internalStatus }; // checkProduct(externalId);
+										log("With actual data: " + java.util.Arrays.asList(info));
+										try {
+											if("MKP".equals(info[1])) {
+												if(!"".equals(info[2])) {
+													String[] contenido = caps.creacionDeArchivos(externalId, (short) 0); // CREA
+													caps.handleContent(externalId, contenido);
+													
+													contenido = caps.creacionDeArchivos(externalId, (short) 1); // MODIF
+													caps.handleContent(externalId, contenido);
+												}else {
+													if("".equals(info[2]) && "MKP".equals(info[1])) {
+														String[] contenido = caps.creacionDeArchivos(externalId, (short) 0); // CREA
+														caps.handleContent(externalId, contenido);
+													}
+												}
 											}else {
-												if("".equals(info[2]) && "MKP".equals(info[1])) {
+												if(!"".equals(info[2])) {
+													if(!"SBB".equals(info[1])) {
+														String[] contenido = caps.creacionDeArchivos(externalId, (short) 0); // CREA
+														caps.handleContent(externalId, contenido);
+													}
+													
+													String[] contenido = caps.creacionDeArchivos(externalId, (short) 1); // MODIF
+													caps.handleContent(externalId, contenido);
+												}else {
 													String[] contenido = caps.creacionDeArchivos(externalId, (short) 0); // CREA
 													caps.handleContent(externalId, contenido);
 												}
 											}
-										}else {
-											if(!"".equals(info[2])) {
-												if(!"SBB".equals(info[1])) {
-													String[] contenido = caps.creacionDeArchivos(externalId, (short) 0); // CREA
-													caps.handleContent(externalId, contenido);
-												}
-												
-												String[] contenido = caps.creacionDeArchivos(externalId, (short) 1); // MODIF
-												caps.handleContent(externalId, contenido);
-											}else {
-												String[] contenido = caps.creacionDeArchivos(externalId, (short) 0); // CREA
-												caps.handleContent(externalId, contenido);
-											}
+										}catch(Exception e) {
+											log("Exception on writing to creat archivos para SKU.");
+											logE(e);
 										}
-									}catch(Exception e) {
-										log("Exception on writing to creat archivos para SKU.");
-										logE(e);
 									}
 								}
 							}
@@ -675,7 +703,7 @@ public class ProductArticleCharacteristicValueChangeProcessor {
 											log("Got Sin Marca: " + sinMarca);
 											rowsSinMarca.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + identifier + "'@1")).put("values", new org.json.JSONArray().put(sinMarca)));
 											if(rowsSinMarca.length() == 1000) {
-												rw.writeData("list", "Product2G", null, qp0, requestSinMarca, this::log);
+												sendData();
 											}
 										}else {
 											try { log("Had productNode but no _current node: " + xmm.prettyPrint(rootElement)); } catch (TransformerException e) { e.printStackTrace(); }
@@ -706,12 +734,10 @@ public class ProductArticleCharacteristicValueChangeProcessor {
 			if("Article".equals(json.getString("entity"))) {
 				org.json.JSONObject entityItemsDeleted = json.getJSONObject("entityItemsDeleted");
 				org.json.JSONArray ids = entityItemsDeleted.getJSONArray("_identifier");
-				DataRequestor dr = new DataRequestor();
 				log( dr.retiraArticulo(ids) );
 			}else if("Product2G".equals(json.getString("entity"))) {
 				org.json.JSONObject entityItemsDeleted = json.getJSONObject("entityItemsDeleted");
 				org.json.JSONArray ids = entityItemsDeleted.getJSONArray("_identifier");
-				DataRequestor dr = new DataRequestor();
 				log("Product2G delete: " + dr.retiraProducto(ids) );
 			}
 		}
@@ -732,11 +758,35 @@ public class ProductArticleCharacteristicValueChangeProcessor {
 	}
 	
 	public void sendData() {
-		if(rowsSinMarca.length() > 0) { log("Gonna send: " + rowsSinMarca.length() + " títulos sin marca.");
-			rw.writeData("list", "Product2G", null, qp0, requestSinMarca, this::log);
+		if(rowsSinMarca.length() > 0) {
+			log("Gonna send: " + rowsSinMarca.length() + " títulos sin marca.");
+			writeListDataKeepingRowsOnFailure("Product2G", requestSinMarca);
 		}
-		if(requestPNP.length() > 0) { log("Gonna send: " + requestPNP.length() + " Procede No Procede.");
-			rw.writeData("list", "Article", null, qp0, requestPNP, this::log);
+		if(rowsPNP.length() > 0) {
+			log("Gonna send: " + rowsPNP.length() + " Procede No Procede.");
+			writeListDataKeepingRowsOnFailure("Article", requestPNP);
+		}
+	}
+
+	private boolean writeListDataKeepingRowsOnFailure(String entity, org.json.JSONObject request) {
+		org.json.JSONArray rows = request.getJSONArray("rows");
+		if(rows.length() == 0) {
+			return true;
+		}
+		int rowCount = rows.length();
+		String url = workshop.getBaseUrl() + "/list/" + entity + "?includeObjectsInProtocol=false";
+		try {
+			String rawResponse = workshop.getRc().getRequest("POST", url, request.toString());
+			log(rawResponse);
+			while(rows.length() > 0) {
+				rows.remove(0);
+			}
+			return true;
+		} catch(Exception e) {
+			// Mantener el batch pendiente: RESTWrapper.writeData vacía rows incluso si la llamada falla.
+			log("Write failed; keeping " + rowCount + " pending rows for " + entity + " to retry on the next watcher cycle.");
+			logE(e);
+			return false;
 		}
 	}
 	
@@ -789,10 +839,13 @@ public class ProductArticleCharacteristicValueChangeProcessor {
 	}
 	
 	private void sendUpdateObjectAPI(String proposalId, org.json.JSONObject data) {
-		org.json.JSONObject response = null;
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		response = workshop.makeRequest("PUT", "/object/Product2G/'" + proposalId + "'@'MASTER'", qp, data.toString());
-		log("Res from update object: " + response == null ? "ERR: " + workshop.getRawResponse() : response.toString());
+		org.json.JSONObject response = workshop.makeRequest("PUT", "/object/Product2G/'" + proposalId + "'@'MASTER'", qp, data.toString());
+		if(response == null) {
+			log("ERR updating Product2G " + proposalId + ": " + workshop.getRawResponse());
+			return;
+		}
+		log("Res from update object: " + response);
 	}
 	
 	private String getBrandLabel(String code, String lkpId) {
@@ -897,7 +950,7 @@ public class ProductArticleCharacteristicValueChangeProcessor {
 						rowsPNP.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put("true")));
 						log("Added row for pnp");
 						if(rowsPNP.length() == 100) {
-							rw.writeData("list", "Article", null, this.qp0, requestPNP, this::log);
+							sendData();
 						}
 					}
 			}
@@ -1056,27 +1109,27 @@ public class ProductArticleCharacteristicValueChangeProcessor {
 		try{
 			log("Start listening for messages...");
 			while(running){
-				responseMessage = consumer.receive(30);
-			    if (responseMessage != null && responseMessage instanceof TextMessage) {
-			     	try{
-			     		messageProcessor(((TextMessage) responseMessage).getText());
-			     	}catch(org.json.JSONException e) {
-			     		logE(e);
-			     	}
-			     	log("Doney");
+				try {
+					responseMessage = consumer.receive(30);
+					if (responseMessage != null && responseMessage instanceof TextMessage) {
+						try{
+							messageProcessor(((TextMessage) responseMessage).getText());
+						}catch(Exception e) {
+							// Un mensaje defectuoso o una caída transitoria del REST no debe matar GENERAL_CHARACTERISTIC_VALUE_CHANGE.
+							logE(e);
+						}
+						log("Doney");
+					}
+				}catch(JMSException e) {
+					logE(e);
+					break;
 				}
 			}
-		}catch(ParserConfigurationException | SAXException | java.io.IOException e){
-			logE(e);
-		}catch(org.json.JSONException e){
-    		logE(e);
-    	} catch (JMSException e) {
-    		logE(e);
 		}finally {
 			disconnect();
 		}
 	}
-	
+
 	public void setRunning(boolean running) {
 		this.running = running;
 	}
@@ -1178,5 +1231,10 @@ public class ProductArticleCharacteristicValueChangeProcessor {
         } catch (java.io.IOException e) {
         }
     }
+
+	@Override
+	public void close() throws IOException {
+		dastub.close();
+	}
 
 }

@@ -549,15 +549,11 @@ public class GetTemplateInformation implements Closeable {
 
 		if (globalProperties.length() > 0) {
 			try {
-				java.util.LinkedList<org.json.JSONObject> dependent =
-						new java.util.LinkedList<>();
-
+				java.util.LinkedList<org.json.JSONObject> dependent = new java.util.LinkedList<>();
 				String[] keyNames = org.json.JSONObject.getNames(globalProperties);
 				if (keyNames != null) {
 					for (String keyName : keyNames) {
-						org.json.JSONObject json =
-								globalProperties.getJSONObject(keyName);
-
+						org.json.JSONObject json = globalProperties.getJSONObject(keyName);
 						json.put("dependentAttributes", new org.json.JSONArray());
 						json.remove("listofValuesValidValues");
 						json.remove("ecC");
@@ -590,11 +586,7 @@ public class GetTemplateInformation implements Closeable {
 
 				for (org.json.JSONObject child : dependent) {
 					decorateLegacyAttribute(child);
-
-					org.json.JSONObject parent =
-							globalProperties.optJSONObject(
-									child.optString("dependentAttribute"));
-
+					org.json.JSONObject parent = globalProperties.optJSONObject(child.optString("dependentAttribute"));
 					if (parent != null) {
 						parent.getJSONArray("dependentAttributes").put(child);
 					}
@@ -841,8 +833,7 @@ public class GetTemplateInformation implements Closeable {
 	}
 
 	@Override
-	public void close() throws IOException {
-		// TODO Auto-generated method stub
-		
+	public void close() {
+		dastub.close();
 	}
 }

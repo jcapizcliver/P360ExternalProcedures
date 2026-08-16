@@ -28,23 +28,26 @@ public class PruebaProcedeNoProcede {
 		org.json.JSONArray values = null;
 		int currentIndex = 0;
 		int totalSize = 0;
-		P360ActiveMQBPMStage pam = new P360ActiveMQBPMStage();
-		do {
-			qp.put("startIndex", String.valueOf(currentIndex));
-			response = rw.makeRequest("GET", "/list/Product2G/bySearch", qp, null);
-			if(response != null) {
-				System.out.println(response.getInt("totalSize"));
-				rows = response.getJSONArray("rows");
-				totalSize = response.getInt("totalSize");
-				for(int i=0; i<rows.length(); i++) {
-					currentIndex++;
-					values = rows.getJSONObject(i).getJSONArray("values");
-					pam.setProcedeNoProcede(values.getString(0));
+		try(P360ActiveMQBPMStage pam = new P360ActiveMQBPMStage()){
+			do {
+				qp.put("startIndex", String.valueOf(currentIndex));
+				response = rw.makeRequest("GET", "/list/Product2G/bySearch", qp, null);
+				if(response != null) {
+					System.out.println(response.getInt("totalSize"));
+					rows = response.getJSONArray("rows");
+					totalSize = response.getInt("totalSize");
+					for(int i=0; i<rows.length(); i++) {
+						currentIndex++;
+						values = rows.getJSONObject(i).getJSONArray("values");
+						pam.setProcedeNoProcede(values.getString(0));
+					}
+				}else {
+					
 				}
-			}else {
-				
-			}
-		}while(currentIndex < totalSize);
-		currentIndex = 0;
+			}while(currentIndex < totalSize);
+			currentIndex = 0;
+		}catch(java.io.IOException e) {
+			e.printStackTrace();
+		}
 	}
 }

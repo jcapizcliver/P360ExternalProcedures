@@ -21,9 +21,16 @@ public class SendThemToPubSub {
 //			System.out.println(values);
 //			lst.add(values.getString(0));
 //		});
+//		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "IDsToPubSub").toFile())))){
+//			String line = null;
+//			while((line = br.readLine()) != null) {
+//				sendIt(null, line);
+//			}
+//		}catch(java.io.IOException e) {
+//			e.printStackTrace();
+//		}
 		java.util.List<String> lst = java.util.Arrays.asList((
-				        "1754611685312365\r\n"
-				        + "1754611685312375"
+				        "S75717175"
 				).split("\\r\\n"));
 //				getS();
 		for(String value : lst) {
@@ -53,7 +60,7 @@ public class SendThemToPubSub {
 //		System.out.println(topic);
 		if(losesos.getJSONObject(0).has("currentStatus")) {
 //			new PubSubGCP(pubSubDevSA, pubSubDevProject, topic).publishMessage(losesos.getJSONObject(0).toString());
-			new PubSubGCP(sa,  pubSubQaProject,  topic).publishMessage(losesos.getJSONObject(0).toString());
+			new PubSubGCP(sa,  pubSubQaProject,  topic).publishMessage( new org.json.JSONObject().put("products", losesos).toString());
 			
 			System.out.println("Sent.");
 		}else {

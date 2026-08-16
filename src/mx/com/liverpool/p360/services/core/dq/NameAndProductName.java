@@ -67,6 +67,7 @@ public class NameAndProductName extends RESTDQRuleImpl {
 				for(int i=0; i<cr.length(); i++) {
 					json = cr.getJSONObject(i);
 					characteristicsMap.put(json.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"), json);
+					log("\t" + proposalId + " - " + json.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code") + "||" + json );
 				}
 				String[] td = new String[3];
 				td[0] = null;
@@ -119,6 +120,15 @@ public class NameAndProductName extends RESTDQRuleImpl {
 				if(itemGroup == null || "".equals(itemGroup)) {
 					itemGroup = getCharacteristicValue( characteristicsMap.get("ItemGroupS4H") );
 				}
+				if(itemGroup == null || "".equals(itemGroup)) {
+					if(objectResponse.getJSONObject("_data").has("productExtraData")) {
+						if(objectResponse.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).has("itemGroup")) {
+							itemGroup = objectResponse.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getString("itemGroup");
+						}else if(objectResponse.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).has("itemGroupS4H")) {
+							itemGroup = objectResponse.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getString("itemGroupS4H");
+						}
+					}
+				}
 				log("Order of attributes for name: " + orderOfAttributesForName);
 				log("Got these:");
 				log(negocio);
@@ -132,8 +142,9 @@ public class NameAndProductName extends RESTDQRuleImpl {
 					String[] elements = orderOfAttributesForName.split(",");
 					StringBuilder sb = new StringBuilder();
 					for(String element : elements) {
+						log(proposalId + " - " + element + " || " + ("ProductTypeSAP".equals(element) ? "$ " + getCharacteristicValue( characteristicsMap.get(element) ).replaceAll("^\\d+ - ", "") + " $" : " -->" + getCharacteristicValue( characteristicsMap.get(element) ) + "<-- " + characteristicsMap.get(element) + " <::> "));
 						if("ProductTypeSAP".equals(element)) {
-							sb.append(sb.length() == 0 ? "" : ", ").append(itemGroup.replaceAll("^\\d+ - ", ""));
+							sb.append(sb.length() == 0 ? "" : ", ").append(getCharacteristicValue( characteristicsMap.get(element) ).replaceAll("^\\d+ - ", ""));
 						}else
 							if(!element.contains("\"")) {
 								sb

@@ -1,7 +1,6 @@
 package mx.com.liverpool.p360.services.core.temp.product2g.maintenance2;
 
 import mx.com.liverpool.p360.services.core.RESTWrapper;
-import mx.com.liverpool.p360.services.core.RequestHandler;
 
 public class UnalignProduct2GStatus {
 

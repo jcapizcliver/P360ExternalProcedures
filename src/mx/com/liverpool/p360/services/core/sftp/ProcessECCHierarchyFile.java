@@ -1,4 +1,4 @@
-package mx.com.liverpool.p360.services.core.temp.source;
+package mx.com.liverpool.p360.services.core.sftp;
 
 import java.io.IOException;
 import java.io.InputStream;

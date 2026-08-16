@@ -1,31 +1,27 @@
 package mx.com.liverpool.p360.services.core;
 
+import java.io.Closeable;
+import java.io.IOException;
+
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 
-public class TemplateAttributesForo {
+public class TemplateAttributesForo implements Closeable {
 
 
-//	private static final String encoded = "cmVzdDpoZWlsZXI=";
-//	private static final String baseUrl = "https://webctep360dev.liverpool.com.mx/rest/V2.0";
-//	private static final RestClient rc = new RestClient("Accept: application/json", "Content-Type: application/json", "Authorization: Basic " + encoded);
-
-	public static void main(String[] args) {
-		TemplateAttributesForo ta = new TemplateAttributesForo();
-//		String templateId = "EU4-113578";
-//		org.json.JSONObject characteristics = null;
-//		DataRequestor dr = new DataRequestor();
-//		String r = null;
-//		r = dr.getTemplateCharacteristicMetaDataByTemplate(new org.json.JSONArray().put(templateId));
-//		try {
-//			org.json.JSONObject jr = new org.json.JSONObject(r);
-//			org.json.JSONArray items = jr.getJSONArray("items");
-//			characteristics = ta.moveToUpper( items.getJSONObject(0) );
-//			System.out.println(characteristics);
-//		}catch(org.json.JSONException e) {
-//			ta.logE(e);
-//		}
-		ta.processRequest(args);
-	}
+	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			TemplateAttributesForo.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			TemplateAttributesForo.this.log(message);
+		}
+	} );
+	
+	private final DataRequestor dr = new DataRequestor(dastub);
 
 	public Object processRequest(String[] args) {
 		org.json.JSONObject generalResponse = null;
@@ -42,23 +38,17 @@ public class TemplateAttributesForo {
 		String encoded = null;
 		String fields = null;
 		RestClient rc = null;
-		java.util.Set<String> templateCharacteristics = new java.util.TreeSet<>();
 		java.util.Set<String> masterDataCharacteristics = new java.util.TreeSet<>();
 		java.util.Set<String> atributosInternet = new java.util.TreeSet<>();
 		java.util.Set<String> atributosSAP = new java.util.TreeSet<>();
 		org.json.JSONObject characteristics = new org.json.JSONObject();
 		org.json.JSONObject properties = new org.json.JSONObject();
-		org.json.JSONArray attributeGroups = new org.json.JSONArray();
 		String currentId = null;
-		String prevId = null;
-		java.util.ArrayList<String> attInt = new java.util.ArrayList<>( java.util.Arrays.asList(new String[] {"CategorySpecificAttributesLVP", "CategorySpecificAttributesS4H"}) );
-		String gasap = "CategorySpecificAttributesSAP";
 		try{
 			templateId = args[0];
 			baseURL = args[1];
 			encoded = args[2];
 			fields = args[3];
-			DataRequestor dr = new DataRequestor();
 			String r = null;
 			r = dr.getTemplateCharacteristicMetaDataByTemplate(new org.json.JSONArray().put(templateId));
 			try {
@@ -434,5 +424,10 @@ public class TemplateAttributesForo {
 			+ "VariantLevel	variantLevel\r\n"
 			+ "VendorCenterSection	vendorCenterSection\r\n"
 			+ "VendorCenterSectionSequence	vendorCenterSectionSequence").split("\\r\\n") );
+
+	@Override
+	public void close() throws IOException {
+		dastub.close();
+	}
 	
 }

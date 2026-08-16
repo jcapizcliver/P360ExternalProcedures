@@ -1,5 +1,7 @@
 package mx.com.liverpool.p360.services.core.temp.pvia;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.net.CliTest;
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 
@@ -19,16 +21,27 @@ public class MandaLosQueNoTienes {
 		org.json.JSONObject jr;
 		org.json.JSONArray items;
 		org.json.JSONObject item;
-		DataRequestor dr = new DataRequestor();
-		String s = null;
-		boolean isP = "product".equals(args[1]);
-		for(String a : hola){
-			s = dr.getProductData(new org.json.JSONArray().put(a));
-			jr = new org.json.JSONObject(s);
-			items = jr.getJSONArray("items");
-			item = items.getJSONObject(0);
-			if("".equals(item.getString("CurrentStatus"))) {
-				CliTest.main(new String[] { isP ? "putProductData" : "putArticleData", a });
+		try(DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+			
+			@Override
+			public void logE(Exception e) {
+			}
+			
+			@Override
+			public void log(String message) {
+			}
+		} )){
+			DataRequestor dr = new DataRequestor(dastub);
+			String s = null;
+			boolean isP = "product".equals(args[1]);
+			for(String a : hola){
+				s = dr.getProductData(new org.json.JSONArray().put(a));
+				jr = new org.json.JSONObject(s);
+				items = jr.getJSONArray("items");
+				item = items.getJSONObject(0);
+				if("".equals(item.getString("CurrentStatus"))) {
+					CliTest.main(new String[] { isP ? "putProductData" : "putArticleData", a });
+				}
 			}
 		}
 	}

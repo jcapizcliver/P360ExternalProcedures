@@ -1,7 +1,5 @@
 package mx.com.liverpool.p360.services.core.temp.lookup;
 
-import org.json.JSONObject;
-
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 
 public class CopyLookupReferences {

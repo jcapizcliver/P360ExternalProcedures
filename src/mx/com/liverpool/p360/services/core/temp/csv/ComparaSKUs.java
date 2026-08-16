@@ -1,6 +1,5 @@
 package mx.com.liverpool.p360.services.core.temp.csv;
 
-import mx.com.liverpool.p360.services.core.RESTWrapper;
 import mx.com.liverpool.p360.services.core.SimpleDelimitedFileParser;
 
 public class ComparaSKUs {

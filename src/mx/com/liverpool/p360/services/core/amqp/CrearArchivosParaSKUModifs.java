@@ -16,7 +16,7 @@ import org.apache.sshd.sftp.client.SftpClient;
 
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.ServiceUnavailableException;
-import mx.com.liverpool.p360.services.core.sftp.ParseSAPAttributeAndLoVList;
+
 import mx.com.liverpool.p360.services.xmlutils.XMLMisc;
 
 public class CrearArchivosParaSKUModifs {
