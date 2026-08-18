@@ -13,9 +13,9 @@ public class PlaceholderStatusDictionary {
     private final Map<String, String> values = new HashMap<>();
 
     public PlaceholderStatusDictionary() {
-        values.put(normalize("aprobado"), "Por enriquecer");
-        values.put(normalize("aprobado con cambios"), "Por enriquecer");
-        values.put(normalize("rechazado"), "Cancelada");
+        values.put(normalize("aprobado"), "Aceptado");
+        values.put(normalize("aprobado con cambios"), "Aceptado con ajustados");
+        values.put(normalize("rechazado"), "Cancelado");
         values.put(normalize("rechazado para modificación"), "Rechazada");
     }
 
