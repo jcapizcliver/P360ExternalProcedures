@@ -2754,6 +2754,20 @@ public class CreateProposal implements Closeable {
 					if(product.has("userRemarks") || product.has("modifiedFields")) {
 						processModifiedFields(product);
 					}
+
+					String requestedAction = product.optString("userAction", "InProgress");
+					if(requestedAction.startsWith("C")) {
+						String cancellationProductId = product.optString("proposalId", "").trim();
+						if(cancellationProductId.isEmpty()) {
+							responses.put(new org.json.JSONObject()
+									.put("faultCode", 400)
+									.put("message", "Se requiere proposalId para cancelar el producto."));
+						} else {
+							responses.put(cancelProductAndVariants(cancellationProductId));
+						}
+						continue;
+					}
+
 					if(product.has("basicData")) {
 						sections.add("basicData");
 					}
@@ -3592,26 +3606,7 @@ public class CreateProposal implements Closeable {
 								if("||F|SKU".equals(previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole) || "||F|Compras".equals(previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole)) {
 									internalStatus = "1001";
 								}
-								if(userAction.startsWith("C")) {
-									targetRole = "";
-									log("Aquí lo debimos haber borrado. " + externalProductId);
-									java.util.Map<String, String> qp = new java.util.HashMap<>();
-									qp.put("includeObjectsInProtocol", "false");
-									RequestHandler rhP = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2G.EAN")).put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('MainBarCode',root,\"0000.0000.RK\",'MainBarCode',-1)")).put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('MainBarCodeS4H',root,\"0000.0000.RK\",'MainBarCodeS4H',-1)")), 100, request0 -> rw.writeData("list", "Product2G", null, qp, request0, this::log) );
-									RequestHandler rhA = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Article.EAN")).put(new org.json.JSONObject().put("identifier", "ArticleCharacteristicValueLang.Value('MainBarCode',root,\"0000.0000.RK\",'MainBarCode',-1)")).put(new org.json.JSONObject().put("identifier", "ArticleCharacteristicValueLang.Value('MainBarCodeS4H',root,\"0000.0000.RK\",'MainBarCodeS4H',-1)")).put(new org.json.JSONObject().put("identifier", "Article.CurrentStatus")), 100, request0 -> rw.writeData("list", "Article", null, qp, request0, this::log) );
-									rhP.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalProductId + "'@1")).put("values", new org.json.JSONArray().put("").put("").put("")));
-									rhP.sendData();
-									java.util.Map<String, String> qp0 = new java.util.HashMap<>();
-									qp0.put("products", "'" + externalProductId + "'@1");
-									qp0.put("pageSize", "100");
-									rw.collectData("list", "Article", null, "byProducts", qp0, row -> {
-										rhA.addRow(new org.json.JSONObject().put("object", row.getJSONObject("object")).put("values", new org.json.JSONArray().put("").put("").put("").put("Cancelado")));
-									});
-									rhA.sendData();
-									nextStatus = "1009";
-								} else {
-									nextStatus = this.nextStatusMap.get(previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole);
-								}
+								nextStatus = this.nextStatusMap.get(previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole);
 								if(nextStatus == null) {
 									log("No valid key found: " + previousStatus + "|" + internalStatus + "|" + userAction.substring(0, 1) + "|" + targetRole + ": " + nextStatus);
 									org.json.JSONObject responseObject = new org.json.JSONObject().put("faultCode", 400).put("message", "Problema técnico de incompatibilidad de estatus, acción y rol de destino, el valor de la llave \"userAction\": " + userAction + ", en conjunto con el valor de la llave \"targetRole\": " + targetRole + ", para el estatus actual de la propuesta: \"" + statusEnum.get(internalStatus) + "\" y estado previo de la propuesta: \"" + statusEnum.get(previousStatus) + "\", es desconocido, favor de reportarlo con el equipo de soporte.");
@@ -5785,6 +5780,71 @@ public class CreateProposal implements Closeable {
 			}
 		}
 		return values;
+	}
+
+	private org.json.JSONObject cancelProductAndVariants(String externalProductId) throws Exception {
+		java.util.Map<String, String> qp = new java.util.HashMap<>();
+		qp.put("includeObjectsInProtocol", "false");
+
+		RequestHandler rhP = new RequestHandler(
+				new org.json.JSONArray()
+						.put(new org.json.JSONObject().put("identifier", "Product2G.EAN"))
+						.put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('MainBarCode',root,\"0000.0000.RK\",'MainBarCode',-1)"))
+						.put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('MainBarCodeS4H',root,\"0000.0000.RK\",'MainBarCodeS4H',-1)")),
+				100,
+				request0 -> rw.writeData("list", "Product2G", null, qp, request0, this::log));
+
+		RequestHandler rhA = new RequestHandler(
+				new org.json.JSONArray()
+						.put(new org.json.JSONObject().put("identifier", "Article.EAN"))
+						.put(new org.json.JSONObject().put("identifier", "ArticleCharacteristicValueLang.Value('MainBarCode',root,\"0000.0000.RK\",'MainBarCode',-1)"))
+						.put(new org.json.JSONObject().put("identifier", "ArticleCharacteristicValueLang.Value('MainBarCodeS4H',root,\"0000.0000.RK\",'MainBarCodeS4H',-1)"))
+						.put(new org.json.JSONObject().put("identifier", "Article.CurrentStatus")),
+				100,
+				request0 -> rw.writeData("list", "Article", null, qp, request0, this::log));
+
+		rhP.addRow(new org.json.JSONObject()
+				.put("object", new org.json.JSONObject().put("id", "'" + externalProductId + "'@1"))
+				.put("values", new org.json.JSONArray().put("").put("").put("")));
+
+		rhP.sendData();
+
+		java.util.Map<String, String> qp0 = new java.util.HashMap<>();
+		qp0.put("products", "'" + externalProductId + "'@1");
+		qp0.put("pageSize", "100");
+		final int[] variantCount = new int[] { 0 };
+
+		rw.collectData("list", "Article", null, "byProducts", qp0, row -> {
+			variantCount[0]++;
+			rhA.addRow(new org.json.JSONObject()
+					.put("object", row.getJSONObject("object"))
+					.put("values", new org.json.JSONArray().put("").put("").put("").put("Cancelado")));
+		});
+		rhA.sendData();
+
+		String externalStatus = this.externalStatusMap.get("1009");
+		externalStatus = externalStatus == null ? "Cancelado" : externalStatus;
+		org.json.JSONObject statusRequest = new org.json.JSONObject()
+				.put("currentStatus", new org.json.JSONObject().put("_code", "1009"))
+				.put("externalStatus", new org.json.JSONObject().put("_code", externalStatus));
+
+		String rawResponse = this.rc.getRequest(
+				"PUT",
+				this.objectAPIProduct2GURL + "/'" + externalProductId + "'@'MASTER'?includeLabels=true",
+				statusRequest.toString());
+		org.json.JSONObject result = new org.json.JSONObject()
+				.put("proposalId", externalProductId)
+				.put("internalStatus", "1009")
+				.put("externalStatus", externalStatus)
+				.put("cancelledVariants", variantCount[0]);
+		if(rawResponse != null && !rawResponse.trim().isEmpty()) {
+			try {
+				result.put("p360Response", new org.json.JSONObject(rawResponse));
+			} catch(org.json.JSONException e) {
+				result.put("p360Response", rawResponse);
+			}
+		}
+		return result;
 	}
 
 	private void processModifiedFields(org.json.JSONObject product) {
