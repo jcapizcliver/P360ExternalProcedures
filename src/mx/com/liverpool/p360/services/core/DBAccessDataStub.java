@@ -5186,8 +5186,103 @@ public class DBAccessDataStub implements AutoCloseable {
 	        logE(e);
 	    }
 
-		log("From getArticleData: " + rw.formatTime(System.currentTimeMillis() - init));
+//		log("From getArticleData: " + rw.formatTime(System.currentTimeMillis() - init));
 	    return productData;
+	}
+	
+	public Integer getLeafStructureGroupId(
+			int structureId,
+			String parentIdentifier,
+			String primaryIdentifier,
+			String secondaryIdentifier) {
+
+		if (primaryIdentifier == null || primaryIdentifier.isBlank()) {
+			return null;
+		}
+
+		handleRefreshConnection();
+
+		boolean hasParent =
+				parentIdentifier != null
+				&& !parentIdentifier.isBlank();
+
+		boolean hasSecondary =
+				secondaryIdentifier != null
+				&& !secondaryIdentifier.isBlank();
+
+		String sql =
+				  " select bb.\"StructureGroupID\", bb.\"Identifier\" "
+				+ " from PIM_MAIN.\"StructureGroupDetail\" bb "
+				+ " inner join PIM_MAIN.\"StructureGroupRevision\" aa "
+				+ "    on aa.ID = bb.\"StructureGroupRevisionID\" "
+				+ "   and aa.\"RevisionID\" = 1 "
+				+ "   and aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
+				+ "   and aa.\"StructureID\" = ? "
+				+ " where bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
+				+ "   and bb.\"NodeType\" = 'leaf' "
+				+ (hasParent
+						? "   and bb.\"ParentIdentifier\" = ? "
+						: "")
+				+ (hasSecondary
+						? "   and bb.\"Identifier\" in (?, ?) "
+						: "   and bb.\"Identifier\" = ? ");
+
+		try (java.sql.PreparedStatement pstmnt =
+				connection().prepareStatement(sql)) {
+
+			int parameterIndex = 1;
+
+			pstmnt.setInt(parameterIndex++, structureId);
+
+			if (hasParent) {
+				pstmnt.setString(
+						parameterIndex++,
+						parentIdentifier);
+			}
+
+			pstmnt.setString(
+					parameterIndex++,
+					primaryIdentifier);
+
+			if (hasSecondary) {
+				pstmnt.setString(
+						parameterIndex++,
+						secondaryIdentifier);
+			}
+
+			pstmnt.setQueryTimeout(30);
+			pstmnt.setFetchSize(2);
+
+			Integer secondaryId = null;
+
+			try (java.sql.ResultSet rs =
+					pstmnt.executeQuery()) {
+
+				while (rs.next()) {
+
+					String identifier =
+							rs.getString("Identifier");
+
+					int structureGroupId =
+							rs.getInt("StructureGroupID");
+
+					if (primaryIdentifier.equals(identifier)) {
+						return structureGroupId;
+					}
+
+					if (hasSecondary
+							&& secondaryIdentifier.equals(identifier)) {
+						secondaryId = structureGroupId;
+					}
+				}
+			}
+
+			return secondaryId;
+
+		} catch (java.sql.SQLException e) {
+			logE(e);
+			return null;
+		}
 	}
 	
 	/**

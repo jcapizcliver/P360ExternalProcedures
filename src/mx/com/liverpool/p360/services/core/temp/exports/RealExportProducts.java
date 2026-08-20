@@ -3283,27 +3283,40 @@ public class RealExportProducts {
 	private void appendPlainElementValue(String textValue, String code, String attributeId, Element attributeValues,
 			Element attributes, Document doc, java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas,
 			java.util.Map<String, String> atgGroups) throws ServiceUnavailableException {
-		org.json.JSONObject prop = null;
+		org.json.JSONObject prop = propiedadesCaracteristicas.get(attributeId);
 		String stdDict = null;
 		String nv = null;
-		Element attributeValue = doc.createElement("Value");
-		attributeValues.appendChild(attributeValue);
-		attributeValue.setAttribute("AttributeID", attributeId);
-		if (code != null) {
-			attributeValue.setAttribute("ID", code);
-		}
+		boolean isMultiValue = prop != null
+		        && prop.has("IsMultiselect")
+		        && "1".equals(prop.getString("IsMultiselect"));
 		if (textValue != null) {
-			stdDict = mapaDeDirecciones.get(attributeId);
-			if (stdDict != null) {
-				nv = queryDictionary(textValue, stdDict);
-				if (nv != null) {
-					textValue = nv;
-				}
-			}
+		    stdDict = mapaDeDirecciones.get(attributeId);
+		    if (stdDict != null) {
+		        nv = queryDictionary(textValue, stdDict);
+		        if (nv != null) {
+		            textValue = nv;
+		        }
+		    }
 		}
-		attributeValue.setTextContent(textValue);
-
-		attributeValue.setAttribute("Changed", "true");
+		if (isMultiValue) {
+		    Element multiValue = findMultiValue(attributeValues, attributeId);
+		    if (multiValue == null) {
+		        multiValue = doc.createElement("MultiValue");
+		        multiValue.setAttribute("AttributeID", attributeId);
+		        attributeValues.appendChild(multiValue);
+		    }
+		    Element value = doc.createElement("Value");
+		    value.setTextContent(textValue);
+		    multiValue.appendChild(value);
+		} else {
+		    Element attributeValue = doc.createElement("Value");
+		    attributeValue.setAttribute("AttributeID", attributeId);
+		    if (code != null) {
+		        attributeValue.setAttribute("ID", code);
+		    }
+		    attributeValue.setTextContent(textValue);
+		    attributeValues.appendChild(attributeValue);
+		}
 		Element metaData = doc.createElement("MetaData");
 		Element valueElement = null;
 		Element metaDataMultiValue = null;
@@ -3311,7 +3324,6 @@ public class RealExportProducts {
 		java.util.LinkedList<String> grupos = null;
 		Element attribute = doc.createElement("Attribute");
 		attribute.setAttribute("ID", attributeId);
-		prop = propiedadesCaracteristicas.get(attributeId);
 		Element metadataAttribute = doc.createElement("Name");
 		metadataAttribute.setTextContent(
 				prop != null && !prop.has("name") ? attributeId : prop != null ? prop.getString("name") : attributeId);
@@ -3425,6 +3437,21 @@ public class RealExportProducts {
 		attributeMetaDataValue.setAttribute("Derived", "true");
 		attributeMetaDataValue.setTextContent("N/A");
 		metaData.appendChild(attributeMetaDataValue);
+	}
+	
+	private Element findMultiValue(Element attributeValues, String attributeId) {
+	    org.w3c.dom.Node node = attributeValues.getFirstChild();
+	    while (node != null) {
+	        if (node.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+	            Element element = (Element) node;
+	            if ("MultiValue".equals(element.getTagName())
+	                    && attributeId.equals(element.getAttribute("AttributeID"))) {
+	                return element;
+	            }
+	        }
+	        node = node.getNextSibling();
+	    }
+	    return null;
 	}
 
 	private Element pacheleWeb(JSONObject node, Document doc) {

@@ -1852,14 +1852,15 @@ public class CreateProposal implements Closeable {
 			String typeMainBarCode = null; 
 			try{
 				log("Came here (ean computations)");
-				typeMainBarCode = (mainBarCode == null || "".equals(mainBarCode)) ? ("Liverpool".equals(negocio) || "Marketplace".equals(negocio) ? "IE" : "IS") : ( lmbc == 8 ? "HK" : lmbc >= 6 && lmbc <= 12 ? getTypeMainBarCode(mainBarCode, negocio) : lmbc == 13 ? Long.parseLong(mainBarCode) < 3000_000_000_000l ? "EE" : "HE" : lmbc == 14 ? "IC" : "IE" );
-//				typeMainBarCode = (mainBarCode == null || "".equals(mainBarCode)) ? ("Liverpool".equals(negocio) || "Marketplace".equals(negocio) ? "IE" : "IS") : ( lmbc == 8 ? "HK" : lmbc >= 6 && lmbc <= 12 ? getTypeMainBarCode(mainBarCode, negocio) : lmbc == 13 ? Long.parseLong(mainBarCode.substring(0, mainBarCode.length() - 1)) < 3000_000_000_000l ? "EE" : "HE" : lmbc == 14 ? "IC" : "IE" );
+//				typeMainBarCode = (mainBarCode == null || "".equals(mainBarCode)) ? ("Liverpool".equals(negocio) || "Marketplace".equals(negocio) ? "IE" : "IS") : ( lmbc == 8 ? "HK" : lmbc >= 6 && lmbc <= 12 ? getTypeMainBarCode(mainBarCode, negocio) : lmbc == 13 ? Long.parseLong(mainBarCode) < 3000_000_000_000l ? "EE" : "HE" : lmbc == 14 ? "IC" : "IE" );
+//				typeMainBarCode = (mainBarCode == null || "".equals(mainBarCode)) ? ("Liverpool".equals(negocio) || "Marketplace".equals(negocio) ? "IE" : "IS") : ( lmbc == 8 ? "HK" : lmbc >= 10 && lmbc <= 12 ? "UC" : lmbc == 13 ? getTypeMainBarCode(mainBarCode.substring(0, lmbc - 1), negocio) : lmbc == 14 ? "IC" : lmbc == 16 ? "I6" : "IE" );
+				typeMainBarCode = getTypeMainBarCode(mainBarCode, negocio);
 			}catch(NumberFormatException e) {
 				variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "El código EAN no corresponde con un número válido.").put("fields", new org.json.JSONArray().put( "MainBarCode" )));
 			}
 			log("EAN: " + typeMainBarCode + " (ean computations)");
 			if("".equals(typeMainBarCode) && lmbc > 0) {
-				variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "El código EAN no corresponde con una longitud válida.").put("fields", new org.json.JSONArray().put( "MainBarCode" )));
+				variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "El código EAN no corresponde con una categoría o rango EAN configurado. EAN: " + mainBarCode).put("fields", new org.json.JSONArray().put( "MainBarCode" )));
 			}else {
 
 				if(!"".equals(typeMainBarCode)) {
@@ -2044,28 +2045,122 @@ public class CreateProposal implements Closeable {
 	}
 
 	private String getTypeMainBarCode(String mainBarCode, String business) {
-		try{
-			Long mbc = Long.parseLong(mainBarCode.substring(0, mainBarCode.length() - 1));
-//			Long mbc = Long.parseLong(mainBarCode.substring(0, mainBarCode.length() - 1));
-			if("Suburbia".equals(business)) {
-				if( mbc.compareTo(750_013_500_000l) >= 0 && mbc.compareTo(750_013_599_999l) <= 0 ) {
-					return "MP";
-				}else if( mbc.compareTo(750_013_600_000l) >= 0 && mbc.compareTo(999_999_999_999l) <= 0 ) {
-					return "H2";
-				}
-			}else { // 8,809,473,198,816
-				if( mbc.compareTo(300_000_000_000l) >= 0 && mbc.compareTo(750_057_499_999l) <= 0 ) {
-					return "HE";
-				}else if( mbc.compareTo(750_057_500_000l) >= 0 && mbc.compareTo(750_057_599_999l) <= 0 ) {
-					return "MP";
-				}else if(mbc.compareTo(750_057_600_000l) >= 0 && mbc.compareTo(999_999_999_999l) <= 0) {
-					return "H2";
-				}
-			}
-		}catch(NumberFormatException e) {
-			logE(e);
-		}
-		return "UC";
+	    if(mainBarCode == null || mainBarCode.isEmpty()) {
+	        return "Suburbia".equals(business) ? "IS" : "IE";
+	    }
+	    int length = mainBarCode.length();
+	    if(length < 2) {
+	        return "";
+	    }
+	    try {
+	        long mbc = Long.parseLong( mainBarCode.substring(0, length - 1) );
+	        if("Suburbia".equals(business)) {
+	            return getTypeMainBarCodeS4(mbc, length);
+	        }
+	        return getTypeMainBarCodeECC(mbc, length);
+	    }catch(NumberFormatException e) {
+	        logE(e);
+	        return "";
+	    }
+	}
+	
+	private String getTypeMainBarCodeS4(long mbc, int length) {
+	    if(length == 8) {
+	        if(inRange(mbc, 2_000_000L, 2_999_999L)) {
+	            return "IK";
+	        }
+	        if(inRange(mbc, 3_000_000L, 9_999_999L)) {
+	            return "HK";
+	        }
+	        return "";
+	    }
+	    if(length >= 11 && length <= 12) {
+	        if(inRange(mbc, 1_000_000_000L, 99_999_999_999L)) {
+	            return "UC";
+	        }
+	        return "";
+	    }
+	    if(length == 13) {
+	        if(inRange(mbc, 100_000_000_000L, 199_999_999_999L)) {
+	            return "EE";
+	        }
+	        if(inRange(mbc, 200_000_000_000L, 201_999_999_999L)) {
+	            return "IE";
+	        }
+	        if(inRange(mbc, 202_000_000_000L, 204_999_999_999L)) {
+	            return "IS";
+	        }
+	        if(inRange(mbc, 205_000_000_000L, 209_999_999_999L)) {
+	            return "IE";
+	        }
+	        if(inRange(mbc, 300_000_000_000L, 750_013_499_999L)) {
+	            return "HE";
+	        }
+	        if(inRange(mbc, 750_013_500_000L, 750_013_599_999L)) {
+	            return "MP";
+	        }
+	        if(inRange(mbc, 750_013_600_000L, 999_999_999_999L)) {
+	            return "H2";
+	        }
+	        return "";
+	    }
+	    if (length == 14 && inRange(mbc, 1_000_000_000_000L, 9_999_999_999_999L)) {
+	        return "IC";
+	    }
+	    return "";
+	}
+	
+	private String getTypeMainBarCodeECC(long mbc, int length) {
+	    if(length == 8) {
+	        if(inRange(mbc, 2_000_000L, 2_999_999L)) {
+	            return "IK";
+	        }
+	        if(inRange(mbc, 3_000_000L, 9_999_999L)) {
+	            return "HK";
+	        }
+	        return "";
+	    }
+	    if(length >= 10 && length <= 12) {
+	        if(inRange(mbc, 100_000_000L, 99_999_999_999L)) {
+	            return "UC";
+	        }
+	        return "";
+	    }
+	    if(length == 13) {
+	        if( inRange(mbc, 100_000_000_000L, 199_999_999_999L) ) {
+	            return "EE";
+	        }
+	        if( inRange(mbc, 200_000_000_000L, 209_999_999_999L) ) {
+	            return "IE";
+	        }
+	        if( inRange(mbc, 300_000_000_000L, 750_057_499_999L) ) {
+	            return "HE";
+	        }
+	        if( inRange(mbc, 750_057_500_001L, 750_057_599_999L) ) {
+	            return "MP";
+	        }
+	        if( inRange(mbc, 750_057_600_000L, 999_999_999_999L) ) {
+	            return "H2";
+	        }
+	        return "";
+	    }
+	    if(length == 14) {
+	        if( inRange(mbc, 1_000_000_000_000L, 9_999_999_999_999L) ) {
+	            return "IC";
+	        }
+	        return "";
+	    }
+	    if(length == 16) {
+	        if( inRange(mbc, 100_000_000_000_000L, 999_999_999_999_999L) ) {
+	            return "I6";
+	        }
+	        return "";
+	    }
+	    return "";
+	}
+	
+	private boolean inRange(long value, long from, long to) {
+	    return value >= from && value <= to;
 	}
 	
 	private String lookupValue(String value, String standardizationDictionary) throws KeyManagementException, NoSuchAlgorithmException, UnsupportedEncodingException, URISyntaxException, IOException {
@@ -3803,7 +3898,8 @@ public class CreateProposal implements Closeable {
 								reqObj.put("lasModificationUserEmail", externalEmail);
 							}
 							if(mainBarCode != null && !"".equals(mainBarCode)) {
-								reqObj.put("gtin", mainBarCode);
+								if(!"1009".equals(internalStatus))
+									reqObj.put("gtin", mainBarCode);
 							}
 							if(templateId != null && !"".equals(templateId)) {
 								reqObj.put("structureGroupMap", new org.json.JSONArray().put(new org.json.JSONObject().put("_qualification", new org.json.JSONObject().put("structureGroup", new org.json.JSONObject().put("_externalId", "'" + templateId + "'@'PrimaryProductTaxonomy'") ) )));
@@ -3878,12 +3974,10 @@ public class CreateProposal implements Closeable {
 								log("External Product Id 2: " + (externalProductId));
 								if(externalProductId != null && !"".equals(externalProductId)) {
 									log("GOING WITH PUT <:>" + reqObj + "<:>");
-									rawResp = this.rc.getRequest("PUT",
-											this.objectAPIProduct2GURL + "/'" + externalProductId + "'@'MASTER'?includeLabels=true", reqObj.toString());
+									rawResp = this.rc.getRequest("PUT", this.objectAPIProduct2GURL + "/'" + externalProductId + "'@'MASTER'?includeLabels=true", reqObj.toString());
 								}else {
 									log("GOING WITH POST <:>" + reqObj + "<:>");
-									rawResp = this.rc.getRequest("POST",
-											this.objectAPIProduct2GURL + "?includeLabels=true", reqObj.toString());
+									rawResp = this.rc.getRequest("POST", this.objectAPIProduct2GURL + "?includeLabels=true", reqObj.toString());
 									if(rawResp != null) {
 										log("OOP<::>" + rawResp);
 										org.json.JSONObject jo = new org.json.JSONObject(rawResp);
@@ -4090,19 +4184,20 @@ public class CreateProposal implements Closeable {
 								log("<::> Status: " + internalStatus + "<::> " + previousStatus);
 								if( "1001".equals(internalStatus) || "1001".equals(previousStatus) ) {
 								}
-								for (int j = 0; j < variantes.length(); j++) {
-									variante = variantes.getJSONObject(j);
-									processVariant(
-											  externalProductId
-										    , variante
-											, this.rc, business
-											, templateId
-											, d
-											, internalStatus
-											, supplier
-											, sample
-										);
-								}
+								if(!"1009".equals(internalStatus))
+									for (int j = 0; j < variantes.length(); j++) {
+										variante = variantes.getJSONObject(j);
+										processVariant(
+												  externalProductId
+											    , variante
+												, this.rc, business
+												, templateId
+												, d
+												, internalStatus
+												, supplier
+												, sample
+											);
+									}
 								
 								org.json.JSONArray tru = new org.json.JSONArray();
 								for(int m=0; m<variantResponsesArray.length(); m++) {
