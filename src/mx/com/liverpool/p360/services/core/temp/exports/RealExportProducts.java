@@ -74,6 +74,7 @@ public class RealExportProducts {
 	private static final int port = Integer.parseInt(PropertiesManager.get("p360.contingency.dwh.port", "22"));
 	private static final String user = PropertiesManager.get("p360.contingency.dwh.user");
 	private static final java.nio.file.Path privateKeyPath = java.nio.file.Paths.get("/home/P360admin/.ssh/id_rsa");
+	private static final String PRICING_SFTP_PREFIX = "p360.contingency.pricing.sftp.";
 
 	private final java.util.Map<String, java.util.Map<String, org.json.JSONObject>> templateMetadataSet = new java.util.TreeMap<>();
 	private final java.util.Map<String, java.util.Map<String, String>> templateStructureGroupAttributeValues = new java.util.TreeMap<>();
@@ -2512,6 +2513,7 @@ public class RealExportProducts {
 		String fnBad = java.nio.file.Paths.get(fileSystemPrefix.toString(), "badgg" + suffix).toString();
 		writeUtf8File(fn, xmlOutputIndented);
 		generatedAtgFiles.add(fn);
+		sendFileToPricingSftp(java.nio.file.Paths.get(fn), ctm);
 
 		Document omsDocument = cloneDocument(batch.doc);
 		Element omsRoot = omsDocument.getDocumentElement();
@@ -2746,6 +2748,54 @@ public class RealExportProducts {
 		} finally {
 			client.stop();
 		}
+	}
+
+	private void sendFileToPricingSftp(Path localFile, long timestamp) {
+		if (!Boolean.parseBoolean(PropertiesManager.get(PRICING_SFTP_PREFIX + "enabled", "false"))) {
+			return;
+		}
+
+		SshClient client = null;
+		try {
+			String pricingHost = requirePricingSftpProperty("host");
+			int pricingPort = Integer.parseInt(PropertiesManager.get(PRICING_SFTP_PREFIX + "port", "22"));
+			String pricingUsername = requirePricingSftpProperty("username");
+			String pricingPassword = requirePricingSftpProperty("password");
+			long connectTimeoutSeconds = Long.parseLong(
+					PropertiesManager.get(PRICING_SFTP_PREFIX + "connect_timeout_seconds", "10"));
+			long authTimeoutSeconds = Long.parseLong(
+					PropertiesManager.get(PRICING_SFTP_PREFIX + "auth_timeout_seconds", "10"));
+			String remoteFileName = "output-" + timestamp + ".xml";
+
+			client = SshClient.setUpDefaultClient();
+			client.start();
+			try (ClientSession session = client.connect(pricingUsername, pricingHost, pricingPort)
+					.verify(connectTimeoutSeconds, TimeUnit.SECONDS).getSession()) {
+				session.addPasswordIdentity(pricingPassword);
+				session.auth().verify(authTimeoutSeconds, TimeUnit.SECONDS);
+				try (SftpClient sftp = SftpClientFactory.instance().createSftpClient(session);
+						OutputStream remoteFile = sftp.write(remoteFileName)) {
+					Files.copy(localFile, remoteFile);
+				}
+			}
+			log("Pricing SFTP sent: " + localFile + " as " + remoteFileName);
+		} catch (Exception e) {
+			log("Could not send file to Pricing SFTP: " + localFile + ". " + e.getMessage());
+			logE(e);
+		} finally {
+			if (client != null) {
+				client.stop();
+			}
+		}
+	}
+
+	private String requirePricingSftpProperty(String name) {
+		String key = PRICING_SFTP_PREFIX + name;
+		String value = PropertiesManager.get(key);
+		if (value == null || value.trim().isEmpty()) {
+			throw new IllegalStateException("Missing required property: " + key);
+		}
+		return value;
 	}
 
 	private static java.util.List<Element> directElementChildren(Element parent, String tagName) {
