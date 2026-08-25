@@ -201,7 +201,6 @@ public class RealExportProducts {
 
 		matcher.appendTail(sb);
 		visiting.remove(key);
-
 		return sb.toString();
 	}
 
@@ -2751,10 +2750,6 @@ public class RealExportProducts {
 	}
 
 	private void sendFileToPricingSftp(Path localFile, long timestamp) {
-		if (!Boolean.parseBoolean(PropertiesManager.get(PRICING_SFTP_PREFIX + "enabled", "false"))) {
-			return;
-		}
-
 		SshClient client = null;
 		try {
 			String pricingHost = requirePricingSftpProperty("host");
