@@ -2966,46 +2966,33 @@ public class ParseJana122Response implements SimpleLog {
 		return sb.toString();
 	}
 	
-	private int forbiddenChalice(String itemGroup, String product) throws IOException {
-		int id = -1;
-		JdbcConfig jdbcConfig = initJdbcConfig();
-		try(java.sql.Connection con = openConnection(jdbcConfig, true)){
-			if(product != null && !"".equals(product)) {
-				try(java.sql.PreparedStatement pstmnt = con.prepareStatement("select \"StructureGroupID\" from PIM_MAIN.\"StructureGroupDetail\" bb inner join PIM_MAIN.\"StructureGroupRevision\" aa on aa.ID = bb.\"StructureGroupRevisionID\" and aa.\"RevisionID\" = 1 and aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0'  and aa.\"StructureID\" = 10002 and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' where \"NodeType\" = 'leaf' and \"ParentIdentifier\" = ? and \"Identifier\" = ?")){
-					pstmnt.setString(1, itemGroup + "-L4SH");
-					pstmnt.setString(2, product + "-L5SH");
-					try(java.sql.ResultSet rs = pstmnt.executeQuery()){
-						if(rs.next()) {
-							id = rs.getInt(1);
-						}else {
-							try(java.sql.PreparedStatement pstmnt2 = con.prepareStatement("select \"StructureGroupID\" from PIM_MAIN.\"StructureGroupDetail\" bb inner join PIM_MAIN.\"StructureGroupRevision\" aa on aa.ID = bb.\"StructureGroupRevisionID\" and aa.\"RevisionID\" = 1 and aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0'  and aa.\"StructureID\" = 10002 and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' where \"NodeType\" = 'leaf' and \"ParentIdentifier\" = ? and \"Identifier\" = ?")){
-								pstmnt2.setString(1, itemGroup + "-L4SH");
-								pstmnt2.setString(2, itemGroup + product + "-L5SH");
-								try(java.sql.ResultSet rs2 = pstmnt2.executeQuery()){
-									if(rs2.next()) {
-										id = rs2.getInt(1);
-									}else {
-										id = processMissingPair(itemGroup, itemGroup + product);
-									}
-								}
-							}
-						}
-					}
-				}
-			} else {
-				try(java.sql.PreparedStatement pstmnt = con.prepareStatement("select \"StructureGroupID\" from PIM_MAIN.\"StructureGroupDetail\" bb inner join PIM_MAIN.\"StructureGroupRevision\" aa on aa.ID = bb.\"StructureGroupRevisionID\" and aa.\"RevisionID\" = 1 and aa.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0'  and aa.\"StructureID\" = 10002 and bb.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' where \"NodeType\" = 'leaf' and \"Identifier\" = ?")){
-					pstmnt.setString(1, itemGroup + "-L4SH");
-					try(java.sql.ResultSet rs = pstmnt.executeQuery()){
-						if(rs.next()) {
-							id = rs.getInt(1);
-						}
-					}
-				}
-			}
-		}catch(ClassNotFoundException | java.sql.SQLException e) {
-			logE(e);
+	private int forbiddenChalice(String itemGroup, String product) {
+		if (itemGroup == null || itemGroup.isBlank()) {
+			return -1;
 		}
-		return id;
+		if (product != null && !product.isBlank()) {
+			Integer id =
+					dastub.getLeafStructureGroupId(
+							10002,
+							itemGroup + "-L4SH",
+							product + "-L5SH",
+							itemGroup + product + "-L5SH");
+
+			if (id != null) {
+				return id;
+			}
+			return processMissingPair(
+					itemGroup,
+					itemGroup + product);
+		}
+		Integer id =
+				dastub.getLeafStructureGroupId(
+						10002,
+						null,
+						itemGroup + "-L4SH",
+						null);
+
+		return id == null ? -1 : id;
 	}
 	
 	private int processMissingPair(String itemGroup, String product) {

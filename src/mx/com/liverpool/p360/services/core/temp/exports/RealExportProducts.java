@@ -74,6 +74,7 @@ public class RealExportProducts {
 	private static final int port = Integer.parseInt(PropertiesManager.get("p360.contingency.dwh.port", "22"));
 	private static final String user = PropertiesManager.get("p360.contingency.dwh.user");
 	private static final java.nio.file.Path privateKeyPath = java.nio.file.Paths.get("/home/P360admin/.ssh/id_rsa");
+	private static final String PRICING_SFTP_PREFIX = "p360.contingency.pricing.sftp.";
 
 	private final java.util.Map<String, java.util.Map<String, org.json.JSONObject>> templateMetadataSet = new java.util.TreeMap<>();
 	private final java.util.Map<String, java.util.Map<String, String>> templateStructureGroupAttributeValues = new java.util.TreeMap<>();
@@ -200,7 +201,6 @@ public class RealExportProducts {
 
 		matcher.appendTail(sb);
 		visiting.remove(key);
-
 		return sb.toString();
 	}
 
@@ -2512,6 +2512,7 @@ public class RealExportProducts {
 		String fnBad = java.nio.file.Paths.get(fileSystemPrefix.toString(), "badgg" + suffix).toString();
 		writeUtf8File(fn, xmlOutputIndented);
 		generatedAtgFiles.add(fn);
+		sendFileToPricingSftp(java.nio.file.Paths.get(fn), ctm);
 
 		Document omsDocument = cloneDocument(batch.doc);
 		Element omsRoot = omsDocument.getDocumentElement();
@@ -2746,6 +2747,50 @@ public class RealExportProducts {
 		} finally {
 			client.stop();
 		}
+	}
+
+	private void sendFileToPricingSftp(Path localFile, long timestamp) {
+		SshClient client = null;
+		try {
+			String pricingHost = requirePricingSftpProperty("host");
+			int pricingPort = Integer.parseInt(PropertiesManager.get(PRICING_SFTP_PREFIX + "port", "22"));
+			String pricingUsername = requirePricingSftpProperty("username");
+			String pricingPassword = requirePricingSftpProperty("password");
+			long connectTimeoutSeconds = Long.parseLong(
+					PropertiesManager.get(PRICING_SFTP_PREFIX + "connect_timeout_seconds", "10"));
+			long authTimeoutSeconds = Long.parseLong(
+					PropertiesManager.get(PRICING_SFTP_PREFIX + "auth_timeout_seconds", "10"));
+			String remoteFileName = "output-" + timestamp + ".xml";
+
+			client = SshClient.setUpDefaultClient();
+			client.start();
+			try (ClientSession session = client.connect(pricingUsername, pricingHost, pricingPort)
+					.verify(connectTimeoutSeconds, TimeUnit.SECONDS).getSession()) {
+				session.addPasswordIdentity(pricingPassword);
+				session.auth().verify(authTimeoutSeconds, TimeUnit.SECONDS);
+				try (SftpClient sftp = SftpClientFactory.instance().createSftpClient(session);
+						OutputStream remoteFile = sftp.write(remoteFileName)) {
+					Files.copy(localFile, remoteFile);
+				}
+			}
+			log("Pricing SFTP sent: " + localFile + " as " + remoteFileName);
+		} catch (Exception e) {
+			log("Could not send file to Pricing SFTP: " + localFile + ". " + e.getMessage());
+			logE(e);
+		} finally {
+			if (client != null) {
+				client.stop();
+			}
+		}
+	}
+
+	private String requirePricingSftpProperty(String name) {
+		String key = PRICING_SFTP_PREFIX + name;
+		String value = PropertiesManager.get(key);
+		if (value == null || value.trim().isEmpty()) {
+			throw new IllegalStateException("Missing required property: " + key);
+		}
+		return value;
 	}
 
 	private static java.util.List<Element> directElementChildren(Element parent, String tagName) {
@@ -3283,27 +3328,40 @@ public class RealExportProducts {
 	private void appendPlainElementValue(String textValue, String code, String attributeId, Element attributeValues,
 			Element attributes, Document doc, java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas,
 			java.util.Map<String, String> atgGroups) throws ServiceUnavailableException {
-		org.json.JSONObject prop = null;
+		org.json.JSONObject prop = propiedadesCaracteristicas.get(attributeId);
 		String stdDict = null;
 		String nv = null;
-		Element attributeValue = doc.createElement("Value");
-		attributeValues.appendChild(attributeValue);
-		attributeValue.setAttribute("AttributeID", attributeId);
-		if (code != null) {
-			attributeValue.setAttribute("ID", code);
-		}
+		boolean isMultiValue = prop != null
+		        && prop.has("IsMultiselect")
+		        && "1".equals(prop.getString("IsMultiselect"));
 		if (textValue != null) {
-			stdDict = mapaDeDirecciones.get(attributeId);
-			if (stdDict != null) {
-				nv = queryDictionary(textValue, stdDict);
-				if (nv != null) {
-					textValue = nv;
-				}
-			}
+		    stdDict = mapaDeDirecciones.get(attributeId);
+		    if (stdDict != null) {
+		        nv = queryDictionary(textValue, stdDict);
+		        if (nv != null) {
+		            textValue = nv;
+		        }
+		    }
 		}
-		attributeValue.setTextContent(textValue);
-
-		attributeValue.setAttribute("Changed", "true");
+		if (isMultiValue) {
+		    Element multiValue = findMultiValue(attributeValues, attributeId);
+		    if (multiValue == null) {
+		        multiValue = doc.createElement("MultiValue");
+		        multiValue.setAttribute("AttributeID", attributeId);
+		        attributeValues.appendChild(multiValue);
+		    }
+		    Element value = doc.createElement("Value");
+		    value.setTextContent(textValue);
+		    multiValue.appendChild(value);
+		} else {
+		    Element attributeValue = doc.createElement("Value");
+		    attributeValue.setAttribute("AttributeID", attributeId);
+		    if (code != null) {
+		        attributeValue.setAttribute("ID", code);
+		    }
+		    attributeValue.setTextContent(textValue);
+		    attributeValues.appendChild(attributeValue);
+		}
 		Element metaData = doc.createElement("MetaData");
 		Element valueElement = null;
 		Element metaDataMultiValue = null;
@@ -3311,7 +3369,6 @@ public class RealExportProducts {
 		java.util.LinkedList<String> grupos = null;
 		Element attribute = doc.createElement("Attribute");
 		attribute.setAttribute("ID", attributeId);
-		prop = propiedadesCaracteristicas.get(attributeId);
 		Element metadataAttribute = doc.createElement("Name");
 		metadataAttribute.setTextContent(
 				prop != null && !prop.has("name") ? attributeId : prop != null ? prop.getString("name") : attributeId);
@@ -3425,6 +3482,21 @@ public class RealExportProducts {
 		attributeMetaDataValue.setAttribute("Derived", "true");
 		attributeMetaDataValue.setTextContent("N/A");
 		metaData.appendChild(attributeMetaDataValue);
+	}
+	
+	private Element findMultiValue(Element attributeValues, String attributeId) {
+	    org.w3c.dom.Node node = attributeValues.getFirstChild();
+	    while (node != null) {
+	        if (node.getNodeType() == org.w3c.dom.Node.ELEMENT_NODE) {
+	            Element element = (Element) node;
+	            if ("MultiValue".equals(element.getTagName())
+	                    && attributeId.equals(element.getAttribute("AttributeID"))) {
+	                return element;
+	            }
+	        }
+	        node = node.getNextSibling();
+	    }
+	    return null;
 	}
 
 	private Element pacheleWeb(JSONObject node, Document doc) {

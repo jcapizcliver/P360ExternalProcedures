@@ -384,7 +384,7 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 	                        org.json.JSONObject item = new org.json.JSONObject();
 							item.put( "enrichmentOriginForo", wereYouInForo);
 							item.put( "proposalId", values.getString(0));
-							item.put("entityType", "Generic" );
+							item.put( "entityType", "Generic" );
 							items.put(item);
 							org.json.JSONObject itemPO = new org.json.JSONObject();
 							itemPO.put( "enrichmentOriginForo", wereYouInForo);
