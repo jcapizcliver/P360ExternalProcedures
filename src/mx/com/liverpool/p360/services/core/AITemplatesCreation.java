@@ -558,11 +558,11 @@ public class AITemplatesCreation {
         org.json.JSONArray rowsStandardizationValue = new org.json.JSONArray();
         reqStandardizationValue.put("columns", columnsStandardizationValue);
         reqStandardizationValue.put("rows", rowsStandardizationValue);
-        columnsStandardizationValue.put(new org.json.JSONObject().put("identifier", "StandardizationValue.StructureGroup"));
-        columnsStandardizationValue.put(new org.json.JSONObject().put("identifier", "StandardizationValue.Characteristic"));
-        columnsStandardizationValue.put(new org.json.JSONObject().put("identifier", "StandardizationValue.CreationType"));
-        columnsStandardizationValue.put(new org.json.JSONObject().put("identifier", "StandardizationValue.Property"));
-        columnsStandardizationValue.put(new org.json.JSONObject().put("identifier", "StandardizationValue.PropertyValue"));
+        columnsStandardizationValue.put(new org.json.JSONObject().put("identifier", "LookupValue.StructureGroup"));
+        columnsStandardizationValue.put(new org.json.JSONObject().put("identifier", "LookupValue.Characteristic"));
+        columnsStandardizationValue.put(new org.json.JSONObject().put("identifier", "LookupValue.CreationType"));
+        columnsStandardizationValue.put(new org.json.JSONObject().put("identifier", "LookupValue.Property"));
+        columnsStandardizationValue.put(new org.json.JSONObject().put("identifier", "LookupValue.PropertyValue"));
         StringBuilder sb = new StringBuilder();
         log("Now writing metadata to dictionary");
         for(Plantilla p : handler.finished) {
@@ -585,7 +585,7 @@ public class AITemplatesCreation {
         			}
         		}
         		if(rowsStandardizationValue.length() >= 2000) {
-        			rw.writeData("list", "StandardizationValue", null, qp, reqStandardizationValue, this::log);
+        			rw.writeData("list", "LookupValue", null, qp, reqStandardizationValue, this::log);
         			while(rowsStandardizationValue.length() > 0) {
         				rowsStandardizationValue.remove(0);
         			}
@@ -593,7 +593,7 @@ public class AITemplatesCreation {
         	}
         }
         if(rowsStandardizationValue.length() > 0) {
-        	rw.writeData("list", "StandardizationValue", null, qp, reqStandardizationValue, this::log);
+        	rw.writeData("list", "LookupValue", null, qp, reqStandardizationValue, this::log);
 			while(rowsStandardizationValue.length() > 0) {
 				rowsStandardizationValue.remove(0);
 			}
@@ -644,17 +644,14 @@ public class AITemplatesCreation {
 
 
 	private void log(String message) {
-        try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
-                new java.io.FileOutputStream("../logs/iaTemplates.log", true)))) {
-            pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()))
-                    + "]  " + message);
+        try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter( new java.io.FileOutputStream("../logs/iaTemplates.log", true) ))) {
+            pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())) + "]  " + message);
         } catch (java.io.IOException e) {
         }
     }
 
     private void logE(Exception ex) {
-        try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
-                new java.io.FileOutputStream("../logs/iaTemplates.log", true)))) {
+        try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter( new java.io.FileOutputStream("../logs/iaTemplates.log", true) ))) {
             ex.printStackTrace(pw);
         } catch (java.io.IOException e) {
         }

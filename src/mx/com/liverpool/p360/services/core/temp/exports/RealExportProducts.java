@@ -74,6 +74,7 @@ public class RealExportProducts {
 	private static final int port = Integer.parseInt(PropertiesManager.get("p360.contingency.dwh.port", "22"));
 	private static final String user = PropertiesManager.get("p360.contingency.dwh.user");
 	private static final java.nio.file.Path privateKeyPath = java.nio.file.Paths.get("/home/P360admin/.ssh/id_rsa");
+	private static final String PRICING_SFTP_PREFIX = "p360.contingency.pricing.sftp.";
 
 	private final java.util.Map<String, java.util.Map<String, org.json.JSONObject>> templateMetadataSet = new java.util.TreeMap<>();
 	private final java.util.Map<String, java.util.Map<String, String>> templateStructureGroupAttributeValues = new java.util.TreeMap<>();
@@ -107,10 +108,17 @@ public class RealExportProducts {
 	private boolean frozenImagesExists = true;
 	private boolean exploitLayerExists = true;
 	private boolean toDwhOnly = false;
-	private static final long MAX_BATCH_BYTES = 7L * 1024L * 1024L;
+	private static final boolean ECOMM_REQUIRED_FIELDS_VALIDATION_ENABLED =
+			Boolean.parseBoolean(PropertiesManager.get(
+					"p360.contingency.ecomm.required_fields_validation.enabled", "true"));
+	private static final long MAX_BATCH_BYTES =
+			positiveLongProperty("p360.contingency.export.max_batch_mb", 1L * 1024L) * 1024L;
+	private static final int MAX_BATCH_PRODUCT_TAGS =
+			positiveIntProperty("p360.contingency.export.max_batch_product_tags", 1000);
 	
 	private final java.util.List<String> generatedAtgFiles = new java.util.ArrayList<>();
 	private final java.util.List<String> atgBrokerResponses = new java.util.ArrayList<>();
+	private final java.util.Map<String, String> nonDeliveryReasons = new java.util.LinkedHashMap<>();
 
 	private boolean atgBrokerFailure = false;
 
@@ -413,6 +421,8 @@ public class RealExportProducts {
 	
 	public String doIt(String[] proposalIds, boolean sendIt, String baseUrl) throws ServiceUnavailableException {
 		log("Going over: " + proposalIds.length);
+		log("Batch limits: maxBytes=" + MAX_BATCH_BYTES
+				+ ", maxProductTags=" + MAX_BATCH_PRODUCT_TAGS);
 		return doIt(proposalIds, sendIt);
 	}
 
@@ -541,41 +551,26 @@ public class RealExportProducts {
 					current.currentProposalId = proposalId;
 	
 					try {
-						java.nio.file.Path p = java.nio.file.Paths
-								.get(PropertiesManager.get("p360.contingency.migration.to_skip_directory"), proposalId);
-						if (java.nio.file.Files.exists(p)) {
-							log("Skipped to be sent since this was reciently migrated --->" + proposalId + "<---");
-							System.out
-									.println("Skipped to be sent since this was reciently migrated --->" + proposalId + "<---");
-							reqPublishMessage.getJSONArray("rows")
-									.put(new org.json.JSONObject()
-											.put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1"))
-											.put("values", new org.json.JSONArray().put(
-													"Registro recién migrado, si persiste, solicitar mantenimiento manual")));
-							java.nio.file.Files.delete(p);
-							continue;
-						}
 						log("--->" + proposalId + "<---");
 						System.out.println("--->" + proposalId + "<---");
 						// talla normalizada hacia ATG debe de salir como TC-NormalizedSize
 						final String[] productsToTestWith = new String[] { proposalId };
 						org.json.JSONObject rp = getMeTheCompa(proposalId);
 						if (rp == null || !rp.getJSONObject("_data").has("_characteristicRecords")) {
+							String nonDeliveryMessage = "FAILED Ecomm el " + deliveryTimestamp()
+									+ ". No se pudo cargar la información necesaria del Product2G.";
+							recordNonDeliveryReason(reqPublishMessage, proposalId, nonDeliveryMessage);
 							System.out.println("Returning this " + proposalId + " due to lack of data.");
 							continue;
 						}
-						org.json.JSONArray characteristicArray = rp.getJSONObject("_data")
-								.getJSONArray("_characteristicRecords");
+						org.json.JSONArray characteristicArray = rp.getJSONObject("_data").getJSONArray("_characteristicRecords");
 						String sapObjectType = null;
-						if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data")
-								.getJSONArray("productExtraData").getJSONObject(0).has("sapObjectType")) {
-							sapObjectType = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0)
-									.getJSONObject("sapObjectType").getString("_code");
+						if (rp.getJSONObject("_data").has("productExtraData") && rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).has("sapObjectType")) {
+							sapObjectType = rp.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getJSONObject("sapObjectType").getString("_code");
 						} else {
 							sapObjectType = getSAPObjectType(characteristicArray);
 						}
-						java.util.Map<String, java.util.LinkedList<org.json.JSONObject>> dataMap = buildDataMap(
-								rp.getJSONObject("_data").getJSONArray("_characteristicRecords"));
+						java.util.Map<String, java.util.LinkedList<org.json.JSONObject>> dataMap = buildDataMap(rp.getJSONObject("_data").getJSONArray("_characteristicRecords"));
 						String business = null;
 						try {
 							if (rp.getJSONObject("_data").has("business")) {
@@ -602,12 +597,10 @@ public class RealExportProducts {
 										rp.getJSONObject("_data").getJSONArray("structureGroupMap")); // rp.getJSONObject("_data").getJSONArray("structureGroupMap").getJSONObject(0).getJSONObject("_qualification").getJSONObject("structureGroup").getString("_externalId").split("@")[0].replaceAll("^'|'$",
 																										// "");
 						if (template == null) {
-							reqPublishMessage
-									.getJSONArray(
-											"rows")
-									.put(new org.json.JSONObject()
-											.put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1"))
-											.put("values", new org.json.JSONArray().put("Sin plantilla")));
+							recordNonDeliveryReason(
+									reqPublishMessage,
+									proposalId,
+									"SKIPPED Ecomm el " + deliveryTimestamp() + ". Sin plantilla.");
 							log("Skipped due to Sin plantilla " + proposalId);
 							System.out.println("Skipped due to Sin plantilla " + proposalId);
 							continue;
@@ -895,10 +888,8 @@ public class RealExportProducts {
 							if (piName == null || piUrl == null) {
 								log("No tenía imágenes2: " + proposalId);
 								System.out.println("No tenía imágenes2 " + proposalId);
-								reqPublishMessage.getJSONArray("rows")
-										.put(new org.json.JSONObject()
-												.put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1"))
-												.put("values", new org.json.JSONArray().put("Sin imágenes \"congeladas\"")));
+								recordNonDeliveryReason(reqPublishMessage, proposalId,
+										"SKIPPED Ecomm el " + deliveryTimestamp() + ". Sin imágenes \"congeladas\".");
 								continue;
 							}
 						} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
@@ -1437,24 +1428,24 @@ public class RealExportProducts {
 							appendPlainElementValue(supplierIDLabel, supplierID, "SupplierID", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
 						}
 		
-						if (!behvo) {
-							String elese = "SBB".equals(business) ? itemGroupS4H : itemGroup;
-							String dictionary = !"SBB".equals(business)
-									? "GpoArtVsEnvase"
-									: "GpoArtVsEnvase_S4H";
-							log("Querying dictionary: " + dictionary);
-							String laetiqueta = queryDictionary(elese, dictionary);
-							if (laetiqueta != null && !laetiqueta.isBlank()) {
-								String elcode = dastub.getLookupValueCodeByName(
-										"SAP_BEHVOLOV", 10, laetiqueta, true);
-								if (elcode != null && !elcode.isBlank()) {
-									appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO",
-											attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-									behvo = true;
-								}
-							}
-						}
-											appendPlainElementValue(itemGroup != null && !"".equals(itemGroup) ? itemGroupLabel : itemGroupS4HLabel,
+//						if (!behvo) {
+//							String elese = "SBB".equals(business) ? itemGroupS4H : itemGroup;
+//							String dictionary = !"SBB".equals(business)
+//									? "GpoArtVsEnvase"
+//									: "GpoArtVsEnvase_S4H";
+//							log("Querying dictionary: " + dictionary);
+//							String laetiqueta = queryDictionary(elese, dictionary);
+//							if (laetiqueta != null && !laetiqueta.isBlank()) {
+//								String elcode = dastub.getLookupValueCodeByName(
+//										"SAP_BEHVOLOV", 10, laetiqueta, true);
+//								if (elcode != null && !elcode.isBlank()) {
+//									appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO",
+//											attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+//									behvo = true;
+//								}
+//							}
+//						}
+						appendPlainElementValue(itemGroup != null && !"".equals(itemGroup) ? itemGroupLabel : itemGroupS4HLabel,
 								itemGroup != null && !"".equals(itemGroup) ? itemGroup : itemGroupS4H, "ItemGroup2",
 								attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
 						appendPlainElementValue(!"SBB".equals(business) ? itemGroupLabel : itemGroupS4HLabel,
@@ -1487,13 +1478,8 @@ public class RealExportProducts {
 								} else {
 									log("Sin product neim, no será posible publicar.");
 									System.out.println("Sin product neim, no será posible publicar.");
-									reqPublishMessage
-											.getJSONArray("rows").put(
-													new org.json.JSONObject()
-															.put("object",
-																	new org.json.JSONObject().put("id",
-																			"'" + proposalId + "'@1"))
-															.put("values", new org.json.JSONArray().put("Sin ProductName")));
+									recordNonDeliveryReason(reqPublishMessage, proposalId,
+											"SKIPPED Ecomm el " + deliveryTimestamp() + ". Sin ProductName.");
 									continue;
 								}
 							}
@@ -1556,7 +1542,7 @@ public class RealExportProducts {
 						}
 		
 						if ("SalesItem".equals(productType) && tamanoUnico != null && !"".equals(tamanoUnico)) {
-							talla(clothingSize == null ? sizeVaD : clothingSize, tamanoUnico, business, itemGroup, template, direccion, brandCode, attributeValues, attributes,
+							talla(clothingSize == null ? sizeVaD : clothingSize, tamanoUnico, business, itemGroup == null || "".equals(itemGroup) ? itemGroupS4H : itemGroup , template, direccion, brandCode, attributeValues, attributes,
 									doc, propiedadesCaracteristicas, atgGroups);
 							appendPlainElementValue(tamanoUnico, null, "TamanoUnico", attributeValues, attributes, doc,
 									propiedadesCaracteristicas, atgGroups);
@@ -1574,6 +1560,8 @@ public class RealExportProducts {
 							java.util.LinkedList<java.util.LinkedList<String[]>> lasilustraciones = new java.util.LinkedList<>();
 							boolean theFirstTime = true;
 							org.json.JSONObject characteristicObject = null;
+							piName = null;
+							piUrl = null;
 							for (int a = 0; a < upperRows.length(); a++) {
 								tallaNormalizada = null;
 								tamanoUnico = null;
@@ -1812,8 +1800,7 @@ public class RealExportProducts {
 										keyValueSKU.setTextContent(sku0);
 										subProduct.appendChild(keyValueSKU);
 										artToSKU.put(firstVariant, sku0);
-										appendPlainElementValue(sku0, null, "SKU", subAttributeValues, attributes, doc,
-												propiedadesCaracteristicas, atgGroups);
+										appendPlainElementValue(sku0, null, "SKU", subAttributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
 									}
 									System.out.println("VS 2 " + sku0 + " VS 2 " + sku);
 									if (ean0 == null || "".equals(ean0)) {
@@ -1834,19 +1821,17 @@ public class RealExportProducts {
 									if (!procede) {
 										procede = resp.has("procedeNoProcede") && resp.getBoolean("procedeNoProcede");
 									}
+									if(procede && (piName == null || "".equals(piUrl)) ) {
+										procede = false;
+										log("Por no tener imágenes.");
+									}
 									log("El procede: " + procede);
 									if (!procede) {
 										continue;
 									}
 									if (!misaidis.contains("ProductName") && "".equals(name.getTextContent())) {
-										reqPublishMessage
-												.getJSONArray("rows").put(
-														new org.json.JSONObject()
-																.put("object",
-																		new org.json.JSONObject().put("id",
-																				"'" + proposalId + "'@1"))
-																.put("values",
-																		new org.json.JSONArray().put("Sin ProductName")));
+										recordNonDeliveryReason(reqPublishMessage, proposalId,
+												"SKIPPED Ecomm el " + deliveryTimestamp() + ". Sin ProductName.");
 										System.out.println("Sin product name (" + proposalId + ")");
 										continue;
 									}
@@ -1907,13 +1892,8 @@ public class RealExportProducts {
 											} else {
 												log("Sin product neim, no será posible publicar.");
 												System.out.println("Sin product neim, no será posible publicar.");
-												reqPublishMessage.getJSONArray("rows")
-														.put(new org.json.JSONObject()
-																.put("object",
-																		new org.json.JSONObject().put("id",
-																				"'" + proposalId + "'@1"))
-																.put("values",
-																		new org.json.JSONArray().put("Sin ProductName")));
+												recordNonDeliveryReason(reqPublishMessage, proposalId,
+														"SKIPPED Ecomm el " + deliveryTimestamp() + ". Sin ProductName.");
 												continue;
 											}
 										}
@@ -1930,8 +1910,8 @@ public class RealExportProducts {
 									}
 									if (tamanoUnico != null && !"".equals(tamanoUnico)) {
 										appendPlainElementValue(tamanoUnico, null, "TamanoUnico", subAttributeValues,
-												attributes, doc, propiedadesCaracteristicas, atgGroups);
-										talla(clothingSize == null ? sizeVaD : clothingSize, tamanoUnico, business, itemGroup, template, direccion, brandCode,
+												attributes, doc, propiedadesCaracteristicas, atgGroups); System.out.println("Aplicando LATALLA...");
+										talla(clothingSize == null ? sizeVaD : clothingSize, tamanoUnico, business, itemGroup == null || "".equals(itemGroup) ? itemGroupS4H : itemGroup, template, direccion, brandCode,
 												subAttributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
 									}
 									if (tallaNormalizada != null && !"".equals(tallaNormalizada)) {
@@ -2173,33 +2153,55 @@ public class RealExportProducts {
 							}
 		
 						}
-						if (rw.getXmm().listImmediateChildElements(product).get("Product") != null
-								|| ("SalesItem".equals(productType) && procede)) {
+						boolean eligibleForPayload =
+								rw.getXmm().listImmediateChildElements(product).get("Product") != null
+								|| ("SalesItem".equals(productType) && procede);
+
+						if (eligibleForPayload && ECOMM_REQUIRED_FIELDS_VALIDATION_ENABLED) {
+							java.util.List<String> payloadProblems = validateEcommRequiredFields(product, business);
+							if (!payloadProblems.isEmpty()) {
+								eligibleForPayload = false;
+								String nonDeliveryMessage = "SKIPPED Ecomm el " + deliveryTimestamp()
+										+ ". Payload incompleto. Campos requeridos faltantes: "
+										+ String.join("; ", payloadProblems) + ".";
+								recordNonDeliveryReason(reqPublishMessage, proposalId, nonDeliveryMessage);
+								log("Not added (" + proposalId + ") - payload validation: " + payloadProblems);
+							}
+						}
+
+						if (eligibleForPayload) {
 							products.appendChild(product);
 							System.out.println("Added. (" + proposalId + ")");
 							log("Added. (" + proposalId + ")");
-						} else {
+						} else if (!nonDeliveryReasons.containsKey(proposalId)) {
+							String nonDeliveryMessage = "SKIPPED Ecomm el " + deliveryTimestamp()
+									+ ". Producto no elegible para payload (procede=" + procede + ").";
+							recordNonDeliveryReason(reqPublishMessage, proposalId, nonDeliveryMessage);
 							log("Not added (" + proposalId + ") - procede: " + procede);
 							System.out.println("Not added (" + proposalId + ") - procede: " + procede);
 						}
 					} finally {
 						if (hasProducts(current)) {
-							long candidateBytes = measureMergedSize(batch, current);
-							if (hasProducts(batch) && candidateBytes > MAX_BATCH_BYTES) {
+							BatchMeasure candidate = measureMergedBatch(batch, current);
+							if (hasProducts(batch) && exceedsBatchLimit(candidate)) {
 								appendBatchResult(aggregatedMessage,
 										finishBatch(batch, sendIt, execId, envioAtgExecId, jdbcConfig, batchNumber));
 								batchNumber++;
 								batch = createExportContext();
 							}
-	
+
 							mergeContext(batch, current, true);
-							long batchBytes = serializedAtgSize(batch.doc);
+							BatchMeasure batchMeasure = measureBatch(batch.doc);
 							log("Batch " + batchNumber + ": " + batch.proposalIds.size() + " propuestas, "
-									+ batchBytes + " bytes");
-	
-							if (batchBytes > MAX_BATCH_BYTES && batch.proposalIds.size() == 1) {
+									+ batchMeasure.productTags + " etiquetas Product, "
+									+ batchMeasure.bytes + " bytes");
+
+							if (exceedsBatchLimit(batchMeasure) && batch.proposalIds.size() == 1) {
 								log("WARNING: La propuesta " + current.currentProposalId
-										+ " supera por sí sola el límite de " + MAX_BATCH_BYTES + " bytes.");
+										+ " supera por sí sola algún límite del batch: bytes="
+										+ batchMeasure.bytes + "/" + MAX_BATCH_BYTES
+										+ ", ProductTags=" + batchMeasure.productTags + "/" + MAX_BATCH_PRODUCT_TAGS
+										+ ". Se conserva íntegra.");
 								appendBatchResult(aggregatedMessage,
 										finishBatch(batch, sendIt, execId, envioAtgExecId, jdbcConfig, batchNumber));
 								batchNumber++;
@@ -2346,11 +2348,50 @@ public class RealExportProducts {
 		return false;
 	}
 
-	private long measureMergedSize(ExportContext batch, ExportContext current)
+	private BatchMeasure measureMergedBatch(ExportContext batch, ExportContext current)
 			throws ParserConfigurationException, TransformerException {
 		Document candidate = cloneDocument(batch.doc);
 		mergeXml(candidate, current);
-		return serializedAtgSize(candidate);
+		return measureBatch(candidate);
+	}
+
+	private BatchMeasure measureBatch(Document document) throws TransformerException {
+		return new BatchMeasure(serializedAtgSize(document), countProductTags(document));
+	}
+
+	private static boolean exceedsBatchLimit(BatchMeasure measure) {
+		return measure.bytes > MAX_BATCH_BYTES
+				|| measure.productTags > MAX_BATCH_PRODUCT_TAGS;
+	}
+
+	private static int countProductTags(Document document) {
+		return document == null ? 0 : document.getElementsByTagName("Product").getLength();
+	}
+
+	private static long positiveLongProperty(String key, long defaultValue) {
+		try {
+			return Math.max(1L, Long.parseLong(PropertiesManager.get(key, String.valueOf(defaultValue)).trim()));
+		} catch (Exception e) {
+			return Math.max(1L, defaultValue);
+		}
+	}
+
+	private static int positiveIntProperty(String key, int defaultValue) {
+		try {
+			return Math.max(1, Integer.parseInt(PropertiesManager.get(key, String.valueOf(defaultValue)).trim()));
+		} catch (Exception e) {
+			return Math.max(1, defaultValue);
+		}
+	}
+
+	private static final class BatchMeasure {
+		private final long bytes;
+		private final int productTags;
+
+		private BatchMeasure(long bytes, int productTags) {
+			this.bytes = bytes;
+			this.productTags = productTags;
+		}
 	}
 
 	private void mergeContext(ExportContext destination, ExportContext source, boolean includeXmlAndProductData) {
@@ -2496,22 +2537,32 @@ public class RealExportProducts {
 	private String finishBatch(ExportContext batch, boolean sendIt, String execId, long envioAtgExecId,
 			JdbcConfig jdbcConfig, int batchNumber)
 			throws TransformerException, ParserConfigurationException, IOException {
-		sendRequestRows("Product2G", batch.reqPublishMessage, System.out::println);
-		sendRequestRows("Article", batch.reqAPublishMessage, this::log);
+		/*
+		 * send=false se usa desde los diálogos únicamente para generar payload.
+		 * No debe modificar PublishMessage/fechas ni simular una publicación.
+		 */
+		if (sendIt) {
+			stampDeliveryMessageRows(batch.reqPublishMessage);
+			sendRequestRows("Product2G", batch.reqPublishMessage, System.out::println);
+			sendRequestRows("Article", batch.reqAPublishMessage, this::log);
+		}
 
 		if (!hasProducts(batch)) {
 			return "";
 		}
 
+		long batchStartedNanos = System.nanoTime();
 		String xmlOutput = serializeAtgXml(batch.doc, false);
 		String xmlOutputIndented = serializeAtgXml(batch.doc, true);
 		long xmlBytes = xmlOutput.getBytes(StandardCharsets.UTF_8).length;
+		int xmlProductTags = countProductTags(batch.doc);
 		long ctm = System.currentTimeMillis();
 		String suffix = String.format("%03d", batchNumber) + "_" + ctm + ".xml";
 		String fn = java.nio.file.Paths.get(fileSystemPrefix.toString(), "pepele" + suffix).toString();
 		String fnBad = java.nio.file.Paths.get(fileSystemPrefix.toString(), "badgg" + suffix).toString();
 		writeUtf8File(fn, xmlOutputIndented);
 		generatedAtgFiles.add(fn);
+		sendFileToPricingSftp(java.nio.file.Paths.get(fn), ctm);
 
 		Document omsDocument = cloneDocument(batch.doc);
 		Element omsRoot = omsDocument.getDocumentElement();
@@ -2525,33 +2576,44 @@ public class RealExportProducts {
 		removeDirectChildIfPresent(omsRoot, "Classifications");
 		removeDirectChildIfPresent(omsRoot, "AttributeList");
 		String xmlOutputOms = new String(serializeXml(omsDocument, false), StandardCharsets.UTF_8);
+		long omsBytes = xmlOutputOms.getBytes(StandardCharsets.UTF_8).length;
 		String fnOms = java.nio.file.Paths.get(fileSystemPrefixOMS.toString(), "pepele" + suffix).toString();
 		String fnOmsBad = java.nio.file.Paths.get(fileSystemPrefixOMS.toString(), "bad" + suffix).toString();
 		writeUtf8File(fnOms, xmlOutputOms);
 
 		java.util.List<Element> productElements = directElementChildren(batch.products, "Product");
-		log("Batch " + batchNumber + " terminado: " + productElements.size() + " propuestas, " + xmlBytes + " bytes, archivo " + fn);
+		log("Batch " + batchNumber + " terminado: " + productElements.size() + " propuestas, "
+				+ xmlProductTags + " etiquetas Product, " + xmlBytes + " bytes, archivo " + fn);
 
 		if (toDwhOnly && !sendIt && Boolean.parseBoolean(PropertiesManager.get("p360.contingency.dwh.enabled", "true"))) {
 			sendBatchToDwh(xmlOutputIndented, batchNumber);
 		}
 		if (!sendIt) {
+			logBatchMetric(batchNumber, batch.proposalIds.size(), xmlProductTags, xmlBytes, omsBytes, false, batchStartedNanos);
 			return xmlOutputIndented;
 		}
 
 		StringBuilder result = new StringBuilder();
 		RestClient batchClient = new RestClient("Content-Type: application/xml", "Accept: application/xml");
 		String atgResponse = null;
+		long atgStartedNanos = System.nanoTime();
 		try {
 			atgResponse = batchClient.getRequest("POST", urlDeATG, xmlOutput);
+			boolean atgSuccessful = atgResponse != null && atgResponse.contains("Se proceso correctamente");
+			logEndpointMetric(batchNumber, "ECOMM", urlDeATG, batch.proposalIds.size(),
+					xmlBytes, atgStartedNanos, atgSuccessful);
 			log("[" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()) + "] (ATG) Batch " + batchNumber + " request sent for " + batch.proposalIds + ": " + atgResponse);
 			result.append(fn).append("<::>").append(atgResponse);
 
-			if (atgResponse != null && atgResponse.contains("Se proceso correctamente")) {
+			if (atgSuccessful) {
 				handleSuccessfulAtgBatch(batch, xmlOutput, fn, execId, envioAtgExecId, jdbcConfig, ctm);
 			} else {
 				writeBadUtf8File(fnBad, xmlOutputIndented);
 				atgBrokerFailure = true;
+				appendAtgBrokerDeliveryMessage(
+						batch,
+						"BROKER FAILED Ecomm el " + deliveryTimestamp()
+						+ ". Respuesta: " + compactDeliveryMessage(atgResponse));
 				markExecutionFailed(jdbcConfig, envioAtgExecId,
 						new IllegalStateException(String.valueOf(atgResponse)));
 			}
@@ -2561,27 +2623,76 @@ public class RealExportProducts {
 			sendRequestRows("Product2G", batch.req2, this::log);
 			sendRequestRows("Article", batch.reqAPublishMessage, this::log);
 		} catch (IOException e) {
+			logEndpointMetric(batchNumber, "ECOMM", urlDeATG, batch.proposalIds.size(),
+					xmlBytes, atgStartedNanos, false);
 			writeBadUtf8File(fnBad, xmlOutputIndented);
 			atgBrokerFailure = true;
-			atgBrokerResponses.add("IOException: " + e.getMessage());
+			boolean networkTimeout = isNetworkTimeout(e);
+			atgBrokerResponses.add((networkTimeout ? "Timeout: " : "IOException: ") + e.getMessage());
 			logE(e);
+			appendAtgBrokerDeliveryMessage(
+					batch,
+					(networkTimeout ? "BROKER TIMEOUT Ecomm el " : "BROKER FAILED Ecomm el ")
+					+ deliveryTimestamp()
+					+ ". " + (networkTimeout ? "Timeout: " : "IOException: ")
+					+ compactDeliveryMessage(e.getMessage()));
+			try {
+				sendRequestRows("Product2G", batch.reqPublishMessage, this::log);
+			} catch (RuntimeException writeError) {
+				logE(writeError);
+			}
 			markExecutionFailed(jdbcConfig, envioAtgExecId, e);
 		}
 
+		long omsStartedNanos = System.nanoTime();
 		try {
 			String omsResponse = batchClient.getRequest("POST", urlDeOMS, xmlOutputOms);
+			boolean omsSuccessful = omsResponse != null && !omsResponse.isEmpty();
+			logEndpointMetric(batchNumber, "OMS", urlDeOMS, batch.proposalIds.size(),
+					omsBytes, omsStartedNanos, omsSuccessful);
 			log("[" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()) + "] (OMS) Batch " + batchNumber + " request sent for " + batch.proposalIds + ": " + omsResponse);
 			result.append("<;;>").append(fnOms).append("<::>").append(omsResponse);
-			if(omsResponse == null || "".equals(omsResponse)) {
+			if(!omsSuccessful) {
 				writeBadUtf8File(fnOmsBad, xmlOutputOms);
 			}
 		} catch (IOException e) {
+			logEndpointMetric(batchNumber, "OMS", urlDeOMS, batch.proposalIds.size(),
+					omsBytes, omsStartedNanos, false);
 			writeBadUtf8File(fnOmsBad, xmlOutputOms);
 			logE(e);
 		}
+		logBatchMetric(batchNumber, batch.proposalIds.size(), xmlProductTags, xmlBytes, omsBytes, true, batchStartedNanos);
 		return result.toString();
 	}
 	
+	private void logBatchMetric(int batchNumber, int productCount, int productTags,
+			long ecommBytes, long omsBytes, boolean send, long startedNanos) {
+		long elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+				System.nanoTime() - startedNanos);
+		log("[BATCH_METRIC] exporter=RealExportProducts"
+				+ " batch=" + batchNumber
+				+ " products=" + productCount
+				+ " product_tags=" + productTags
+				+ " ecomm_bytes=" + ecommBytes
+				+ " oms_bytes=" + omsBytes
+				+ " total_ms=" + elapsedMs
+				+ " send=" + send);
+	}
+
+	private void logEndpointMetric(int batchNumber, String endpointName, String endpointUrl,
+			int productCount, long bytes, long startedNanos, boolean success) {
+		long elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+				System.nanoTime() - startedNanos);
+		log("[ENDPOINT_METRIC] exporter=RealExportProducts"
+				+ " batch=" + batchNumber
+				+ " endpoint=" + endpointName
+				+ " url=" + endpointUrl
+				+ " products=" + productCount
+				+ " bytes=" + bytes
+				+ " elapsed_ms=" + elapsedMs
+				+ " success=" + success);
+	}
+
 	public static ExportRunResult runForProductIdsWithResult(
 			String[] proposalIds,
 			boolean send)
@@ -2608,6 +2719,7 @@ public class RealExportProducts {
 				rawResult,
 				o.generatedAtgFiles,
 				o.atgBrokerResponses,
+				o.nonDeliveryReasons,
 				send
 					&& !o.generatedAtgFiles.isEmpty()
 					&& !o.atgBrokerFailure);
@@ -2617,18 +2729,22 @@ public class RealExportProducts {
 		private final String rawResult;
 		private final java.util.List<String> payloadFiles;
 		private final java.util.List<String> brokerResponses;
+		private final java.util.Map<String, String> nonDeliveryReasons;
 		private final boolean successful;
 
 		private ExportRunResult(
 				String rawResult,
 				java.util.List<String> payloadFiles,
 				java.util.List<String> brokerResponses,
+				java.util.Map<String, String> nonDeliveryReasons,
 				boolean successful) {
 			this.rawResult = rawResult;
 			this.payloadFiles = java.util.Collections.unmodifiableList(
 					new java.util.ArrayList<>(payloadFiles));
 			this.brokerResponses = java.util.Collections.unmodifiableList(
 					new java.util.ArrayList<>(brokerResponses));
+			this.nonDeliveryReasons = java.util.Collections.unmodifiableMap(
+					new java.util.LinkedHashMap<>(nonDeliveryReasons));
 			this.successful = successful;
 		}
 
@@ -2644,11 +2760,127 @@ public class RealExportProducts {
 			return brokerResponses;
 		}
 
+		public java.util.Map<String, String> getNonDeliveryReasons() {
+			return nonDeliveryReasons;
+		}
+
 		public boolean isSuccessful() {
 			return successful;
 		}
 	}
 	
+	private void recordNonDeliveryReason(org.json.JSONObject request, String productId, String message) {
+		if (productId == null || productId.trim().isEmpty()) {
+			return;
+		}
+		nonDeliveryReasons.put(productId, message);
+		if (request != null && request.has("rows")) {
+			request.getJSONArray("rows").put(new org.json.JSONObject()
+					.put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1"))
+					.put("values", new org.json.JSONArray().put(message)));
+		}
+	}
+
+	private static boolean isNetworkTimeout(Throwable error) {
+		for (Throwable current = error; current != null; current = current.getCause()) {
+			if (current instanceof java.net.SocketTimeoutException) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static void stampDeliveryMessageRows(org.json.JSONObject request) {
+		if (request == null || !request.has("rows")) {
+			return;
+		}
+		org.json.JSONArray rows = request.getJSONArray("rows");
+		String stamp = " [" + deliveryTimestamp() + "]";
+		for (int i = 0; i < rows.length(); i++) {
+			org.json.JSONArray values = rows.optJSONObject(i) == null
+					? null : rows.optJSONObject(i).optJSONArray("values");
+			if (values == null || values.length() == 0 || values.isNull(0)) {
+				continue;
+			}
+			String value = String.valueOf(values.opt(0));
+			if (!value.matches(".*\\d{2}/\\d{2}/\\d{4} \\d{2}:\\d{2}:\\d{2}\\.\\d{3}.*")) {
+				values.put(0, value + stamp);
+			}
+		}
+	}
+
+	private void appendAtgBrokerDeliveryMessage(ExportContext batch, String message) {
+		if (batch == null || batch.products == null) {
+			return;
+		}
+		for (Element product : directElementChildren(batch.products, "Product")) {
+			String productId = product.getAttribute("ID");
+			if (productId == null || productId.trim().isEmpty()) {
+				continue;
+			}
+			batch.reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject()
+					.put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1"))
+					.put("values", new org.json.JSONArray().put(message)));
+		}
+	}
+	
+
+	private void sendFileToPricingSftp(Path localFile, long timestamp) {
+		SshClient client = null;
+		try {
+			String pricingHost = requirePricingSftpProperty("host");
+			int pricingPort = Integer.parseInt(PropertiesManager.get(PRICING_SFTP_PREFIX + "port", "22"));
+			String pricingUsername = requirePricingSftpProperty("username");
+			String pricingPassword = requirePricingSftpProperty("password");
+			long connectTimeoutSeconds = Long.parseLong(
+					PropertiesManager.get(PRICING_SFTP_PREFIX + "connect_timeout_seconds", "10"));
+			long authTimeoutSeconds = Long.parseLong(
+					PropertiesManager.get(PRICING_SFTP_PREFIX + "auth_timeout_seconds", "10"));
+			String remoteFileName = "output-" + timestamp + ".xml";
+
+			client = SshClient.setUpDefaultClient();
+			client.start();
+			try (ClientSession session = client.connect(pricingUsername, pricingHost, pricingPort)
+					.verify(connectTimeoutSeconds, TimeUnit.SECONDS).getSession()) {
+				session.addPasswordIdentity(pricingPassword);
+				session.auth().verify(authTimeoutSeconds, TimeUnit.SECONDS);
+				try (SftpClient sftp = SftpClientFactory.instance().createSftpClient(session);
+						OutputStream remoteFile = sftp.write(remoteFileName)) {
+					Files.copy(localFile, remoteFile);
+				}
+			}
+			log("Pricing SFTP sent: " + localFile + " as " + remoteFileName);
+		} catch (Exception e) {
+			log("Could not send file to Pricing SFTP: " + localFile + ". " + e.getMessage());
+			logE(e);
+		} finally {
+			if (client != null) {
+				client.stop();
+			}
+		}
+	}
+
+	private String requirePricingSftpProperty(String name) {
+		String key = PRICING_SFTP_PREFIX + name;
+		String value = PropertiesManager.get(key);
+		if (value == null || value.trim().isEmpty()) {
+			throw new IllegalStateException("Missing required property: " + key);
+		}
+		return value;
+	}
+
+	private static String deliveryTimestamp() {
+		return new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss.SSS").format(new java.util.Date());
+	}
+
+	private static String compactDeliveryMessage(String value) {
+		if (value == null) {
+			return "<null>";
+		}
+		String compact = value.replace('\r', ' ').replace('\n', ' ').trim();
+		return compact.length() <= 1000 ? compact : compact.substring(0, 1000);
+	}
+
 	private void handleSuccessfulAtgBatch(ExportContext batch, String xmlOutput, String fn, String execId,
 			long envioAtgExecId, JdbcConfig jdbcConfig, long ctm) {
 		java.time.format.DateTimeFormatter fm = java.time.format.DateTimeFormatter
@@ -3067,6 +3299,11 @@ public class RealExportProducts {
 		elcampoLatalla = getAtributoSapLatalla(itemGroup, business);
 		if (elcampoLatalla == null) {
 			log("Bad combination to determine laTalla, itemGroup: " + itemGroup + ", business: " + business);
+			appendPlainElementValue(latalla, null, "clothingSize", attributeValues, attributes, doc,
+					propiedadesCaracteristicas, atgGroups);
+			appendPlainElementValue(latalla, null, "SizeVaD", attributeValues, attributes, doc,
+					propiedadesCaracteristicas, atgGroups);
+			System.out.println("Bad combination to determine laTalla, itemGroup: " + itemGroup + ", business: " + business);
 			return;
 		}
 		log("Looking for: " + itemGroup + " and " + business + " in laTalla, got: " + elcampoLatalla
@@ -3093,6 +3330,12 @@ public class RealExportProducts {
 		if (tallaWeb != null && (latallaFromCharacteristic == null || "".equals(latallaFromCharacteristic))) {
 			System.out.println("STAR***** came here " + tallaWeb + ", " + latallaFromCharacteristic + " || " + lanuevatalla);
 			appendPlainElementValue(lanuevatalla, null, tallaWeb, attributeValues, attributes, doc,
+					propiedadesCaracteristicas, atgGroups);
+		}
+		if(tallaWeb == null || "".equals(tallaWeb) ) {
+			appendPlainElementValue(latallaFromCharacteristic, null, "clothingSize", attributeValues, attributes, doc,
+					propiedadesCaracteristicas, atgGroups);
+			appendPlainElementValue(latallaFromCharacteristic, null, "SizeVaD", attributeValues, attributes, doc,
 					propiedadesCaracteristicas, atgGroups);
 		}
 		String sequence = getTheVariantSequence(latalla, template);
@@ -3278,6 +3521,206 @@ public class RealExportProducts {
 
 	private java.util.Map<String, String> loadLookupGroups() {
 		return dastub.getLookupValueCodeNameMap("ATGAttributeGroups", 10, true);
+	}
+
+	/**
+	 * Validación final del payload ECOMM. Se ejecuta sobre el DOM ya transformado,
+	 * justo antes de anexar el Product al XML de salida. Así se validan los valores
+	 * que realmente viajarían al Broker, incluyendo fallbacks, herencias y reglas
+	 * específicas por negocio.
+	 *
+	 * Esta validación NO reemplaza las validaciones de flujo (plantilla, CatID,
+	 * artículos, imagen congelada, SKU de workflow). Es únicamente la barrera final
+	 * de completitud del payload ECOMM.
+	 */
+	private java.util.List<String> validateEcommRequiredFields(Element rootProduct, String business) {
+		java.util.List<String> problems = new java.util.ArrayList<>();
+		if (rootProduct == null) {
+			problems.add("ROOT:Product");
+			return problems;
+		}
+
+		java.util.List<String> rootMissing = new java.util.ArrayList<>();
+
+		// Campos comunes del Product raíz.
+		requirePayloadValue(rootProduct, rootMissing, "SKU");
+		requirePayloadValue(rootProduct, rootMissing, "SAPObjectType");
+		requirePayloadValue(rootProduct, rootMissing, "Status");
+		requirePayloadValue(rootProduct, rootMissing, "ProductName");
+		requirePayloadValue(rootProduct, rootMissing, "ProductType");
+		requirePayloadValue(rootProduct, rootMissing, "ItemGroup2");
+		requirePayloadValue(rootProduct, rootMissing, "Section");
+		requirePayloadValue(rootProduct, rootMissing, "BrandNameATG");
+		requirePayloadValue(rootProduct, rootMissing, "BrandIDATG");
+		requirePayloadValue(rootProduct, rootMissing, "BaseUnitOfMeasure");
+		requirePayloadValue(rootProduct, rootMissing, "TypeMainBarCode");
+		requirePayloadValue(rootProduct, rootMissing, "SupplierID");
+		requirePayloadValue(rootProduct, rootMissing, "ParentSKU");
+		requirePayloadValue(rootProduct, rootMissing, "SupplierPartNumber");
+
+		// Negocio: Suburbia usa el grupo externo S4H; el resto conserva Negocio.
+		if ("SBB".equals(business)) {
+			requirePayloadValue(rootProduct, rootMissing, "EXTWG_S4H");
+			requirePayloadValue(rootProduct, rootMissing, "MainBarCodeS4H");
+			requirePayloadKey(rootProduct, rootMissing, "EANS4HKey");
+		} else {
+			requirePayloadValue(rootProduct, rootMissing, "Negocio");
+			requirePayloadValue(rootProduct, rootMissing, "MainBarCode");
+			requirePayloadKey(rootProduct, rootMissing, "EANKey");
+		}
+
+		// Estos dos atributos son propios del flujo Marketplace.
+		if ("MKP".equals(business)) {
+			requirePayloadValue(rootProduct, rootMissing, "isMarketPlace");
+			requirePayloadValue(rootProduct, rootMissing, "supplierShopId");
+		}
+
+		requirePayloadClassification(rootProduct, rootMissing, "WebsiteLink", "ReferenciaCategoria");
+		requirePayloadAssetReference(rootProduct, rootMissing, "PrimaryProductImage", "ReferenciaImagen");
+
+		java.util.List<Element> children = directElementChildren(rootProduct, "Product");
+		if (children.isEmpty()) {
+			// SalesItem sin variantes: color/talla/imagen viven en el propio root.
+			requirePayloadValue(rootProduct, rootMissing, "ColoursLiverpoolAtt");
+			requireAnyPayloadValue(rootProduct, rootMissing,
+					"SizeVaD|clothingSize", "SizeVaD", "clothingSize", "TamanoUnico");
+		}
+
+		if (!rootMissing.isEmpty()) {
+			problems.add("ROOT[" + String.join(",", rootMissing) + "]");
+		}
+
+		for (Element child : children) {
+			java.util.List<String> childMissing = new java.util.ArrayList<>();
+			requirePayloadValue(child, childMissing, "SKU");
+			requirePayloadValue(child, childMissing, "SAPObjectType");
+			requirePayloadValue(child, childMissing, "Status");
+			requirePayloadValue(child, childMissing, "ProductName");
+			requirePayloadValue(child, childMissing, "ItemGroup2");
+			requirePayloadValue(child, childMissing, "ColoursLiverpoolAtt");
+			requireAnyPayloadValue(child, childMissing,
+					"SizeVaD|clothingSize", "SizeVaD", "clothingSize", "TamanoUnico");
+			requirePayloadValue(child, childMissing, "ParentSKU");
+			requirePayloadValue(child, childMissing, "SupplierPartNumber");
+			requireAnyPayloadValue(child, childMissing,
+					"variantSequence|variantOrder", "variantSequence", "variantOrder");
+
+			if ("SBB".equals(business)) {
+				requirePayloadValue(child, childMissing, "MainBarCodeS4H");
+				requirePayloadKey(child, childMissing, "EANS4HKey");
+			} else {
+				requirePayloadValue(child, childMissing, "MainBarCode");
+				requirePayloadKey(child, childMissing, "EANKey");
+			}
+
+			requirePayloadAssetReference(child, childMissing,
+					"PrimaryProductImage", "ReferenciaImagen");
+
+			if (!childMissing.isEmpty()) {
+				String childId = child.getAttribute("ID");
+				problems.add("CHILD " + (childId == null ? "" : childId)
+						+ "[" + String.join(",", childMissing) + "]");
+			}
+		}
+
+		return problems;
+	}
+
+	private static void requirePayloadValue(Element product, java.util.List<String> missing, String attributeId) {
+		if (!hasPayloadValue(product, attributeId)) {
+			missing.add(attributeId);
+		}
+	}
+
+	private static void requireAnyPayloadValue(Element product, java.util.List<String> missing,
+			String label, String... attributeIds) {
+		for (String attributeId : attributeIds) {
+			if (hasPayloadValue(product, attributeId)) {
+				return;
+			}
+		}
+		missing.add(label);
+	}
+
+	private static boolean hasPayloadValue(Element product, String attributeId) {
+		Element values = directChild(product, "Values");
+		if (values == null) {
+			return false;
+		}
+		for (Node node = values.getFirstChild(); node != null; node = node.getNextSibling()) {
+			if (!(node instanceof Element)) {
+				continue;
+			}
+			Element element = (Element) node;
+			if ("Value".equals(element.getTagName())
+					&& attributeId.equals(element.getAttribute("AttributeID"))) {
+				return hasTextOrId(element);
+			}
+			if ("MultiValue".equals(element.getTagName())
+					&& attributeId.equals(element.getAttribute("AttributeID"))) {
+				for (Node child = element.getFirstChild(); child != null; child = child.getNextSibling()) {
+					if (child instanceof Element && "Value".equals(((Element) child).getTagName())
+							&& hasTextOrId((Element) child)) {
+						return true;
+					}
+				}
+			}
+		}
+		return false;
+	}
+
+	private static boolean hasTextOrId(Element value) {
+		String id = value.getAttribute("ID");
+		String text = value.getTextContent();
+		return (id != null && !id.trim().isEmpty())
+				|| (text != null && !text.trim().isEmpty());
+	}
+
+	private static void requirePayloadKey(Element product, java.util.List<String> missing, String keyId) {
+		for (Node node = product.getFirstChild(); node != null; node = node.getNextSibling()) {
+			if (node instanceof Element) {
+				Element element = (Element) node;
+				if ("KeyValue".equals(element.getTagName())
+						&& keyId.equals(element.getAttribute("KeyID"))
+						&& element.getTextContent() != null
+						&& !element.getTextContent().trim().isEmpty()) {
+					return;
+				}
+			}
+		}
+		missing.add(keyId);
+	}
+
+	private static void requirePayloadClassification(Element product, java.util.List<String> missing,
+			String type, String label) {
+		for (Node node = product.getFirstChild(); node != null; node = node.getNextSibling()) {
+			if (node instanceof Element) {
+				Element element = (Element) node;
+				if ("ClassificationReference".equals(element.getTagName())
+						&& type.equals(element.getAttribute("Type"))
+						&& element.getAttribute("ClassificationID") != null
+						&& !element.getAttribute("ClassificationID").trim().isEmpty()) {
+					return;
+				}
+			}
+		}
+		missing.add(label);
+	}
+
+	private static void requirePayloadAssetReference(Element product, java.util.List<String> missing,
+			String type, String label) {
+		for (Node node = product.getFirstChild(); node != null; node = node.getNextSibling()) {
+			if (node instanceof Element) {
+				Element element = (Element) node;
+				if ("AssetCrossReference".equals(element.getTagName())
+						&& type.equals(element.getAttribute("Type"))
+						&& element.getAttribute("AssetID") != null
+						&& !element.getAttribute("AssetID").trim().isEmpty()) {
+					return;
+				}
+			}
+		}
+		missing.add(label);
 	}
 
 	private void appendPlainElementValue(String textValue, String code, String attributeId, Element attributeValues,

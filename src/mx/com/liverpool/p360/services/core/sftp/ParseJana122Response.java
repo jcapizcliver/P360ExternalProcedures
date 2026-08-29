@@ -671,7 +671,7 @@ public class ParseJana122Response implements SimpleLog {
 						? attributeValues.get("SATNR") != null ? attributeValues.get("SATNR").replaceAll("^0+", "") : ""
 						: "";
 				attyp = attributeValues.get("ATTYP"); // SAPObjectType
-				sapBehvo = attributeValues.get("SAP_BEHVO");
+				sapBehvo = attributeValues.get("BEHVO");
 				fshId = attributeValues.get("FSH_ID");
 				mstae = attributeValues.get("MSTAE");
 				String lifnr = attributeValues.get("LIFNR"); // Supplier
@@ -1007,8 +1007,7 @@ public class ParseJana122Response implements SimpleLog {
 			log("\t\tNow placing relationships...");
 			org.json.JSONArray items = new org.json.JSONArray();
 			org.json.JSONObject item = null;
-			org.json.JSONArray columns00 = new org.json.JSONArray()
-					.put(new org.json.JSONObject().put("identifier", "ProductReference.ReferencedSupplierAid"));
+			org.json.JSONArray columns00 = new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "ProductReference.ReferencedSupplierAid"));
 			org.json.JSONArray rows00 = new org.json.JSONArray();
 			org.json.JSONObject req = new org.json.JSONObject();
 			req.put("columns", columns00);
@@ -1023,7 +1022,7 @@ public class ParseJana122Response implements SimpleLog {
 						.put("object", new org.json.JSONObject().put("id", "'" + entry.getKey() + "'@1"))
 						.put("qualification", new org.json.JSONObject().put("referencedSupplierAid", entry.getValue()))
 						.put("values", new org.json.JSONArray().put(entry.getValue())));
-				if (rows00.length() == 5000) {
+				if (rows00.length() == 1000) {
 					rw.writeData("list", "Article", "ProductReference", qp, req, this::log);
 				}
 			}
@@ -1054,7 +1053,17 @@ public class ParseJana122Response implements SimpleLog {
 					item.put("sku", articleSupplierAIDToSKU.get(entry.getKey()));
 					item.put("productNo", parentId);
 					items.put(item);
+					rows00.put(new org.json.JSONObject()
+							.put("object", new org.json.JSONObject().put("id", "'" + entry.getKey() + "'@1"))
+							.put("qualification", new org.json.JSONObject().put("referencedSupplierAid", entry.getValue()))
+							.put("values", new org.json.JSONArray().put(entry.getValue())));
+					if (rows00.length() == 1000) {
+						rw.writeData("list", "Article", "ProductReference", qp, req, this::log);
+					}
 				}
+			}
+			if (rows00.length() > 0) {
+				rw.writeData("list", "Article", "ProductReference", qp, req, this::log);
 			}
 			dr.putSkuSupplierAID(items);
 			arremangalos(newAttributeValues);

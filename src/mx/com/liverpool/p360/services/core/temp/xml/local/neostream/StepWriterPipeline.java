@@ -196,16 +196,6 @@ public final class StepWriterPipeline {
                             .put(externalStatus)
                             .put(bundle[2])));
 
-            if ("1007".equals(currentStatus)) {
-                try {
-                    PathHelper.touchMigrationSkip(product.getId());
-                } catch (Exception e) {
-                    StepWriterPipeline.this.log(
-                            "No fue posible crear migration_to_skip para "
-                                    + product.getId() + ": " + e.getMessage());
-                }
-            }
-
             if (!product.getProducts().isEmpty()) {
                 for (Product child : product.getProducts()) {
                     addArticleStatus(

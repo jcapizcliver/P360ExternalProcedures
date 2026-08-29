@@ -35,7 +35,7 @@ public class ReferenceFileCheck implements AutoCloseable {
 
     public boolean exists(String value, DBAccessDataStub dastub) throws IOException {
         if (value == null) return false;
-        value = value.trim();
+        	value = value.trim();
         if (value.isEmpty()) return false;
 
         var entry = index.floorEntry(value);

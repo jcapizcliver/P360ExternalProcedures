@@ -115,8 +115,7 @@ public class GetProposals implements Closeable {
       this.batchVariantsByProduct = batch.variantsByProduct;
       this.batchVariantsById = batch.variantsById;
 
-      java.util.Set<String> multivalueCharacteristics =
-          collectMultiValueCharacteristics(batch.productsById, batch.variantsById);
+      java.util.Set<String> multivalueCharacteristics = collectMultiValueCharacteristics(batch.productsById, batch.variantsById);
       java.util.Map<String, String> headers = java.util.Collections.emptyMap();
 
       for (int i = 0; i < rows.length(); i++) {
@@ -362,7 +361,8 @@ public class GetProposals implements Closeable {
       if(vcs != null) {
         if("Header".equals(vcs)){
           o = characteristicRecord.getJSONArray( "_recordLang" ).getJSONObject( 0 ).getJSONArray("values").get( 0 );
-          header.put( characteristicIdentifier, o instanceof JSONObject ? ((JSONObject)o).getString( "_label" ) : String.valueOf( o ));
+          if((!"Business".equals(characteristicIdentifier)) || "Business".equals(characteristicIdentifier) && (business == null || "".equals(business)) )
+        	  header.put( characteristicIdentifier, o instanceof JSONObject ? ((JSONObject)o).getString( "_label" ) : String.valueOf( o ));
         }else if("Atributos".equals(vcs)){
       	  if(multivalueCharacteristics.contains(characteristicIdentifier)) {
       		org.json.JSONArray vls = new org.json.JSONArray();
@@ -492,25 +492,25 @@ public class GetProposals implements Closeable {
     	      	  attributes.put("refundPolicy", refundPolicy);
     	        }
     	    }
-    if(ean == null)
+    		if(ean == null)
     	          if(response.getJSONObject( "_data" ).has( "gtin" )){
     		      	  ean = response.getJSONObject( "_data" ).getString( "gtin" );
     		      	  header.put("MainBarCode", ean);
     		       }
-    if( sku == null || "".equals(sku) )
+    		if( sku == null || "".equals(sku) )
             	  if(response.getJSONObject( "_data" ).has( "sku" )){
     		      	  sku = String.valueOf( response.getJSONObject( "_data" ).get( "sku" ) );
     		      	  header.put("SKU", sku);
     		       }
-    if( sapObjectType == null ) {
+    		if( sapObjectType == null ) {
             	  if(header.has("SAPObjectType")) {
             		  sapObjectType = header.getString("SAPObjectType");
             	  }
-    }
-    if("".equals(supplierPartNumber) || supplierPartNumber == null) {
+		    }
+		    if("".equals(supplierPartNumber) || supplierPartNumber == null) {
             	  supplierPartNumber = supplierPartNumberChar;
-    }
-    if(!"".equals(supplierPartNumber)) {
+		    }
+		    if(!"".equals(supplierPartNumber)) {
     			  basicData.put("SupplierPartNumber", supplierPartNumber);
     		  }
     //	    log("Building response took: " + formatMillis(System.currentTimeMillis() - a));
@@ -529,7 +529,7 @@ public class GetProposals implements Closeable {
     			minietaaa.put("NOM", nom);
     		}
             if(minietaaa.length() > 0) {
-     modifiedFields.put("multiMedia", minietaaa);
+            	modifiedFields.put("multiMedia", minietaaa);
             }
             aggregateRejectionsByField(rechazos, losQueSi, modifiedFields);
     //        a = System.currentTimeMillis();
@@ -729,6 +729,9 @@ public class GetProposals implements Closeable {
   	org.json.JSONArray characteristicRecords = null;
   	try{
   		data = objectAPIResponse.getJSONObject("_data");
+  		if(data.has("business") && data.getJSONObject("business").has("_label")) {
+  			return data.getJSONObject("business").getString("_label");
+  		}
   		if(data.has("_characteristicRecords")) {
 	  		characteristicRecords = data.getJSONArray("_characteristicRecords");
 	  		for(int i=0; i<characteristicRecords.length(); i++){
@@ -737,9 +740,6 @@ public class GetProposals implements Closeable {
 	  				return entry.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
 	  			}
 	  		}
-  		}
-  		if(data.has("business")) {
-  			return data.getJSONObject("business").getString("_label");
   		}
   	}catch(org.json.JSONException e){ /* log("Problema. " + e.getMessage()); */ logE(e); }
   	return null;
@@ -1054,7 +1054,7 @@ public class GetProposals implements Closeable {
 	          && allowedBusiness.contains(negocio)
 	          && section != null
 	          && !section.isEmpty()) {
-	        attributeVendorCenterSection.put((String)name, section);
+	        try{ attributeVendorCenterSection.put((String)name, section); } catch(NullPointerException e) { log("Name: " + name); log("Metadata: " + metadata); logE(e); }
 	      }
     	}
     }

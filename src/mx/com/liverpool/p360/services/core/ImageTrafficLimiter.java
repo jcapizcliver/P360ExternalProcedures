@@ -10,10 +10,9 @@ package mx.com.liverpool.p360.services.core;
  */
 public final class ImageTrafficLimiter {
 
-    private static final int MAX_CONCURRENT = readInt("p360.images.max_concurrent", 62, 1, 92);
+    private static final int MAX_CONCURRENT = readInt("p360.images.max_concurrent", 200, 1, 200);
     private static final int DELETE_BATCH_SIZE = readInt("p360.images.delete_batch_size", 175, 1, 200);
-    private static final java.util.concurrent.Semaphore PERMITS =
-            new java.util.concurrent.Semaphore(MAX_CONCURRENT, true);
+    private static final java.util.concurrent.Semaphore PERMITS = new java.util.concurrent.Semaphore(MAX_CONCURRENT, true);
 
     private ImageTrafficLimiter() {
     }

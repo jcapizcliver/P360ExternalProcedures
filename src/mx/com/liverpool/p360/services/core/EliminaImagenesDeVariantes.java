@@ -49,10 +49,10 @@ public class EliminaImagenesDeVariantes extends RESTWrapper {
         "rootCharacteristic('ProductImageDetail2'),characteristic('ProductImageDetail2')",
         "rootCharacteristic('ProductImageSmosh2'),characteristic('ProductImageSmosh_URL2')",
         "rootCharacteristic('ProductImageSmosh2'),characteristic('ProductImageSmosh_Name2')",
-        "rootCharacteristic('ProductImageSmosh2'),characteristic('ProductImageSmosh')",
+        "rootCharacteristic('ProductImageSmosh2'),characteristic('ProductImageSmosh2')",
         "rootCharacteristic('Illustration2'),characteristic('Illustration_URL2')",
         "rootCharacteristic('Illustration2'),characteristic('Illustration_Name2')",
-        "rootCharacteristic('Illustration2'),characteristic('Illustration')"
+        "rootCharacteristic('Illustration2'),characteristic('Illustration2')"
     };
 
     public static void main(String[] args) {

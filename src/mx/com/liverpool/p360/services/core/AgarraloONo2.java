@@ -12,12 +12,12 @@ import org.json.JSONException;
 
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 
-public class AgarraloONo {
+public class AgarraloONo2 {
 	
 	private final RESTWrapper rw = new RESTWrapper();
 	private final DBAccessDataStub dastub;
 	
-	public AgarraloONo(DBAccessDataStub dastub) {
+	public AgarraloONo2(DBAccessDataStub dastub) {
 		this.dastub = dastub;
 	}
 	
@@ -66,16 +66,9 @@ public class AgarraloONo {
 		seccion = section;
 			log("Got data to calculate take no take."); 
 			log("Gonna checkit...");
-			
-			/*
-			 * [DESACTIVADO - EXCEPCIONES DE FORO]:
-			 * Se comenta por requerimiento para conservar únicamente la Excepción de Catalogación a nivel producto.
-			 *
-			 * String takeNoTakeReasonHola = checkForoException( section, itemGroup, itemGroupS4H, brandName, brandIdS4H
-			 * 		, business, supplierId, sku, baseUrl);
-			 * log("Would have been foro exception: " + takeNoTakeReasonHola);
-			 */
-
+			String takeNoTakeReasonHola = checkForoException( section, itemGroup, itemGroupS4H, brandName, brandIdS4H
+					, business, supplierId, sku, baseUrl);
+			log("Would have been foro exception: " + takeNoTakeReasonHola);
 			if( new PublicationExceptions().isException(rw.getRw(), "'" + externalId + "'@1") ) {
 				takeNoTakeReason = "El producto se encuentra bajo excepción de catalogación."; 
 				log("Product is a publication exception.");
@@ -114,12 +107,7 @@ public class AgarraloONo {
 					take = "TOMAR"; 
 					log("°°°°°TOMAR°°°°°°" + externalId + "°°°°°°°TOMAR°°°°°");  
 				} else {
-					/*
-					 * [DESACTIVADO - TALLA NO CONFIGURADA A NIVEL PRODUCTO]:
-					 * Se comenta para descartar la asignación de esta razón a nivel producto.
-					 *
-					 * addCharacteristicRecord("AssignTakeNoTakeReason", takeNoTakeReason = "Talla no configurada", false, productCrs);
-					 */
+					addCharacteristicRecord("AssignTakeNoTakeReason", takeNoTakeReason = "Talla no configurada", false, productCrs);
 				}
 				log("section: " + seccion + ", stylist world (" + seccion + brand + "): " + stylistWorld   
 						+ ", tipo de toma (" 
@@ -155,7 +143,10 @@ public class AgarraloONo {
 		log("Entering to variants."); 
 		java.util.LinkedList<String> varIds = new java.util.LinkedList<>();
 		java.util.Map<String, org.json.JSONArray> mapaCar = new java.util.TreeMap<>();
+		new java.util.TreeMap<>();
 		org.json.JSONArray crs = null;
+		new java.util.TreeMap<>();
+		new java.util.TreeMap<>();
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
 
 		DataRequestor dr = new DataRequestor(dastub);
@@ -231,6 +222,7 @@ public class AgarraloONo {
 		java.util.LinkedList<String> variantesDelMismoColor = null;
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
 		java.util.LinkedList<java.util.Map.Entry<String, Integer>> entries = null;
+		java.util.Set<String> toWrite = new java.util.TreeSet<>();
 		DataRequestor dr = new DataRequestor(dastub);
 		java.util.Set<String> variants = dr.getVariants(externalId);
 		org.json.JSONArray items = new org.json.JSONArray();
@@ -272,21 +264,14 @@ public class AgarraloONo {
 				item = rows.getJSONObject(i);
 				articleId = items.getString(i);
 
-				/*
-				 * [EXTRACCIÓN DE IMAGEN]:
-				 * Verifica si el artículo tiene imagen principal mediante la propiedad plana ProductImage
-				 * o la sub-característica ProductImage_URL dentro del nodo padre ProductImage.
-				 */
-				String imageUrl = extractImageUrl(item);
-				if (!imageUrl.isEmpty()) {
+				if(!"".equals(item.getString("ProductImage"))) {
 					losConImagen.add(articleId);
 				}
-
 				values = new org.json.JSONArray();
 				values.put(articleId);
 				values.put(new org.json.JSONArray().put( item.getString("ColoursLiverpoolAtt")) );
 				values.put(new org.json.JSONArray().put( item.getString("TamanoUnico")) );
-				values.put(new org.json.JSONArray().put( imageUrl ) );
+				values.put(new org.json.JSONArray().put( item.getString("ProductImage")) );
 				values.put(new org.json.JSONArray().put( item.getString("AssignTakeNoTake")) );
 				log("---->" + values);
 				artValues.put(articleId, values);
@@ -323,6 +308,8 @@ public class AgarraloONo {
 						if("TOMAR".equals(tnt) || "TOMADO".equals(tnt)) {
 							losTomar.add(varianteDelColor);
 							colorTocado = true;
+						}else {
+							toWrite.add(varianteDelColor);
 						}
 					}
 					for (String varianteDelColor : variantesDelMismoColor) {
@@ -334,13 +321,11 @@ public class AgarraloONo {
 								: queryLookupValue(itemGroup + talla, "FTNT_Prioridad_Tallas_LVP", baseUrl);
 						if(prioridad == null) {
 							losSinConfiguracion.add(varianteDelColor);
-						}else if(!losesos.isEmpty() && !losesos.contains(varianteDelColor)) {
+						}else if(!losesos.contains(varianteDelColor)) {
 							losNoMeLosPidieron.add(varianteDelColor);
 						}else if(colorTocado) {
 							losTeLoGanaron.add(varianteDelColor);
 						}
-						
-						// Descalificación a TOMAR: Si tiene imagen, o fue tomada, o no vino en filtro, asigna null a la prioridad
 						prioridades.put(varianteDelColor, 
 								prioridad == null ? null 
 										: !losesos.isEmpty() && !losesos.contains(varianteDelColor) ? null 
@@ -369,122 +354,120 @@ public class AgarraloONo {
 					java.util.Map.Entry<String, Integer> winner = entries.removeFirst();
 					log("Gonna do... " + externalId + " ### " + entries);
 						if (winner.getValue() == null) {
-							// Ninguna variante pudo ser elegida como ganadora para este color
 							entries.addFirst(winner);
 							for (String varianteDelMismoColor : variantesDelMismoColor) {
-								/*
-								 * [OMISIÓN DE VARIANTES NO SOLICITADAS]:
-								 * Omite si la variante no vino en el filtro losesos.
-								 */
-								if (!losesos.isEmpty() && !losesos.contains(varianteDelMismoColor)) {
-									log("Omitiendo variante por no ser parte del filtro solicitado: " + varianteDelMismoColor);
-									continue;
+								if(!losTomar.contains(varianteDelMismoColor)){
+	//								atLeast = true;
+									log("Oroch: this would be TOMAR, but... ok " + winner.getKey());
 								}
-
-								crs = mapaCar.get(varianteDelMismoColor);
-
-								/*
-								 * [PRESERVACIÓN DE ESTADO TOMADO EN BD]:
-								 * Si la variante ya había sido tomada, conserva TOMADO.
-								 */
-								boolean yaFueTomada = losTomar.contains(varianteDelMismoColor);
-								addCharacteristicRecord("AssignTakeNoTake", yaFueTomada ? "TOMADO" : "NO TOMAR", false, crs);  
-								addCharacteristicRecord("AdmissionDate", admissionDate, false, crs); 
-								addCharacteristicRecord("StylistWorld", stylistWorld, false, crs); 
-								addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs); 
-
-								/*
-								 * [NUEVO ORDEN DE RAZONES]:
-								 * 1º Tiene imagen principal
-								 * 2º Recibido previamente / en proceso
-								 * 3º Otra variante ganó la selección del color
-								 * 4º Sin configuración de prioridad de talla
-								 * Default: Escenario no contemplado
-								 */
-								String reason = losConImagen.contains(varianteDelMismoColor) ? "Tiene imagen principal"
-										: yaFueTomada ? "Recibido previamente o en proceso"
-										: losTeLoGanaron.contains(varianteDelMismoColor) ? "Otra talla del mismo color es tomar"
-										: losSinConfiguracion.contains(varianteDelMismoColor) ? "Talla no configurada"
-										: "Escenario no contemplado";
-
-								addCharacteristicRecord("AssignTakeNoTakeReason", reason, false, crs);  
-								response = rw.getRw().makeRequest("PUT", "/object/Article/'" + varianteDelMismoColor + "'@'MASTER'",   
-										qp, new org.json.JSONObject().put("_characteristicRecords", crs) 
-												.toString());
-								log(response == null ? "ERR (affecting variant): " + rw.getRw().getRawResponse() 
-										: "Variant affected (" + colorEntry.getKey() + "): " + response + "<::>"   
-												+ crs);
+								Integer cs = dastub.getProductCurrentStatusByArticleIdentifier(varianteDelMismoColor);
+								log("Status is: " + cs);
+								if(toWrite.contains(varianteDelMismoColor)) {
+									crs = mapaCar.get(varianteDelMismoColor);
+									addCharacteristicRecord("AssignTakeNoTake", losTomar.contains(varianteDelMismoColor) ? "TOMADO" : "NO TOMAR", false, crs);  
+									addCharacteristicRecord("AdmissionDate", admissionDate, false, crs); 
+									addCharacteristicRecord("StylistWorld", stylistWorld, false, crs); 
+									addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs); 
+									addCharacteristicRecord("AssignTakeNoTakeReason",
+											cs != null && cs.equals(1007) ? "Aprobado" :
+												losSinConfiguracion.contains(varianteDelMismoColor) ? "Talla no configurada"
+														: losNoMeLosPidieron.contains(varianteDelMismoColor) ? "Otra talla del mismo color es tomar"
+																: losTeLoGanaron.contains(varianteDelMismoColor) ? "Otra talla del mismo color es tomar"
+																		: losTomar.contains(varianteDelMismoColor) ? "Recibido previamente o en proceso"
+																				: losConImagen.contains(varianteDelMismoColor) ? "Tiene imagen principal" 
+																						: "Otra talla del mismo color es tomar"
+											, false, crs);  
+									response = rw.getRw().makeRequest("PUT", "/object/Article/'" + varianteDelMismoColor + "'@'MASTER'",   
+											qp, new org.json.JSONObject().put("_characteristicRecords", crs) 
+													.toString());
+									log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
+											: "Variant affected (" + colorEntry.getKey() + "): " + response + "<::>"   
+													+ crs);
+								}else {
+									crs = mapaCar.get(varianteDelMismoColor);
+									addCharacteristicRecord("AssignTakeNoTake", losTomar.contains(varianteDelMismoColor) ? "TOMADO" : "NO TOMAR", false, crs);  
+									addCharacteristicRecord("AdmissionDate", admissionDate, false, crs); 
+									addCharacteristicRecord("StylistWorld", stylistWorld, false, crs); 
+									addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs); 
+									addCharacteristicRecord("AssignTakeNoTakeReason",
+											cs != null && cs.equals(1007) ? "Aprobado" :
+												losSinConfiguracion.contains(varianteDelMismoColor) ? "Talla no configurada"
+														: losTomar.contains(varianteDelMismoColor) ? "Recibido previamente o en proceso"
+															: losConImagen.contains(varianteDelMismoColor) ? "Tiene imagen principal" 
+																: losNoMeLosPidieron.contains(varianteDelMismoColor) ? "Otra talla del mismo color es tomar"
+																		: losTeLoGanaron.contains(varianteDelMismoColor) ? "Otra talla del mismo color es tomar"
+																							: "Otra talla del mismo color es tomar"
+											, false, crs);  
+									response = rw.getRw().makeRequest("PUT", "/object/Article/'" + varianteDelMismoColor + "'@'MASTER'",   
+											qp, new org.json.JSONObject().put("_characteristicRecords", crs) 
+													.toString());
+									log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
+											: "Variant affected (" + colorEntry.getKey() + "): " + response + "<::>"   
+													+ crs);
+								}
 							}
 						} else {
-							// Tenemos una variante ganadora para el color
-							
-							// 1. Procesar la variante Ganadora
-							if (losesos.isEmpty() || losesos.contains(winner.getKey())) {
-								atLeast = true;
-								log("Oroch: this is being said TOMAR " + winner.getKey());
-								crs = mapaCar.get(winner.getKey());
-								addCharacteristicRecord("AssignTakeNoTake", "TOMAR", false, crs);  
-								addCharacteristicRecord("AdmissionDate", admissionDate, false, crs);
-								addCharacteristicRecord("StylistWorld", stylistWorld, false, crs); 
-								addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs); 
-								addCharacteristicRecord("AssignTakeNoTakeVideo", a, false, crs); 
-								addCharacteristicRecord("AssignTakeNoTakeReason", "", false, crs);  
-								addCharacteristicRecord("PrioridadDeTalla", winner.getValue(), false, crs); 
-								response = rw.getRw().makeRequest("PUT", "/object/Article/'" + winner.getKey() + "'@'MASTER'", qp,   
-										new org.json.JSONObject().put("_characteristicRecords", crs) 
-												.toString());
-								log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
-										: "Winner variant affected (" + colorEntry.getKey() + "): " + response + "<;;>" + crs);  
-							} else {
-								log("Winner variant omitted because it was not in losesos filter: " + winner.getKey());
-							}
-
-							// 2. Procesar las variantes perdedoras / previamente tomadas del mismo color
-							for (java.util.Map.Entry<String, Integer> varianteDelMismoColor : entries) {
-								String varKey = varianteDelMismoColor.getKey();
-
-								/*
-								 * [OMISIÓN DE VARIANTES NO SOLICITADAS]:
-								 * Omite el PUT si la variante no vino en el filtro.
-								 */
-								if (!losesos.isEmpty() && !losesos.contains(varKey)) {
-									log("Omitiendo variante por no ser parte del filtro solicitado: " + varKey);
-									continue;
+							if(toWrite.contains(winner.getKey())) {
+								Integer cs = dastub.getProductCurrentStatusByArticleIdentifier(winner.getKey());
+								log("Status is: " + cs);
+								log("Befor the winter... " + cs + " w " + winner.getKey());
+								if(cs != null && cs.equals(1007) ) {
+									addCharacteristicRecord("AssignTakeNoTake", "NO TOMAR", false, crs);  
+									addCharacteristicRecord("AdmissionDate", admissionDate, false, crs); 
+									addCharacteristicRecord("StylistWorld", stylistWorld, false, crs); 
+									addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs); 
+									addCharacteristicRecord("AssignTakeNoTakeReason", "Aprobado"
+											, false, crs);  
+									response = rw.getRw().makeRequest("PUT", "/object/Article/'" + winner.getKey() + "'@'MASTER'",   
+											qp, new org.json.JSONObject().put("_characteristicRecords", crs) 
+													.toString());
+									log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
+											: "Variant affected (" + colorEntry.getKey() + "): " + response + "<::>"   
+													+ crs);
+								}else {
+									atLeast = true;
+									log("Oroch: this is being said TOMAR " + winner.getKey());
+									crs = mapaCar.get(winner.getKey());
+									addCharacteristicRecord("AssignTakeNoTake", "TOMAR", false, crs);  
+									addCharacteristicRecord("AdmissionDate", admissionDate, false, crs);
+									addCharacteristicRecord("StylistWorld", stylistWorld, false, crs); 
+									addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs); 
+									addCharacteristicRecord("AssignTakeNoTakeVideo", a, false, crs); 
+									addCharacteristicRecord("AssignTakeNoTakeReason", "", false, crs);  
+									addCharacteristicRecord("PrioridadDeTalla", winner.getValue(), false, crs); 
+									response = rw.getRw().makeRequest("PUT", "/object/Article/'" + winner.getKey() + "'@'MASTER'", qp,   
+											new org.json.JSONObject().put("_characteristicRecords", crs) 
+													.toString());
+									log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
+											: "Winner variant affected (" + colorEntry.getKey() + "): " + response + "<;;>" + crs);  
 								}
-
-								crs = mapaCar.get(varKey);
-
-								/*
-								 * [PRESERVACIÓN DE ESTADO TOMADO EN BD]:
-								 * Si la variante ya tenía "TOMAR" o "TOMADO", conserva "TOMADO".
-								 */
-								boolean yaFueTomada = losTomar.contains(varKey);
-								log("setting " + (yaFueTomada ? "TOMADO" : "NO TOMAR") + " to " + varKey);
-
-								addCharacteristicRecord("AssignTakeNoTake", yaFueTomada ? "TOMADO" : "NO TOMAR", false, crs);  
-
-								/*
-								 * [NUEVO ORDEN DE RAZONES EN VARIANTES SECUNDARIAS/PERDEDORAS]
-								 */
-								String reasonPerdedora = losConImagen.contains(varKey) ? "Tiene imagen principal"
-										: yaFueTomada ? "Recibido previamente o en proceso"
-										: "Otra talla del mismo color es tomar";
-
-								addCharacteristicRecord("AssignTakeNoTakeReason", reasonPerdedora, false, crs);  
-								addCharacteristicRecord("AdmissionDate", admissionDate, false, crs);
-								addCharacteristicRecord("StylistWorld", stylistWorld, false, crs);
-								addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs);
-								addCharacteristicRecord("AssignTakeNoTakeVideo", a, false, crs); 
-								addCharacteristicRecord("PrioridadDeTalla", varianteDelMismoColor.getValue(), false, crs); 
-								response = rw.getRw().makeRequest("PUT", 
-										"/object/Article/'" + varKey + "'@'MASTER'", qp,  
-										new org.json.JSONObject().put("_characteristicRecords", crs) 
-												.toString());
-								log(response == null ? "ERR (affecting variant): " + rw.getRw().getRawResponse() 
-										: "e.e Variant affected (" + colorEntry.getKey() + "): " + response + "<ÑÑ>" + crs);
+							}else {
+								log("Ya había sido calculado el que salió winner: " + winner.getKey());
+							}
+							for (java.util.Map.Entry<String, Integer> varianteDelMismoColor : entries) {
+								if(toWrite.contains(varianteDelMismoColor.getKey())) {
+									log("setting NO TOMAR to " + varianteDelMismoColor); 
+									crs = mapaCar.get(varianteDelMismoColor.getKey());
+									addCharacteristicRecord("AssignTakeNoTake", "NO TOMAR", false, crs);  
+									addCharacteristicRecord("AssignTakeNoTakeReason", "Otra talla del mismo color es tomar", false, crs);  
+									addCharacteristicRecord("AdmissionDate", admissionDate, false, crs);
+									addCharacteristicRecord("StylistWorld", stylistWorld, false, crs);
+									addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs);
+									addCharacteristicRecord("AssignTakeNoTakeVideo", a, false, crs); 
+									addCharacteristicRecord("PrioridadDeTalla", varianteDelMismoColor.getValue(), false, crs); 
+									response = rw.getRw().makeRequest("PUT", 
+											"/object/Article/'" + varianteDelMismoColor.getKey() + "'@'MASTER'", qp,  
+											new org.json.JSONObject().put("_characteristicRecords", crs) 
+													.toString());
+									log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
+											: "e.e Variant affected (" + colorEntry.getKey() + "): " + response + "<ÑÑ>" + crs);
+								}else {
+									log("Ya se había calculado para: " + varianteDelMismoColor);
+								}
 							}
 					}
 				} else {
+					// ¿No hubieron variantes?
 					log("No se obtuvieron variantes."); 
 				}
 			}
@@ -492,65 +475,6 @@ public class AgarraloONo {
 			log("ERR: " + rw.getRw().getRawResponse()); 
 		}
 		return atLeast;
-	}
-
-	/**
-	 * Extrae la URL de la imagen de una variante evaluando:
-	 * 1. El atributo directo plano "ProductImage"
-	 * 2. La sub-característica estructurada "ProductImage_URL" hija de "ProductImage"
-	 */
-	private String extractImageUrl(org.json.JSONObject item) {
-		if (item == null) {
-			return "";
-		}
-
-		// 1. Evalúa el atributo plano "ProductImage"
-		String directImage = item.optString("ProductImage", "").trim();
-		if (!directImage.isEmpty()) {
-			return directImage;
-		}
-
-		// 2. Evalúa la sub-característica estructurada "ProductImage_URL" hija de "ProductImage"
-		if (item.has("_characteristicRecords")) {
-			org.json.JSONArray crs = item.optJSONArray("_characteristicRecords");
-			if (crs != null) {
-				for (int i = 0; i < crs.length(); i++) {
-					org.json.JSONObject charObj = crs.optJSONObject(i);
-					if (charObj == null) continue;
-
-					String code = charObj.optJSONObject("_qualification") != null &&
-								  charObj.optJSONObject("_qualification").optJSONObject("characteristic") != null
-								  ? charObj.optJSONObject("_qualification").optJSONObject("characteristic").optString("_code", "")
-								  : "";
-
-					if ("ProductImage".equals(code)) {
-						org.json.JSONArray children = charObj.optJSONArray("_children");
-						if (children != null) {
-							for (int j = 0; j < children.length(); j++) {
-								org.json.JSONObject child = children.optJSONObject(j);
-								if (child == null) continue;
-
-								String childCode = child.optJSONObject("_qualification") != null &&
-												   child.optJSONObject("_qualification").optJSONObject("characteristic") != null
-												   ? child.optJSONObject("_qualification").optJSONObject("characteristic").optString("_code", "")
-												   : "";
-
-								if ("ProductImage_URL".equals(childCode)) {
-									org.json.JSONArray langArray = child.optJSONArray("_recordLang");
-									if (langArray != null && langArray.length() > 0) {
-										org.json.JSONArray values = langArray.getJSONObject(0).optJSONArray("values");
-										if (values != null && values.length() > 0) {
-											return values.optString(0, "").trim();
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-		return "";
 	}
 	
 	private void addCharacteristicRecord(String charId, Object value, boolean isCode,
@@ -572,10 +496,6 @@ public class AgarraloONo {
 		characteristicRecords.put(cr);
 	}
 
-	/*
-	 * [DESACTIVADO - MÉTODOS AUXILIARES DE EXCEPCIONES DE FORO]:
-	 * Se comentan ya que dicha validación fue descartada del flujo principal.
-	 *
 	private boolean checkSeccionMarca(String code, String marca, String sku, String baseUrl) throws org.json.JSONException, ServiceUnavailableException {
 		RESTWorkshop rw = new RESTWorkshop();
 		if(baseUrl != null) rw.setBaseUrl(baseUrl);
@@ -606,7 +526,6 @@ public class AgarraloONo {
 		}
 		return false;
 	}
-	*/
 	
 	public static void main(String[] args) throws JSONException, ServiceUnavailableException {
 		RESTWrapper rw = new RESTWrapper();
@@ -614,9 +533,11 @@ public class AgarraloONo {
 		qp.put( "lookup", "'ExcepcionSeccionProveedor'");
 		qp.put( "fields", "LookupValue.Code,LookupValueReference.LookupValues('SKUsPermitidosExcepcionCatalogacion')->LookupValue.Code" );
 		rw.collectData("list", "LookupValue", null, "byLookup", qp, System.out::println);
+//		AgarraloONo a = new AgarraloONo();
+//		System.out.println( a.checkSeccionMarca("874", "1122", "", "https://webctep360dev.liverpool.com.mx/rest/V2.0") );
+//		System.out.println( a.checkSeccionProveedor("533", "2290", "1033574341", "https://webctep360dev.liverpool.com.mx/rest/V2.0") );
 	}
 
-	/*
 	private boolean checkSeccionProveedor(String code, String proveedor, String sku, String baseUrl) throws org.json.JSONException, ServiceUnavailableException {
 		RESTWorkshop rw = new RESTWorkshop();
 		if(baseUrl != null)
@@ -676,7 +597,6 @@ public class AgarraloONo {
 		}
 		return false;
 	}
-	*/
 
 	private boolean checkLookup(String code, String lookup, String baseUrl) throws org.json.JSONException {
 		return queryLkp(code, lookup) != null;
@@ -701,7 +621,6 @@ public class AgarraloONo {
 		return null;
 	}
 
-	/*
 	private String checkForoException(
 			  String section
 			, String itemGroup
@@ -775,7 +694,6 @@ public class AgarraloONo {
 		}
 		return null;
 	}
-	*/
 
 	public java.util.Map<String, java.util.LinkedList<org.json.JSONObject>> buildCharacteristicsMap(
 			org.json.JSONArray characteristicRecords) throws org.json.JSONException {
@@ -849,7 +767,7 @@ public class AgarraloONo {
 		return value;
 	}
 
-	private static final Logger LOGGER = Logger.getLogger(AgarraloONo.class.getName());
+	private static final Logger LOGGER = Logger.getLogger(AgarraloONo2.class.getName());
 
     static {
         try {
@@ -885,6 +803,13 @@ public class AgarraloONo {
 
 	private void log(String message) {
 		LOGGER.info(message);
+//		try (java.io.PrintWriter pw = new java.io.PrintWriter(
+//				new java.io.OutputStreamWriter(new java.io.FileOutputStream("../logs/takeNoTakeCalc.log", 
+//						true)))) {
+//			pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date()))  
+//					+ "]  " + message); 
+//		} catch (java.io.IOException e) {
+//		}
 	}
 
 	private void logE(Exception ex) {

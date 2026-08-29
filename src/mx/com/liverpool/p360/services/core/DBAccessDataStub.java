@@ -92,6 +92,130 @@ public class DBAccessDataStub implements AutoCloseable {
 		return rows;
 	}
 	
+	public java.util.List<org.json.JSONObject> getArticleValidityDataByProduct(
+			String productIdentifier) {
+
+		java.util.List<org.json.JSONObject> result =
+				new java.util.ArrayList<>();
+
+		if (productIdentifier == null || productIdentifier.isBlank()) {
+			return result;
+		}
+
+		handleRefreshConnection();
+
+		String sql =
+				  " select "
+				+ "        article_ar.\"Identifier\" \"ArticleIdentifier\" "
+				+ "       ,article_ad.\"EAN\" \"EAN\" "
+				+ "       ,article_ad.\"Res_Int_02\" \"SKU\" "
+				+ "       ,supplier_lvr.\"Code\" \"SupplierID\" "
+				+ "       ,max(case "
+				+ "            when acv.\"CharacteristicID\" = 4383 "
+				+ "            then acv.\"Value\" "
+				+ "        end) \"FechaInicioVigenciaCostoNeto\" "
+				+ "       ,max(case "
+				+ "            when acv.\"CharacteristicID\" = 4382 "
+				+ "            then acv.\"Value\" "
+				+ "        end) \"FechaInicioVigenciaCostoImportacion\" "
+				+ "       ,max(case "
+				+ "            when acv.\"CharacteristicID\" = 4384 "
+				+ "            then acv.\"Value\" "
+				+ "        end) \"FechaInicioVigenciaPrecioVenta\" "
+				+ " from \"ArticleRevision\" product_ar "
+				+ " inner join \"ArticleReference\" article_ref "
+				+ "    on article_ref.\"RefIntArtID\" = product_ar.\"ArticleID\" "
+				+ "   and article_ref.\"RefExtArtIdentifier\" = product_ar.\"Identifier\" "
+				+ "   and article_ref.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " inner join \"ArticleRevision\" article_ar "
+				+ "    on article_ar.\"ID\" = article_ref.\"ArticleRevisionID\" "
+				+ "   and article_ar.\"EntityID\" = 1000 "
+				+ "   and article_ar.\"RevisionID\" = 1 "
+				+ "   and article_ar.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " left join \"ArticleDetail\" article_ad "
+				+ "    on article_ad.\"ArticleRevisionID\" = article_ar.\"ID\" "
+				+ "   and article_ad.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " left join \"ArticleDomain\" product_dom "
+				+ "    on product_dom.\"ArticleRevisionID\" = product_ar.\"ID\" "
+				+ "   and product_dom.\"EntityID\" = 21006 "
+				+ "   and product_dom.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " left join PIM_MAIN.\"LookupValueRevision\" supplier_lvr "
+				+ "    on supplier_lvr.\"LookupValueID\" = product_dom.\"Std_Int_10\" "
+				+ "   and supplier_lvr.\"RevisionID\" = 1 "
+				+ "   and supplier_lvr.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " left join \"ArticleCharactValue\" acv "
+				+ "    on acv.\"ArticleRevisionID\" = article_ar.\"ID\" "
+				+ "   and acv.\"CharacteristicID\" in (4382, 4383, 4384) "
+				+ "   and acv.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " where product_ar.\"Identifier\" = ? "
+				+ "   and product_ar.\"EntityID\" = 1100 "
+				+ "   and product_ar.\"RevisionID\" = 1 "
+				+ "   and product_ar.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " group by "
+				+ "        article_ar.\"Identifier\" "
+				+ "       ,article_ad.\"EAN\" "
+				+ "       ,article_ad.\"Res_Int_02\" "
+				+ "       ,supplier_lvr.\"Code\" "
+				+ " order by article_ar.\"Identifier\"";
+
+		try (java.sql.PreparedStatement pstmnt =
+				connection().prepareStatement(sql)) {
+
+			pstmnt.setNString(1, productIdentifier);
+			pstmnt.setQueryTimeout(30);
+			pstmnt.setFetchSize(500);
+
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+
+				while (rs.next()) {
+
+					result.add(
+						new org.json.JSONObject()
+							.put(
+								"ArticleIdentifier",
+								java.util.Objects.toString(
+									rs.getString("ArticleIdentifier"), ""))
+							.put(
+								"EAN",
+								java.util.Objects.toString(
+									rs.getString("EAN"), ""))
+							.put(
+								"SKU",
+								java.util.Objects.toString(
+									rs.getString("SKU"), ""))
+							.put(
+								"SupplierID",
+								java.util.Objects.toString(
+									rs.getString("SupplierID"), ""))
+							.put(
+								"FechaInicioVigenciaCostoNeto",
+								java.util.Objects.toString(
+									rs.getNString("FechaInicioVigenciaCostoNeto"), ""))
+							.put(
+								"FechaInicioVigenciaCostoImportacion",
+								java.util.Objects.toString(
+									rs.getNString("FechaInicioVigenciaCostoImportacion"), ""))
+							.put(
+								"FechaInicioVigenciaPrecioVenta",
+								java.util.Objects.toString(
+									rs.getNString("FechaInicioVigenciaPrecioVenta"), "")));
+				}
+			}
+
+		} catch (java.sql.SQLException e) {
+			logE(e);
+		}
+
+		return result;
+	}
+	
 	public java.util.List<String> getArticleObjectIdsByProduct(String productIdentifier) {
 
 		java.util.List<String> items = new java.util.ArrayList<>();
@@ -951,7 +1075,6 @@ public class DBAccessDataStub implements AutoCloseable {
 				+ "   and aa.\"DeletionTimestamp\" = "
 				+ "       timestamp '9999-12-31 00:00:00.0' "
 				+ "   and rownum = 1";
-		log.log("Issuing (" + languageID + "," + name + "," + lookupIdentifier + "): " + sql);
 		try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(sql)) {
 			pstmnt.setInt(1, languageID);
 			pstmnt.setNString(2, name);
@@ -964,6 +1087,224 @@ public class DBAccessDataStub implements AutoCloseable {
 			logE(e);
 			return null;
 		}
+	}
+	
+	public String getProductPrimaryTemplate(String identifier) {
+		if (identifier == null || identifier.isBlank()) {
+			return null;
+		}
+
+		String sql =
+				  " select /*+ "
+				+ "     leading(aa bb) "
+				+ "     use_nl(bb) "
+				+ "     index(aa IX_AR_TUNE_01) "
+				+ "     index(bb IX_ASM_TUNE_01) "
+				+ "     first_rows(1) "
+				+ " */ "
+				+ "        bb.\"StructureGroupIdentifier\" "
+				+ " from PIM_MASTER.\"ArticleRevision\" aa "
+				+ " inner join PIM_MASTER.\"ArticleStructureMap\" bb "
+				+ "    on bb.\"ArticleRevisionID\" = aa.\"ID\" "
+				+ "   and bb.\"StructureID\" = 10000 "
+				+ "   and bb.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ " where aa.\"Identifier\" = ? "
+				+ "   and aa.\"EntityID\" = 1100 "
+				+ "   and aa.\"RevisionID\" = 1 "
+				+ "   and aa.\"DeletionTimestamp\" = "
+				+ "       timestamp '9999-12-31 00:00:00.0' "
+				+ "   and length(trim(bb.\"StructureGroupIdentifier\")) > 0 "
+				+ "   and rownum = 1";
+
+		try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(sql)) {
+			pstmnt.setNString(1, identifier);
+			pstmnt.setQueryTimeout(30);
+			try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+				return rs.next() ? rs.getString(1) : null;
+			}
+		} catch (java.sql.SQLException e) {
+			logE(e);
+			return null;
+		}
+	}
+	
+	public org.json.JSONObject getProductStatusData(String identifier) {
+	    org.json.JSONObject result = new org.json.JSONObject()
+	            .put("CurrentStatus", "")
+	            .put("PreviousStatus", "")
+	            .put("ExternalStatus", "");
+
+	    if (identifier == null || identifier.trim().isEmpty()) {
+	        return result;
+	    }
+
+	    handleRefreshConnection();
+
+	    String sql =
+	              "select /*+ leading(ar ad) "
+	            + "           use_nl(ad ext_lvr) "
+	            + "           index(ar IX_AR_TUNE_01) */ "
+	            + "       ad.\"CurrentStatus\" as \"CurrentStatus\", "
+	            + "       ad.\"Res_Int_03\" as \"PreviousStatus\", "
+	            + "       ext_lvr.\"Code\" as \"ExternalStatus\" "
+	            + "from \"ArticleRevision\" ar "
+	            + "inner join \"ArticleDetail\" ad "
+	            + "        on ad.\"ArticleRevisionID\" = ar.\"ID\" "
+	            + "       and ad.\"DeletionTimestamp\" = "
+	            + "           timestamp '9999-12-31 00:00:00.0' "
+	            + "left join PIM_MAIN.\"LookupValueRevision\" ext_lvr "
+	            + "       on ext_lvr.\"LookupValueID\" = ad.\"Res_Int_04\" "
+	            + "      and ext_lvr.\"RevisionID\" = 1 "
+	            + "      and ext_lvr.\"DeletionTimestamp\" = "
+	            + "          timestamp '9999-12-31 00:00:00.0' "
+	            + "where ar.\"Identifier\" = ? "
+	            + "  and ar.\"EntityID\" = 1100 "
+	            + "  and ar.\"RevisionID\" = 1 "
+	            + "  and ar.\"DeletionTimestamp\" = "
+	            + "      timestamp '9999-12-31 00:00:00.0'";
+
+	    try (java.sql.PreparedStatement pstmnt =
+	            connection().prepareStatement(sql)) {
+
+	        pstmnt.setNString(1, identifier);
+	        pstmnt.setQueryTimeout(30);
+
+	        try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+	            if (rs.next()) {
+	                Object currentStatus = rs.getObject("CurrentStatus");
+	                Object previousStatus = rs.getObject("PreviousStatus");
+
+	                result
+	                    .put(
+	                        "CurrentStatus",
+	                        currentStatus == null
+	                            ? ""
+	                            : String.valueOf(currentStatus))
+	                    .put(
+	                        "PreviousStatus",
+	                        previousStatus == null
+	                            ? ""
+	                            : String.valueOf(previousStatus))
+	                    .put(
+	                        "ExternalStatus",
+	                        java.util.Objects.toString(
+	                            rs.getString("ExternalStatus"),
+	                            ""));
+	            }
+	        }
+	    } catch (java.sql.SQLException e) {
+	        logE(e);
+	    }
+
+	    return result;
+	}
+	
+	public java.util.Map<String, org.json.JSONObject> getArticleValidityData(java.util.Collection<String> articleIdentifiers) throws java.sql.SQLException {
+
+	    java.util.Map<String, org.json.JSONObject> result =
+	            new java.util.HashMap<>();
+
+	    if (articleIdentifiers == null || articleIdentifiers.isEmpty()) {
+	        return result;
+	    }
+
+	    handleRefreshConnection();
+
+	    java.util.List<String> ids =
+	            articleIdentifiers.stream()
+	                    .filter(java.util.Objects::nonNull)
+	                    .filter(s -> !s.isBlank())
+	                    .distinct()
+	                    .collect(java.util.stream.Collectors.toList());
+
+	    if (ids.isEmpty()) {
+	        return result;
+	    }
+
+	    String placeholders =
+	            String.join(
+	                    ",",
+	                    java.util.Collections.nCopies(ids.size(), "?"));
+
+	    String sql =
+	    		" select /*+ "
+		        + "     leading(ar acv) "
+		        + "     use_nl(acv) "
+		        + "     index(ar IX_AR_TUNE_01) "
+		        + "     index(acv IX_ACV_TUNE_02) "
+		        + " */ "
+	            + "        ar.\"Identifier\" \"ArticleIdentifier\" "
+	            + "       ,max(case "
+	            + "            when acv.\"CharacteristicID\" = 4383 "
+	            + "            then acv.\"Value\" "
+	            + "        end) \"FechaInicioVigenciaCostoNeto\" "
+	            + "       ,max(case "
+	            + "            when acv.\"CharacteristicID\" = 4382 "
+	            + "            then acv.\"Value\" "
+	            + "        end) \"FechaInicioVigenciaCostoImportacion\" "
+	            + "       ,max(case "
+	            + "            when acv.\"CharacteristicID\" = 4384 "
+	            + "            then acv.\"Value\" "
+	            + "        end) \"FechaInicioVigenciaPrecioVenta\" "
+	            + " from \"ArticleRevision\" ar "
+	            + " left join \"ArticleCharactValue\" acv "
+	            + "    on acv.\"ArticleRevisionID\" = ar.\"ID\" "
+	            + "   and acv.\"CharacteristicID\" in (4382,4383,4384) "
+	            + "   and acv.\"DeletionTimestamp\" = "
+	            + "       timestamp '9999-12-31 00:00:00.0' "
+	            + " where ar.\"Identifier\" in (" + placeholders + ") "
+	            + "   and ar.\"EntityID\" = 1000 "
+	            + "   and ar.\"RevisionID\" = 1 "
+	            + "   and ar.\"DeletionTimestamp\" = "
+	            + "       timestamp '9999-12-31 00:00:00.0' "
+	            + " group by ar.\"Identifier\"";
+
+	    try (java.sql.PreparedStatement pstmnt =
+	            connection().prepareStatement(sql)) {
+
+	        int p = 1;
+
+	        for (String id : ids) {
+	            pstmnt.setNString(p++, id);
+	        }
+
+	        pstmnt.setQueryTimeout(5);
+	        pstmnt.setFetchSize(ids.size());
+
+	        try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+
+	            while (rs.next()) {
+
+	                String identifier =
+	                        rs.getString("ArticleIdentifier");
+
+	                result.put(
+	                        identifier,
+	                        new org.json.JSONObject()
+	                                .put(
+	                                        "FechaInicioVigenciaCostoNeto",
+	                                        java.util.Objects.toString(
+	                                                rs.getNString(
+	                                                        "FechaInicioVigenciaCostoNeto"),
+	                                                ""))
+	                                .put(
+	                                        "FechaInicioVigenciaCostoImportacion",
+	                                        java.util.Objects.toString(
+	                                                rs.getNString(
+	                                                        "FechaInicioVigenciaCostoImportacion"),
+	                                                ""))
+	                                .put(
+	                                        "FechaInicioVigenciaPrecioVenta",
+	                                        java.util.Objects.toString(
+	                                                rs.getNString(
+	                                                        "FechaInicioVigenciaPrecioVenta"),
+	                                                "")));
+	            }
+	        }
+	    }
+
+	    return result;
 	}
 	
 	public java.util.List<org.json.JSONObject> getEccCharacteristicMetadataRows() {
@@ -4966,6 +5307,128 @@ public class DBAccessDataStub implements AutoCloseable {
 		}
 		log("From getProductVariants: " + rw.formatTime(System.currentTimeMillis() - init));
 		return variants;
+	}
+	
+	public org.json.JSONObject getProductIaGovernanceData(String identifier) {
+	    org.json.JSONObject result = new org.json.JSONObject()
+	            .put("ProductName", "")
+	            .put("ItemGroupIAConfidenceDir", "")
+	            .put("ItemGroupIAConfidenceIG", "")
+	            .put("ItemGroupIAConfidenceSec", "");
+
+	    if (identifier == null || identifier.trim().isEmpty()) {
+	        return result;
+	    }
+
+	    handleRefreshConnection();
+
+	    String sql =
+	          "select /*+ leading(ar) "
+	        + "           use_nl(al dir_cr dir_acv dir_lang "
+	        + "                  ig_cr ig_acv ig_lang "
+	        + "                  sec_cr sec_acv sec_lang) "
+	        + "           index(ar IX_AR_TUNE_01) "
+	        + "           index(dir_acv IX_ACV_TUNE_02) "
+	        + "           index(ig_acv IX_ACV_TUNE_02) "
+	        + "           index(sec_acv IX_ACV_TUNE_02) */ "
+	        + "       al.\"Res_Text250_01\" as \"ProductName\", "
+	        + "       dir_lang.\"Value\" as \"ItemGroupIAConfidenceDir\", "
+	        + "       ig_lang.\"Value\" as \"ItemGroupIAConfidenceIG\", "
+	        + "       sec_lang.\"Value\" as \"ItemGroupIAConfidenceSec\" "
+	        + "from \"ArticleRevision\" ar "
+
+	        + "left join \"ArticleLang\" al "
+	        + "       on al.\"ArticleRevisionID\" = ar.\"ID\" "
+	        + "      and al.\"LanguageID\" = 10 "
+	        + "      and al.\"DeletionTimestamp\" = "
+	        + "          timestamp '9999-12-31 00:00:00.0' "
+
+	        + "left join PIM_MAIN.\"CharacteristicRevision\" dir_cr "
+	        + "       on dir_cr.\"Identifier\" = 'ItemGroupIAConfidenceDir' "
+	        + "      and dir_cr.\"RevisionID\" = 1 "
+	        + "      and dir_cr.\"DeletionTimestamp\" = "
+	        + "          timestamp '9999-12-31 00:00:00.0' "
+	        + "left join \"ArticleCharactValue\" dir_acv "
+	        + "       on dir_acv.\"ArticleRevisionID\" = ar.\"ID\" "
+	        + "      and dir_acv.\"CharacteristicID\" = dir_cr.\"CharacteristicID\" "
+	        + "      and dir_acv.\"DeletionTimestamp\" = "
+	        + "          timestamp '9999-12-31 00:00:00.0' "
+	        + "left join \"ArticleCharactValueLang\" dir_lang "
+	        + "       on dir_lang.\"ArticleCharactValueID\" = dir_acv.\"ID\" "
+	        + "      and dir_lang.\"LanguageID\" = -1 "
+	        + "      and dir_lang.\"DeletionTimestamp\" = "
+	        + "          timestamp '9999-12-31 00:00:00.0' "
+
+	        + "left join PIM_MAIN.\"CharacteristicRevision\" ig_cr "
+	        + "       on ig_cr.\"Identifier\" = 'ItemGroupIAConfidenceIG' "
+	        + "      and ig_cr.\"RevisionID\" = 1 "
+	        + "      and ig_cr.\"DeletionTimestamp\" = "
+	        + "          timestamp '9999-12-31 00:00:00.0' "
+	        + "left join \"ArticleCharactValue\" ig_acv "
+	        + "       on ig_acv.\"ArticleRevisionID\" = ar.\"ID\" "
+	        + "      and ig_acv.\"CharacteristicID\" = ig_cr.\"CharacteristicID\" "
+	        + "      and ig_acv.\"DeletionTimestamp\" = "
+	        + "          timestamp '9999-12-31 00:00:00.0' "
+	        + "left join \"ArticleCharactValueLang\" ig_lang "
+	        + "       on ig_lang.\"ArticleCharactValueID\" = ig_acv.\"ID\" "
+	        + "      and ig_lang.\"LanguageID\" = -1 "
+	        + "      and ig_lang.\"DeletionTimestamp\" = "
+	        + "          timestamp '9999-12-31 00:00:00.0' "
+
+	        + "left join PIM_MAIN.\"CharacteristicRevision\" sec_cr "
+	        + "       on sec_cr.\"Identifier\" = 'ItemGroupIAConfidenceSec' "
+	        + "      and sec_cr.\"RevisionID\" = 1 "
+	        + "      and sec_cr.\"DeletionTimestamp\" = "
+	        + "          timestamp '9999-12-31 00:00:00.0' "
+	        + "left join \"ArticleCharactValue\" sec_acv "
+	        + "       on sec_acv.\"ArticleRevisionID\" = ar.\"ID\" "
+	        + "      and sec_acv.\"CharacteristicID\" = sec_cr.\"CharacteristicID\" "
+	        + "      and sec_acv.\"DeletionTimestamp\" = "
+	        + "          timestamp '9999-12-31 00:00:00.0' "
+	        + "left join \"ArticleCharactValueLang\" sec_lang "
+	        + "       on sec_lang.\"ArticleCharactValueID\" = sec_acv.\"ID\" "
+	        + "      and sec_lang.\"LanguageID\" = -1 "
+	        + "      and sec_lang.\"DeletionTimestamp\" = "
+	        + "          timestamp '9999-12-31 00:00:00.0' "
+
+	        + "where ar.\"Identifier\" = ? "
+	        + "  and ar.\"EntityID\" = 1100 "
+	        + "  and ar.\"RevisionID\" = 1 "
+	        + "  and ar.\"DeletionTimestamp\" = "
+	        + "      timestamp '9999-12-31 00:00:00.0'";
+
+	    try (java.sql.PreparedStatement pstmnt =
+	            connection().prepareStatement(sql)) {
+
+	        pstmnt.setNString(1, identifier);
+	        pstmnt.setQueryTimeout(30);
+
+	        try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+	            if (rs.next()) {
+	                result
+	                    .put(
+	                        "ProductName",
+	                        java.util.Objects.toString(
+	                            rs.getNString("ProductName"), ""))
+	                    .put(
+	                        "ItemGroupIAConfidenceDir",
+	                        java.util.Objects.toString(
+	                            rs.getNString("ItemGroupIAConfidenceDir"), ""))
+	                    .put(
+	                        "ItemGroupIAConfidenceIG",
+	                        java.util.Objects.toString(
+	                            rs.getNString("ItemGroupIAConfidenceIG"), ""))
+	                    .put(
+	                        "ItemGroupIAConfidenceSec",
+	                        java.util.Objects.toString(
+	                            rs.getNString("ItemGroupIAConfidenceSec"), ""));
+	            }
+	        }
+	    } catch (java.sql.SQLException e) {
+	        logE(e);
+	    }
+
+	    return result;
 	}
 	
 	public org.json.JSONObject getProductData(String identifier) {

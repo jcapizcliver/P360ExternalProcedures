@@ -51,13 +51,14 @@ public class NameAndProductName extends RESTDQRuleImpl {
 	public void processData(Map<String, JSONObject> sourceData, JSONArray records) {
 		if(proposalId != null) {
 			java.util.Map<String, String> qp = new java.util.TreeMap<>();
-			qp.put("entityFilter", "Product2GCharacteristicValue,Product2GStructureMap");
+//			qp.put("entityFilter", "structureMap,Product2GLang,Product2GCharacteristicValue");
 			qp.put("includeLabels", "true");
 			qp.put("includeIds", "true");
 			org.json.JSONObject objectResponse = rw.getRw().makeRequest("GET", "/object/Product2G/'" + proposalId + "'@1", qp, null);
 			log("Got prop ID " + proposalId);
 			if(objectResponse != null && objectResponse.has("_data") && objectResponse.getJSONObject("_data").has("_characteristicRecords")) {
 				log("got characteristic records");
+				
 				org.json.JSONArray cr = objectResponse.getJSONObject("_data").getJSONArray("_characteristicRecords");
 				org.json.JSONObject json = null;
 				java.util.Map<String, org.json.JSONObject> characteristicsMap = new java.util.TreeMap<>();
@@ -68,6 +69,14 @@ public class NameAndProductName extends RESTDQRuleImpl {
 					json = cr.getJSONObject(i);
 					characteristicsMap.put(json.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"), json);
 					log("\t" + proposalId + " - " + json.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code") + "||" + json );
+				}
+				java.util.Map<String, org.json.JSONObject> characteristicsMap2 = sourceData;
+				if(characteristicsMap2.isEmpty()) {
+					org.json.JSONObject json2 = null;
+					for(int i=0; i<records.length(); i++) {
+						json2 = records.getJSONObject(i);
+						characteristicsMap2.put(json2.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"), json2);
+					}
 				}
 				String[] td = new String[3];
 				td[0] = null;
@@ -111,23 +120,36 @@ public class NameAndProductName extends RESTDQRuleImpl {
 				}
 				log("Got template: " + template);
 				log("Got template name: " + templateName);
-				String negocio = getCharacteristicValue( characteristicsMap.get("Business"), false );
-				String prevPN = getCharacteristicValue( characteristicsMap.get("Name") );
-				String prevProductName = getCharacteristicValue( characteristicsMap.get("ProductName") );
-				String descriptionLong = getCharacteristicValue( characteristicsMap.get("DescriptionLong") );
-				String productTypeSAPLabel = getCharacteristicValue( characteristicsMap.get("ProductTypeSAP"), false );
-				String itemGroup = getCharacteristicValue( characteristicsMap.get("ItemGroup") );
-				if(itemGroup == null || "".equals(itemGroup)) {
-					itemGroup = getCharacteristicValue( characteristicsMap.get("ItemGroupS4H") );
-				}
-				if(itemGroup == null || "".equals(itemGroup)) {
-					if(objectResponse.getJSONObject("_data").has("productExtraData")) {
-						if(objectResponse.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).has("itemGroup")) {
-							itemGroup = objectResponse.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getString("itemGroup");
-						}else if(objectResponse.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).has("itemGroupS4H")) {
-							itemGroup = objectResponse.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getString("itemGroupS4H");
+				org.json.JSONObject esLang = null;
+				if(objectResponse.has("lang")) {
+					org.json.JSONArray lang = objectResponse.getJSONArray("lang");
+					for(int i=0; i<lang.length(); i++) {
+						if(10 == lang.getJSONObject(i).getJSONObject("_qualification").getJSONObject("language").getInt("_key")) {
+							esLang = lang.getJSONObject(i);
 						}
 					}
+					if(esLang != null) {
+						
+					}
+				}
+				String negocio = objectResponse.has("business") ? objectResponse.getJSONObject("business").getString("_label") : getCharacteristicValue( characteristicsMap.get("Business"), false );
+				String prevPN = esLang != null && esLang.has("descriptionShort") ? esLang.getString("descriptionShort") : null;
+				String prevProductName = esLang != null && esLang.has("productName") ? esLang.getString("productName") : null;
+				String descriptionLong = esLang != null && esLang.has("descriptionLong") ? esLang.getString("descriptionLong") : null;
+				String productTypeSAPLabel = getCharacteristicValue( characteristicsMap.get("ProductTypeSAP"), false );
+				String itemGroup = null;
+				if(objectResponse.getJSONObject("_data").has("productExtraData")) {
+					if(objectResponse.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).has("itemGroup")) {
+						itemGroup = objectResponse.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getJSONObject("itemGroup").getString("_label");
+					}else if(objectResponse.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).has("itemGroupS4H")) {
+						itemGroup = objectResponse.getJSONObject("_data").getJSONArray("productExtraData").getJSONObject(0).getJSONObject("itemGroupS4H").getString("_label");
+					}
+				}
+				if(itemGroup == null || "".equals(itemGroup)) {
+					itemGroup = getCharacteristicValue( characteristicsMap.get("ItemGroup") );
+				}
+				if(itemGroup == null || "".equals(itemGroup)) {
+					itemGroup = getCharacteristicValue( characteristicsMap.get("ItemGroupS4H") );
 				}
 				log("Order of attributes for name: " + orderOfAttributesForName);
 				log("Got these:");
@@ -141,15 +163,20 @@ public class NameAndProductName extends RESTDQRuleImpl {
 					log("Came here to loop");
 					String[] elements = orderOfAttributesForName.split(",");
 					StringBuilder sb = new StringBuilder();
+					String val = null;
 					for(String element : elements) {
+						val = getCharacteristicValue( characteristicsMap.get(element) );
+						if(val == null || "".equals(val)) {
+							val = getCharacteristicValue( characteristicsMap2.get(element) );
+						}
 						log(proposalId + " - " + element + " || " + ("ProductTypeSAP".equals(element) ? "$ " + getCharacteristicValue( characteristicsMap.get(element) ).replaceAll("^\\d+ - ", "") + " $" : " -->" + getCharacteristicValue( characteristicsMap.get(element) ) + "<-- " + characteristicsMap.get(element) + " <::> "));
 						if("ProductTypeSAP".equals(element)) {
-							sb.append(sb.length() == 0 ? "" : ", ").append(getCharacteristicValue( characteristicsMap.get(element) ).replaceAll("^\\d+ - ", ""));
+							sb.append(sb.length() == 0 ? "" : ", ").append(val.replaceAll("^\\d+ - ", ""));
 						}else
 							if(!element.contains("\"")) {
 								sb
 								.append(sb.length() == 0 ? "" : ", ")
-								.append(getCharacteristicValue( characteristicsMap.get(element) ));
+								.append(val);
 							}else {
 								sb
 								.append(sb.length() == 0 ? "" : ", ")
@@ -228,12 +255,12 @@ public class NameAndProductName extends RESTDQRuleImpl {
 			String prevPN = getCharacteristicValue( characteristicsMap.get("Name") );
 			String descriptionLong = getCharacteristicValue( characteristicsMap.get("DescriptionLong") );
 			String productTypeSAPLabel = getCharacteristicValue( characteristicsMap.get("ProductTypeSAP"), false );
-			log("Business: " + negocio);
-			log("orderOfAttributesForName: " + orderOfAttributesForName);
 			String itemGroup = getCharacteristicValue( characteristicsMap.get("ItemGroup") );
 			if(itemGroup == null || "".equals(itemGroup)) {
 				itemGroup = getCharacteristicValue( characteristicsMap.get("ItemGroupS4H") );
 			}
+			log("Business: " + negocio);
+			log("orderOfAttributesForName: " + orderOfAttributesForName);
 			log("PrevPN: " + prevPN);
 			if(orderOfAttributesForName != null && !"".equals(orderOfAttributesForName) && (prevPN == null || prevPN.isEmpty()) ) {
 				String[] elements = orderOfAttributesForName.split(",");
@@ -391,9 +418,9 @@ public class NameAndProductName extends RESTDQRuleImpl {
 			newCharacteristicRecords.put( createCharacteristicValueObject("ItemGroup",  new org.json.JSONObject().put("_code", itemGroup) ) );
 			newCharacteristicRecords.put( createCharacteristicValueObject("Section",  new org.json.JSONObject().put("_code", section) ) );
 			newCharacteristicRecords.put( createCharacteristicValueObject("Direction",  new org.json.JSONObject().put("_code", direction) ) );
-			newCharacteristicRecords.put( createCharacteristicValueObject("ItemGroupIAConfidenceDir", String.valueOf( jsonResponse.getDouble("direction_confidence") ) ) );
-			newCharacteristicRecords.put( createCharacteristicValueObject("ItemGroupIAConfidenceSec", String.valueOf( jsonResponse.getDouble("section_confidence") ) ) );
-			newCharacteristicRecords.put( createCharacteristicValueObject("ItemGroupIAConfidenceIG",  String.valueOf( jsonResponse.getDouble("item_group_confidence") ) ) );
+			newCharacteristicRecords.put( createCharacteristicValueObject("ItemGroupIAConfidenceDir", String.valueOf( jsonResponse.optDouble("direction_confidence", 0d) ) ) );
+			newCharacteristicRecords.put( createCharacteristicValueObject("ItemGroupIAConfidenceSec", String.valueOf( jsonResponse.optDouble("section_confidence", 0d) ) ) );
+			newCharacteristicRecords.put( createCharacteristicValueObject("ItemGroupIAConfidenceIG",  String.valueOf( jsonResponse.optDouble("item_group_confidence", 0d) ) ) );
 		}catch(Exception e) {
 			genericFieldErrors.put(new org.json.JSONObject().put("message", "Error al calcular grupo de artículos desde la IA.").put("fields", new org.json.JSONArray() /* .put("ProductTypeSAP").put("Name") */ ));
 			logE(e);

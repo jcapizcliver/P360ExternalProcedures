@@ -142,11 +142,11 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 		    PropertiesManager.get("p360.contingency.gcp.idmc_put_products")
 		);
 
-		private final PubSubGCP pubPostProducts = new PubSubGCP(
-		    PropertiesManager.get("p360.contingency.gcp.service_account_back"),
-		    PropertiesManager.get("p360.contingency.gcp.project_back"),
-		    PropertiesManager.get("p360.contingency.gcp.post_products_topic")
-		);
+//		private final PubSubGCP pubPostProducts = new PubSubGCP(
+//		    PropertiesManager.get("p360.contingency.gcp.service_account_back"),
+//		    PropertiesManager.get("p360.contingency.gcp.project_back"),
+//		    PropertiesManager.get("p360.contingency.gcp.post_products_topic")
+//		);
 	
 	private final java.util.List<String> toPublish = new java.util.ArrayList<>();
 	private final java.util.List<String> toMkt = new java.util.ArrayList<>();
@@ -440,7 +440,7 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 				rh.sendData();
 				rh2.sendData();
 				pubIdmcPutProducts.publishMessage(jsonResponse.toString());
-				pubPostProducts.publishMessage(jsonResponsePO.toString());
+//				pubPostProducts.publishMessage(jsonResponsePO.toString());
 				toPublish.clear();
 			}
 		}
@@ -1041,7 +1041,7 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 							}
 							log("JSONResponse (from product status change): " + jsonResponse);
 							pubIdmcPutProducts.publishMessage(jsonResponse.toString());
-							pubPostProducts.publishMessage(jsonResponse4PO.toString());
+//							pubPostProducts.publishMessage(jsonResponse4PO.toString());
 						}else if(changedFieldSet.contains("Article.CurrentStatus")) {
 						}
 				}else if("StructureGroup".equals(entity)) {

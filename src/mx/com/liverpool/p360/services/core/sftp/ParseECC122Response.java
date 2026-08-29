@@ -158,15 +158,15 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 	
 
 	private final org.json.JSONArray rowsSKU = new org.json.JSONArray();
-	private final org.json.JSONArray columnsSKU = new org.json.JSONArray()
-			.put(new org.json.JSONObject().put("identifier", "Product2G.SKU"))
-			;
+	private final org.json.JSONArray columnsSKU = new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2G.SKU"));
 	private final org.json.JSONObject requestSKU = new org.json.JSONObject().put("columns", columnsSKU).put("rows", rowsSKU);
 	
+	private final org.json.JSONArray rowsSAP_BEHVO = new org.json.JSONArray();
+	private final org.json.JSONArray columnsSAP_BEHVO = new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('SAP_BEHVO',root,\"0000.0000.RK\",'SAP_BEHVO',-1)"));
+	private final org.json.JSONObject requestSAP_BEHVO = new org.json.JSONObject().put("columns", columnsSAP_BEHVO).put("rows", rowsSAP_BEHVO);
+	
 	private final org.json.JSONArray rowsSKUA = new org.json.JSONArray();
-	private final org.json.JSONArray columnsSKUA = new org.json.JSONArray()
-			.put(new org.json.JSONObject().put("identifier", "Article.SKU"))
-			;
+	private final org.json.JSONArray columnsSKUA = new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Article.SKU"));
 	private final org.json.JSONObject requestSKUA = new org.json.JSONObject().put("columns", columnsSKUA).put("rows", rowsSKUA);
 
 	private final org.json.JSONArray rowsAltProductNo = new org.json.JSONArray();
@@ -678,7 +678,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 			sku = attributeValues.get( "MATNR" );
 			matkl = attributeValues.get( "MATKL" );
 			pe000 = attributeValues.get("PE000");
-			sapBehvo = attributeValues.get("SAP_BEHVO");
+			sapBehvo = attributeValues.get("BEHVO");
 			fshId = attributeValues.get("FSH_ID");
 			mtart = attributeValues.get("MTART");
 			
@@ -698,7 +698,15 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 				skuToArticleSupplierAID.put(sku, znprst);
 			}
 			String externalId = null;
-			String entity = null;
+			String entity = "00".equals(attyp) || "10".equals(attyp) ? "Individual" : "01".equals(attyp) ? "Product2G" : "02".equals(attyp) ? "Article" : null;
+			
+			if("MARKETPLACE".equals(negocio)) {
+				info = tools.checkArticle(znprst);
+				if(info != null) {
+					rowsSAP_BEHVO.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + info[0] + "'@1")).put("values", new org.json.JSONArray().put(sapBehvo)));
+					log("---> Added behvo: " + sapBehvo + " to " + info[0] + " from me: " + znprst);
+				}
+			}
 			
 			if(znprst != null && !"".equals(znprst)) {
 				externalId = znprst;
@@ -732,14 +740,14 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 						
 						sendArticleSKUToAdmin(znprst, sku, dr);
 						log("PeléPe. SAPObjectType: " + info[1] + ", Business: " + info[2]);
-						if("00".equals(info[1]) && !"MKP".equals(info[2])) {
+						if(( "00".equals(info[1]) || "10".equals(info[1]) ) && !"MKP".equals(info[2])) {
 							entity = "Individual";
 							addValue("MensajeCreacionSKU", "Article", znprst, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()) );
 							sendWriteRequest("Product2G", info[0], info[3], info[4]);
 							newAttributeValues.put(info[0], attributeValues);
 							log("Sending write request as individual");
 							sendWriteRequestProduct(info[0], matkl, pe000, negocio);
-						} else if("00".equals(info[1]) && "MKP".equals(info[2])) {
+						} else if(( "00".equals(info[1]) || "10".equals(info[1]) ) && "MKP".equals(info[2])) {
 							entity = "Article";
 							log("MariMba... " + java.util.Arrays.asList(info));
 							checkParentVariantsCompleteness(info[0], znprst, "", info[4]);
@@ -753,18 +761,18 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 						log("Was Article (" + znprst + "), " + ( info != null ? java.util.Arrays.asList(info) : "NaA") );
 					}else {
 						log("Not a known product (" + znprst + ") <:>" + negocio + "<:>");
-						if("00".equals(attyp)) {
+						if("00".equals(attyp) || "10".equals(attyp)) {
 							String originalznprst = znprst;
 							String productZNPRST = null;
 							znprst = chooseProperProductZNPRST(sku, znprst);
 							productZNPRST = znprst;
 							entity = "Individual";
-							addValue("SAPObjectType", "Product2G", znprst, "00" );
+							addValue("SAPObjectType", "Product2G", znprst, attyp );
 							addValue("Business", "Product2G", znprst, "LVP" );
 							sendWriteRequestProduct(znprst, matkl, pe000, negocio);
 							
 							znprst = chooseProperArticleZNPRST(sku, originalznprst);
-							addValue("SAPObjectType", "Article", znprst, "00" );
+							addValue("SAPObjectType", "Article", znprst, attyp );
 							sendWriteRequest("Article",  znprst, null, null);
 							nuevosValores.add(znprst);
 							newAttributeValues.put(znprst, attributeValues);
@@ -844,7 +852,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 						    addValue("MensajeCreacionSKU", "Product2G", znprst, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()));
 						    sendProductSKUToAdmin(znprst, sku, dr);
 	
-						    if(info != null && "00".equals(info[0])) {
+						    if(info != null && ( "00".equals(info[0]) || "10".equals(info[0]) )) {
 						        itemId = getArticleIdFromProduct(znprst);
 						        log("Article.SupplierAID: " + itemId);
 						        addValue("MensajeCreacionSKU", "Article", itemId, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()));
@@ -890,17 +898,17 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 							log("-->" + java.util.Arrays.asList(info));
 							addValue("MensajeCreacionSKU", "Product2G", info[0], "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()) );
 							sendWriteRequest("Product2G", info[0], info[3], info[4]);
-							if("00".equals(info[1])) {
+							if(( "00".equals(info[1]) || "10".equals(info[1]) )) {
 								addValue("MensajeCreacionSKU", "Article", info[0], "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()) );
-								sendWriteRequest("Article", info[0], null, null);
+								sendWriteRequest("Article", info[0], null, null); // ##
 								newAttributeValues.put(info[0], attributeValues);
 								itemId = tools.checkArticleBySKU(sku);
-								if(itemId != null && !"".equals(itemId) && !"null".equals(itemId))
-									articleHigherLevelProduct.put(itemId, externalId);
+//								if(itemId != null && !"".equals(itemId) && !"null".equals(itemId))
+//									articleHigherLevelProduct.put(itemId, externalId);
 							}
 							sendProductSKUToAdmin(externalId, sku, dr);
 							newAttributeValues.put(info[0], attributeValues);
-							sendWriteRequestProduct(externalId, matkl, pe000, negocio);
+//							sendWriteRequestProduct(externalId, matkl, pe000, negocio);
 						}
 					} else {
 						itemId = tools.checkArticleBySKU(sku);
@@ -908,43 +916,32 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 							// Pero hay más de uno al consultar directamente P360, entonces hay que decidir...
 							externalId = itemId;
 							entity = "Article";
-							if("00".equals(attyp)) {
+//							String pid = externalId;
+//							String rr = dr.getProductByVariant(new org.json.JSONArray().put(itemId));
+//							if(rr != null) {
+//								try {
+//									org.json.JSONObject j = new org.json.JSONObject(rr);
+//									org.json.JSONArray itms = j.getJSONArray("items");
+//									if(!"".equals(itms.getString(0))) {
+//										pid = itms.getString(0);
+//									}
+//								}catch(org.json.JSONException e) {
+//									log("Couldn't parse json response from pvia.");
+//								}
+//							}
+							if("00".equals(attyp) || "10".equals(attyp)) {
 								entity = "Individual";
-								String pid = externalId;
-								String rr = dr.getProductByVariant(new org.json.JSONArray().put(itemId));
-								if(rr != null) {
-									try {
-										org.json.JSONObject j = new org.json.JSONObject(rr);
-										org.json.JSONArray itms = j.getJSONArray("items");
-										if(!"".equals(itms.getString(0))) {
-											pid = itms.getString(0);
-											rr = dr.getProductData(new org.json.JSONArray().put(pid));
-											if(rr != null) {
-												j = new org.json.JSONObject(rr);
-												itms = j.getJSONArray("items");
-												org.json.JSONObject itm = itms.getJSONObject(0);
-												log("Individual a partir de SKU plano. Encontramos sku en artículo. " + itm);
-												addValue("MensajeCreacionSKU", "Product2G", pid, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()) );
-												sendWriteRequest("Product2G", pid, itm.getString("FotoTomadaLiverpool"), itm.getString("CurrentStatus"));
-											}
-										}
-									}catch(org.json.JSONException e) {
-										log("Couldn't parse json response from pvia.");
-									}
-								}else {
-									sendWriteRequest("Product2G", pid, "Y", "1020");
-								}
 								
-								sendProductSKUToAdmin(externalId, sku, dr);
-								sendArticleSKUToAdmin(externalId, sku, dr);
+//								sendProductSKUToAdmin(externalId, sku, dr);
+//								sendArticleSKUToAdmin(externalId, sku, dr);
 								
-								sendWriteRequestProduct(externalId, matkl, pe000, negocio);
-								articleHigherLevelProduct.put(externalId, pid);
-								org.json.JSONArray items = new org.json.JSONArray();
-								if(!"".equals(sku)) {
-									items.put(new org.json.JSONObject().put("productNo", pid).put("sku", sku));
-									log("From registering to admin 00: " + dr.skuProductNo( items ) );
-								}
+//								sendWriteRequestProduct(pid, matkl, pe000, negocio);
+//								articleHigherLevelProduct.put(externalId, pid);
+//								org.json.JSONArray items = new org.json.JSONArray();
+//								if(!"".equals(sku)) {
+//									items.put(new org.json.JSONObject().put("productNo", pid).put("sku", sku));
+//									log("From registering to admin 00: " + dr.skuProductNo( items ) );
+//								}
 								niños = misniños.get(externalId);
 								if(niños == null) {
 									niños = new java.util.ArrayList<>();
@@ -952,28 +949,29 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 								}
 								niños.add(attributeValues);
 							}else if("02".equals(attyp)) {
-								conciliaRelacionArticuloProducto(
-								        externalId,
-								        sku,
-								        null,
-								        satnr,
-								        articleHigherLevelProductNotReadyYet,
-								        dr
-								);
+								entity = "Article";
+//								conciliaRelacionArticuloProducto(
+//								        externalId,
+//								        sku,
+//								        pid,
+//								        satnr,
+//								        articleHigherLevelProductNotReadyYet,
+//								        dr
+//								);
 							}
-							sendArticleSKUToAdmin(externalId, sku, dr);
+//							sendArticleSKUToAdmin(externalId, sku, dr);
 							addValue("MensajeCreacionSKU", "Article", itemId, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()) );
-							sendWriteRequest("Article", itemId, null, null);
+//							sendWriteRequest("Article", itemId, null, null);
 						} else {
 							log("Brand new SKU for P360: " + sku + " (" + znprst + ")");
 							log("Not a known product (" + znprst + ") <:>" + negocio + "<:>" + attyp);
-							if("00".equals(attyp)) {
+							if("00".equals(attyp) || "10".equals(attyp)) {
 								sendProductSKUToAdmin(externalId, sku, dr);
 								sendArticleSKUToAdmin(externalId, sku, dr);
 								entity = "Individual";
-								addValue("SAPObjectType", "Product2G", externalId, "00" );
+								addValue("SAPObjectType", "Product2G", externalId, attyp );
 								addValue("Business", "Product2G", externalId, "LVP" );
-								addValue("SAPObjectType", "Article", externalId, "00" );
+								addValue("SAPObjectType", "Article", externalId, attyp );
 								sendWriteRequest("Article",   externalId, null, null);
 								sendWriteRequestProduct(externalId, matkl, pe000, negocio);
 								nuevosValores.add(externalId);
@@ -1025,6 +1023,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 					log("No SKU found either!");
 				}
 			}
+			
 			if(externalId != null && !unidades.isEmpty() && "Product2G".equals(entity))
 				agregaUnidadesDeMedida(unidades, charIDToECC, externalId);
 			String productId = externalId;
@@ -1045,7 +1044,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 			}
 			if(externalId != null && ("Product2G".equals(entity) || "Individual".equals(entity)) ) {
 				try {
-					calculaProductType(sapBehvo, matkl, fshId, "Liverpool", ae253, mtart, mtart, productId, workshop);
+					calculaProductType(sapBehvo, matkl, fshId, "Liverpool", ae253, mtart, mtart, externalId, workshop);
 				} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
 					e.printStackTrace();
 				}
@@ -2431,6 +2430,10 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 		if(rowsSKU.length() > 0) { 
 			log("Sending skus (product): " + rowsSKU.length());
 			rw.writeData("list", "Product2G", null, qp, requestSKU, this::log);
+		}
+		if(rowsSAP_BEHVO.length() > 0) { 
+			log("Sending SAP_BEHVO (product): " + rowsSAP_BEHVO.length());
+			rw.writeData("list", "Product2G", null, qp, requestSAP_BEHVO, this::log);
 		}
 		if(rowsSKUA.length() > 0) {
 			log("sending skus only (article): " + rowsSKUA.length() + "");

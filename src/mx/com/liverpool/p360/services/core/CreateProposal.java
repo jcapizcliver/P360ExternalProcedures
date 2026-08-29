@@ -717,19 +717,6 @@ public class CreateProposal implements Closeable {
 		return new java.util.ArrayList<>(values);
 	}
 	
-	private void loadTemplateMetaData() {
-		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream( PropertiesManager.get("p360.contingency.create_proposal.structure_group_attribute_name_guide") )))){
-			String line = null;
-			String[] pieces = null;
-			while((line = br.readLine()) != null) {
-				pieces = workshop.parseLine(line);
-				templateMetaData.put(pieces[0], new String[] {pieces[1], pieces[2], pieces[3]});
-			}
-		}catch(java.io.IOException e) {
-			logE(e);
-		}
-	}
-	
 	private String fetchImagesForProduct(String productId) {
 		try {
 			JdbcConfig cng = initJdbcConfig();
@@ -855,6 +842,7 @@ public class CreateProposal implements Closeable {
 			, java.util.List<String> sections
 			, org.json.JSONArray variantsWithMe
 			, boolean unMasiosare
+			, String userAction
 	) throws KeyManagementException, NoSuchAlgorithmException, URISyntaxException, IOException, ServiceUnavailableException {
 		log("Ya venimos aquí a ver que Chao");
 		org.json.JSONArray characteristicRecords = characteristics; //dt.getJSONArray("_characteristicRecords");
@@ -879,11 +867,10 @@ public class CreateProposal implements Closeable {
 		}else {
 			
 		}
-		log("Template: " + template);
-		if(template != null && ( "1020".equals(status) || "1003".equals(status) || unMasiosare)) {
+		log("Template: " + template + " (" + status + ")");
+		if(template != null && ( "1020".equals(status) || "1003".equals(status) || "10031".equals(status) || unMasiosare)) {
 			addElement("ParentSKU", template, characteristics);
-			loadTemplateMetaData();
-			String[] templateMD = templateMetaData.get(template);
+			String[] templateMD = null;
 			if(templateMD == null) {
 				try { 
 					log("Not found, querying for it...");
@@ -3661,23 +3648,10 @@ public class CreateProposal implements Closeable {
 						}
 							log("UwU :>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>> ");
 							if(externalProductId != null && !"".equals(externalProductId) && (internalStatus == null || "".equals(internalStatus))) {
-								java.util.Map<String, String> qp = new java.util.TreeMap<>();
-								qp.put("entityFilter", "Product2G");
-								qp.put("includeLabels", "true");
-								qp.put("includeIds", "true");
-								org.json.JSONObject laresponse = workshop.makeRequest("GET", "/object/Product2G/'" + externalProductId + "'@'MASTER'", qp, null);
-								if(laresponse != null) {
-									org.json.JSONObject ladata = laresponse.getJSONObject("_data");
-									if(ladata != null) {
-										internalStatus = !ladata.has("currentStatus")  ? "" : String.valueOf( ladata.getJSONObject("currentStatus").getInt("_key") );
-										previousStatus = !ladata.has("previousStatus") ? "" : String.valueOf( ladata.getJSONObject("previousStatus").getInt("_key") );
-										externalStatus = !ladata.has("externalStatus") ? "" : ladata.getJSONObject("externalStatus").getString("_code");
-									}
-								}else {
-									log("Error trying to retrieve status info: " + workshop.getRawResponse());
-									log("Error trying to retrieve status info (exception): " + workshop.getException());
-									logE(workshop.getException());
-								}
+								org.json.JSONObject statusData = dastub.getProductStatusData(externalProductId);
+								internalStatus = statusData.optString("CurrentStatus", "");
+								previousStatus = statusData.optString("PreviousStatus", "");
+								externalStatus = statusData.optString("ExternalStatus", "");
 							}
 							// { "userAction":"Finish|InProgress|Cancelada|Rescue|UndoRescue", "targetRol":"Compras|SKU|QA" }
 							log((externalProductId == null ? "---" : externalProductId) +  " User Action: " + userAction + ", Target Role: " + product.optString("targetRole", "---"));
@@ -3734,7 +3708,7 @@ public class CreateProposal implements Closeable {
 	//							characteristicArray.put( createCharacteristicValueObject("Suburbia".equals(business) ? "SB_0002" : "ProductTypeSAP", new org.json.JSONObject().put("_code", productFromItemGroup ) ) );
 	//						}
 							if(!sections.isEmpty() || unMasiosare) {
-	/*************************/ computeGeneric(externalProductId, characteristicArray, templateId, internalStatus, business, itemGroup == null || "".equals(itemGroup) ? itemGroupS4H : itemGroup, sections, variantes, unMasiosare); /*****************************************/
+	/*************************/ computeGeneric(externalProductId, characteristicArray, templateId, internalStatus, business, itemGroup == null || "".equals(itemGroup) ? itemGroupS4H : itemGroup, sections, variantes, unMasiosare, userAction); /*****************************************/
 								boolean fnd = false;
 								if("00".equals( sapObjectType ) ){
 									for(int p=0; p<characteristicArray.length(); p++) {
@@ -3784,58 +3758,60 @@ public class CreateProposal implements Closeable {
 								reqObj.put("_characteristicRecords", characteristicArray);
 							}
 							String pn = null;
-							if(externalProductId != null && !"".equals(externalProductId)) {
-								String drr = dr.getProductData(new org.json.JSONArray().put(externalProductId));
-								if(drr != null) {
-									org.json.JSONObject dro = new org.json.JSONObject(drr);
-									org.json.JSONArray items = dro.getJSONArray("items");
-									org.json.JSONObject item = items.getJSONObject(0);
-									if(("".equals(item.getString("ItemGroup")) && "".equals(item.getString("ItemGroupS4H"))) || "".equals(item.getString("Section"))) {
-										java.math.BigDecimal igConf = null;
-										java.math.BigDecimal se = null;
-										java.math.BigDecimal dirConf = null;
-										for(int idx=0; idx<characteristicArray.length(); idx++) {
-											if("ItemGroupIAConfidenceDir".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
-												dirConf = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
-											}else if("ItemGroupIAConfidenceIG".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
-												igConf = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
-											}else if("ItemGroupIAConfidenceSec".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
-												se = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
-											}else if("ProductName".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
-												pn = characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-											}
-										}
-										if( igConf != null || se != null || dirConf != null ) {
-											if(igConf != null) {
-												if(igConf.compareTo( new java.math.BigDecimal(0.999517) ) <= 0) {
-													internalStatus = "1021";
-												}
-											}
-											if(dirConf != null) {
-												if(dirConf.compareTo( new java.math.BigDecimal(0.999517) ) <= 0) {
-													internalStatus = "1021";
-												}
-											}
-											if(se != null) {
-												if(se.compareTo( new java.math.BigDecimal(0.999517) ) <= 0) {
-													internalStatus = "1021";
-												}
-											}
+							if("Finished".equals(userAction)) {
+								if(externalProductId == null || "".equals(externalProductId)) {
+									java.math.BigDecimal igConf = null;
+									java.math.BigDecimal se = null;
+									java.math.BigDecimal dirConf = null;
+									for(int idx=0; idx<characteristicArray.length(); idx++) {
+										if("ItemGroupIAConfidenceDir".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
+											dirConf = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
+										}else if("ItemGroupIAConfidenceIG".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
+											igConf = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
+										}else if("ItemGroupIAConfidenceSec".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
+											se = new java.math.BigDecimal( characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) );
+										}else if("ProductName".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
+											productName = productName == null || "".equals(productName) ? characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0) : productName;
 										}
 									}
-								}
-							}else {
-								if(pn == null || "".equals(pn)) {
-									for(int idx=0; idx<characteristicArray.length(); idx++) {
-										if("ProductName".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
-											pn = characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-										}
+									if( igConf != null || se != null || dirConf != null ) {
+										java.math.BigDecimal threshold = new java.math.BigDecimal("0.999517");
+									    if (
+									    		   (igConf != null && igConf.compareTo(threshold) <= 0)
+									            || (dirConf != null && dirConf.compareTo(threshold) <= 0)
+									            || (se != null && se.compareTo(threshold) <= 0)) {
+									        internalStatus = "1021";
+									        log( "Switching direction for product" );
+									    }
+									}
+								}else {
+									org.json.JSONObject iaData = dastub.getProductIaGovernanceData(externalProductId);
+									java.math.BigDecimal dirConf = decimalOrNull(iaData.optString("ItemGroupIAConfidenceDir", ""));
+									java.math.BigDecimal igConf = decimalOrNull(iaData.optString("ItemGroupIAConfidenceIG", ""));
+									java.math.BigDecimal se = decimalOrNull(iaData.optString("ItemGroupIAConfidenceSec", ""));
+									productName = productName == null || "".equals(productName) ? iaData.optString("ProductName", "") : productName;
+									if (igConf != null || se != null || dirConf != null) {
+									    java.math.BigDecimal threshold = new java.math.BigDecimal("0.999517");
+									    if (
+									    		   (igConf != null && igConf.compareTo(threshold) <= 0)
+									            || (dirConf != null && dirConf.compareTo(threshold) <= 0)
+									            || (se != null && se.compareTo(threshold) <= 0)) {
+									        internalStatus = "1021";
+									        log( "Switching direction for product " + externalProductId );
+									    }
 									}
 								}
 							}
 							
-							if(productName != null) {
+							if(productName != null && !"".equals(productName)) {
 								pn = productName;
+							}
+							if(pn == null || "".equals(pn)) {
+								for(int idx=0; idx<characteristicArray.length(); idx++) {
+									if("ProductName".equals(characteristicArray.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"))) {
+										pn = characteristicArray.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+									}
+								}
 							}
 							if(longDescription != null) {
 								if(reqObj.has("lang")) {
@@ -3955,23 +3931,14 @@ public class CreateProposal implements Closeable {
 							
 							if(!sample) {
 	
-	//							if(!sample && !"".equals(externalProductId)) {
-	//								reqObj = new org.json.JSONObject();
-									reqObj.put("currentStatus", new org.json.JSONObject().put("_code", internalStatus));
-									if (!"".equals(previousStatus) && previousStatus != null) {
-										log("Placing previous Status: " + previousStatus);
-										reqObj.put("previousStatus", new org.json.JSONObject().put("_code", previousStatus));
-									}
-									reqObj.put("externalStatus", new org.json.JSONObject().put("_code", externalStatus));
-	//								log("External Product Id 2: " + (externalProductId));
-	//								if(externalProductId != null && !"".equals(externalProductId)) {
-	//									log("GOING WITH PUT <:>" + reqObj + "<:>");
-	//									rawResp = this.rc.getRequest("PUT",
-	//											this.objectAPIProduct2GURL + "/'" + externalProductId + "'@'MASTER'?includeLabels=true", reqObj.toString());
-	//								}
-	//							}
+								reqObj.put("currentStatus", new org.json.JSONObject().put("_code", internalStatus));
+								if (!"".equals(previousStatus) && previousStatus != null) {
+									log("Placing previous Status: " + previousStatus);
+									reqObj.put("previousStatus", new org.json.JSONObject().put("_code", previousStatus));
+								}
+								reqObj.put("externalStatus", new org.json.JSONObject().put("_code", externalStatus));
 								
-								log("External Product Id 2: " + (externalProductId));
+								log("External Product Id 2: " + (externalProductId) + "||" + internalStatus + "||" + previousStatus + "||" + externalStatus);
 								if(externalProductId != null && !"".equals(externalProductId)) {
 									log("GOING WITH PUT <:>" + reqObj + "<:>");
 									rawResp = this.rc.getRequest("PUT", this.objectAPIProduct2GURL + "/'" + externalProductId + "'@'MASTER'?includeLabels=true", reqObj.toString());
@@ -4036,108 +4003,6 @@ public class CreateProposal implements Closeable {
 							
 							log("On writing proposal... " + rawResp);
 							/** If there are any errors, should report them back **/
-							if(new org.json.JSONObject(rawResp).getJSONObject("_protocol").getInt("errorCounter") == 0) {
-								if("1021".equals(internalStatus))
-									ingresaWorkflow("'" + externalProductId + "'@1", "23543", "IGIAStewardship", "Item Group Review");
-								log("Bout to do");
-								if(!sample) { /*
-									log("Array ? " + (characteristicArray == null ? "x.x" : characteristicArray.length()));
-									if(characteristicArray != null) {
-										String ig = null;
-										String igs = null;
-										String bn = null;
-										String bids = null;
-										String bs = business;
-										String spl = supplier;
-										String tmpl = templateId;
-										String cs = internalStatus;
-										String atnt = "";
-										String sot = null;
-										String ftl = null;
-										String mbc = null;
-										String mbcs = null;
-										String cid = null;
-										try {
-											jo = null;
-											for(int m=0; m<characteristicArray.length(); m++) {
-												jo = characteristicArray.getJSONObject(m);
-												cid = jo.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-												if("Direction".equals(cid)) {
-													direction = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-												}else if("Section".equals(cid)) {
-													section = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-												}else if("ItemGroup".equals(cid)) {
-													ig = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-												}else if("ItemGroupS4H".equals(cid)) {
-													igs = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-												}else if("BrandName".equals(cid)) {
-													bn = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-												}else if("BRAND_ID_S4H".equals(cid)) {
-													bids = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-												}else if("Business".equals(cid)) {
-													bs = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(0) instanceof org.json.JSONObject ? jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).has("_code") ? jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code") : "Marketplace".equals( jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label") ) ? "MKP" : "Liverpool".equals( jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label") ) ? "LVP" : "SBB" : String.valueOf( jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(0) );
-												}else if("SAPObjectType".equals(cid)) {
-													sot = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-												}else if("FotoTomadaLiverpool".equals(cid)) {
-													ftl = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-												}else if("MainBarCode".equals(cid)) {
-													mbc = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-												}else if("MainBarCodeS4H".equals(cid)) {
-													mbcs = jo.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
-												}
-											}
-											DataRequestor dr = new DataRequestor();
-											if(externalProductId != null && !"".equals(externalProductId)) {
-												String r = dr.getProductData( new org.json.JSONArray().put(externalProductId) );
-												if(r != null) {
-													log("JK -> " + r);
-													org.json.JSONObject jr = new org.json.JSONObject(r);
-													org.json.JSONArray items = jr.getJSONArray("items");
-													org.json.JSONObject item = items.getJSONObject(0);
-													if(section != null)
-														item.put("Section", section);
-													if(ig != null)
-														item.put("ItemGroup", ig);
-													if(igs != null)
-														item.put("ItemGroupS4H", igs);
-													if(bn != null)
-														item.put("BrandName", bn);
-													if(bids != null)
-														item.put("BRAND_ID_S4H", bids);
-													if(bs != null)
-														item.put("Business", bs);
-													if(spl != null)
-														item.put("SupplierID", spl);
-													if(tmpl != null && !"".equals(tmpl))
-														item.put("Template", tmpl);
-													if(cs != null)
-														item.put("CurrentStatus", cs);
-													if(atnt != null)
-														item.put("AssignTakeNoTake", atnt);
-													if(sot != null)
-														item.put("SAPObjectType", sot);
-													if(ftl != null)
-														item.put("FotoTomadaLiverpool", ftl);
-													if(mbc != null)
-														item.put("MainBarCode", mbc);
-													if(mbcs != null)
-														item.put("MainBarCodeS4H", mbcs);
-													log( "to local admin: " + dr.putProductData(new org.json.JSONArray().put(item)) );
-													log("*** " + item + " ***");
-												}else {
-													log("Got null for " + externalProductId);
-												}
-											}else {
-												log("no productId this time... u.u ");
-											}
-										}catch(org.json.JSONException | NullPointerException e) {
-											logE(e);
-										}
-									} */
-								}else {
-									log("Yerk.");
-								}
-							}
 							try {
 								String labelPrevStat =  null;
 								String labelInternalStat = null;
@@ -4180,25 +4045,61 @@ public class CreateProposal implements Closeable {
 																		.replaceAll("^'|'$", "")
 														)
 											);
+								if("1021".equals(internalStatus))
+									ingresaWorkflow("'" + externalProductId + "'@1", "23543", "IGIAStewardship", "Item Group Review");
+								log("Bout to do");
 								variantResponsesArray = new org.json.JSONArray();
 								log("<::> Status: " + internalStatus + "<::> " + previousStatus);
-								if( "1001".equals(internalStatus) || "1001".equals(previousStatus) ) {
-								}
-								if(!"1009".equals(internalStatus))
+								if(!"1009".equals(internalStatus)) {
+									String supplierType = null;
+									java.util.Map<String, org.json.JSONObject> validityByVariant = java.util.Collections.emptyMap();
+									boolean validityDataAvailable = true;
+									if (("Liverpool".equals(business) || "Suburbia".equals(business))
+									        && ("1020".equals(internalStatus)
+									            || "1003".equals(internalStatus)
+									            || "1008".equals(internalStatus))) {
+									    supplierType = dastub.getPartySupplierType(supplier);
+									    java.util.List<String> existingVariantIds = new java.util.ArrayList<>();
+									    for (int j = 0; j < variantes.length(); j++) {
+									        org.json.JSONObject v = variantes.getJSONObject(j);
+									        if (v.has("variantId") && !v.optString("variantId").isBlank()) {
+									            existingVariantIds.add(v.getString("variantId"));
+									        }
+									    }
+									    if (!existingVariantIds.isEmpty()) {
+									        try {
+									            validityByVariant = dastub.getArticleValidityData(existingVariantIds);
+									        } catch (java.sql.SQLException e) {
+									            validityDataAvailable = false;
+									            logE(e);
+									        }
+									    }
+									}
 									for (int j = 0; j < variantes.length(); j++) {
 										variante = variantes.getJSONObject(j);
+										String originalVariantId = variante.optString("variantId", null);
+										boolean freshVariant = originalVariantId == null || originalVariantId.isBlank();
+										org.json.JSONObject validity = freshVariant
+												? null
+														: validityByVariant.get(originalVariantId);
 										processVariant(
-												  externalProductId
-											    , variante
-												, this.rc, business
-												, templateId
-												, d
-												, internalStatus
-												, supplier
-												, sample
-											);
+										          externalProductId
+										        , variante
+										        , this.rc
+										        , business
+										        , templateId
+										        , d
+										        , internalStatus
+										        , supplier
+										        , supplierType
+										        , validity
+										        , freshVariant
+										        , validityDataAvailable
+										        , sample
+										);
 									}
-								
+								} else
+									log("Got cancelled, skipped variant processing block. (" + externalProductId + ")");
 								org.json.JSONArray tru = new org.json.JSONArray();
 								for(int m=0; m<variantResponsesArray.length(); m++) {
 									if(variantResponsesArray.getJSONObject(m).length() == 0) {
@@ -4308,6 +4209,18 @@ public class CreateProposal implements Closeable {
 		}
 		return response;
 	}
+	
+	private static java.math.BigDecimal decimalOrNull(String value) {
+	    if (value == null || value.trim().isEmpty()) {
+	        return null;
+	    }
+
+	    try {
+	        return new java.math.BigDecimal(value.trim());
+	    } catch (NumberFormatException e) {
+	        return null;
+	    }
+	}
 
 	private void ingresaWorkflow(String internalId, String processId, String workflowId, String status) {
 		org.json.JSONObject rb = new org.json.JSONObject();
@@ -4356,9 +4269,21 @@ public class CreateProposal implements Closeable {
 		return false;
 	}
 
-	private void processVariant(String objectId, JSONObject variant,
-			RestClient rc, String business, String template, String d, String proposalStatus
-			, String supplier, boolean sample)
+	private void processVariant(
+			  String objectId
+			, JSONObject variant
+			, RestClient rc
+			, String business
+			, String template
+			, String d
+			, String proposalStatus
+			, String supplier
+			, String supplierType
+			, org.json.JSONObject validity
+			, boolean freshVariant
+			, boolean validityDataAvailable
+			, boolean sample
+		)
 			throws Exception {
 		String rawResp = null;
 		String internalItemId = null;
@@ -4925,7 +4850,75 @@ public class CreateProposal implements Closeable {
 			}
 			reqObj.put("externalStatus", new org.json.JSONObject().put("_code", externalStatus));
 			log("Cocqiutus: " + proposalStatus + ", business: " + business);
-			if(("Liverpool".equals(business) || "Suburbia".equals(business)) && ("1020".equals(proposalStatus) || "1008".equals(proposalStatus))) {
+			boolean shouldHandleValidityDates =
+			        ("Liverpool".equals(business) || "Suburbia".equals(business))
+			        && ("1020".equals(proposalStatus)
+			            || "1003".equals(proposalStatus)
+			            || "1008".equals(proposalStatus));
+
+			if (shouldHandleValidityDates) {
+			    boolean canDetermineExistingValues = freshVariant || (validityDataAvailable && validity != null);
+			    if (supplierType != null
+			            && !supplierType.isBlank()
+			            && canDetermineExistingValues) {
+			        java.time.LocalDate cd = java.time.LocalDate.now();
+			        int added = 0;
+			        while (added < 3) {
+			            cd = cd.plusDays(1);
+			            java.time.DayOfWeek dow = cd.getDayOfWeek();
+			            if (dow != java.time.DayOfWeek.SATURDAY && dow != java.time.DayOfWeek.SUNDAY) {
+			                added++;
+			            }
+			        }
+			        String dtv = cd.format(
+			                        java.time.format.DateTimeFormatter.ISO_LOCAL_DATE);
+			        String currentPrecio =
+			                validity == null
+			                        ? ""
+			                        : validity.optString(
+			                                "FechaInicioVigenciaPrecioVenta", "");
+			        String currentNeto =
+			                validity == null
+			                        ? ""
+			                        : validity.optString(
+			                                "FechaInicioVigenciaCostoNeto", "");
+			        String currentImportacion =
+			                validity == null
+			                        ? ""
+			                        : validity.optString(
+			                                "FechaInicioVigenciaCostoImportacion", "");
+			        if (currentPrecio.isBlank()) {
+			            addDateCharacteristic(
+			                    characteristicArray,
+			                    "FechaInicioVigenciaPrecioVenta",
+			                    dtv);
+			        }
+			        if ("PNA".equals(supplierType)) {
+
+			            if (currentNeto.isBlank()) {
+			                addDateCharacteristic(
+			                        characteristicArray,
+			                        "FechaInicioVigenciaCostoNeto",
+			                        dtv);
+			            }
+			        } else {
+			            if (currentImportacion.isBlank()) {
+			                addDateCharacteristic(
+			                        characteristicArray,
+			                        "FechaInicioVigenciaCostoImportacion",
+			                        dtv);
+			            }
+			        }
+			    } else if (supplierType == null || supplierType.isBlank()) {
+			        log("No party data for: " + supplier + ".");
+			    } else if (!freshVariant && !validityDataAvailable) {
+			        log("Could not determine existing validity dates for existing variant; dates will not be overwritten.");
+			    } else if (!freshVariant && validity == null) {
+			        log("No validity row found for existing variant; dates will not be overwritten.");
+			    }
+			}
+			/*
+			if(("Liverpool".equals(business) || "Suburbia".equals(business)) && ("1020".equals(proposalStatus) || "1003".equals(proposalStatus) || "1008".equals(proposalStatus))) {
 				String supplierType = dastub.getPartySupplierType(supplier);
 				if (supplierType != null && !supplierType.isBlank()) {
 				    log("Party supplierType: " + supplierType);
@@ -4979,6 +4972,7 @@ public class CreateProposal implements Closeable {
 					}
 				}else { log( "No party data for: " + supplier + "." ); }
 			}
+			*/
 
 			if(business != null) {
 				reqObj.put("business", new org.json.JSONObject().put("_label", business));
@@ -5085,6 +5079,33 @@ public class CreateProposal implements Closeable {
 			logE(e);
 		}
 		variantFieldErrors = new org.json.JSONArray();
+	}
+	
+	private void addDateCharacteristic(
+	        org.json.JSONArray characteristicArray,
+	        String characteristic,
+	        String value) {
+
+	    characteristicArray.put(
+	            new org.json.JSONObject()
+	                    .put(
+	                            "_qualification",
+	                            new org.json.JSONObject()
+	                                    .put(
+	                                            "characteristic",
+	                                            new org.json.JSONObject()
+	                                                    .put(
+	                                                            "_code",
+	                                                            characteristic)))
+	                    .put(
+	                            "_recordLang",
+	                            new org.json.JSONArray()
+	                                    .put(
+	                                            new org.json.JSONObject()
+	                                                    .put(
+	                                                            "values",
+	                                                            new org.json.JSONArray()
+	                                                                    .put(value)))));
 	}
 
 	private void validateVariants( JSONObject variant, String template, String business, String itemGroup, String marca, int variantPosition, boolean selfAdded /*, java.util.Map<String, String[]> dataEANs */, String supplier, String[] typeMainBarCodeA ) throws ServiceUnavailableException {

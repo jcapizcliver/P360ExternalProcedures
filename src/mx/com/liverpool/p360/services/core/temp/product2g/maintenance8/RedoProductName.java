@@ -41,6 +41,7 @@ public class RedoProductName {
 						org.json.JSONArray characteristicRecords = new org.json.JSONArray();
 						nn.processData(data, characteristicRecords);
 						org.json.JSONObject productNameJO = data.get("ProductName");
+						System.out.println(productNameJO);
 						if(productNameJO != null) {
 //							System.out.print(".");
 							rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + values.getString(0) + "'@1")).put("values", new org.json.JSONArray().put(productNameJO.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0))));
@@ -65,6 +66,8 @@ public class RedoProductName {
 				org.json.JSONArray characteristicRecords = new org.json.JSONArray();
 				nn.processData(data, characteristicRecords);
 				org.json.JSONObject productNameJO = data.get("ProductName");
+				System.out.println(productNameJO);
+				System.out.println(characteristicRecords);
 				if(productNameJO != null) {
 //					System.out.print(".");
 					rh.addRow(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + values.getString(0) + "'@1")).put("values", new org.json.JSONArray().put(productNameJO.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0))));
