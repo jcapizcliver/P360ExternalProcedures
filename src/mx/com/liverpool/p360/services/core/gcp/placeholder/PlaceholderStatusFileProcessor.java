@@ -86,14 +86,18 @@ public class PlaceholderStatusFileProcessor {
                 processed++;
                 try {
                     String p360Status = statusDictionary.resolve(status);
+                    String action = statusDictionary.resolveAction(status);
                     if (p360Status == null || p360Status.trim().length() == 0) {
                         throw new IllegalStateException("Status value not found in dictionary: " + status);
                     }
+                    if (action == null || action.trim().length() == 0) {
+                        throw new IllegalStateException("Status action not found in dictionary: " + status);
+                    }
                     String placeholderId = rawPlaceholderCode.trim();
                     logger.info("Prepared placeholder update: " + placeholderId + " fileStatus=" + status
-                            + " p360Status=" + p360Status);
+                            + " p360Status=" + p360Status + " action=" + action);
                     preparedUpdates.add(new PreparedUpdate(values,
-                            new PlaceholderStatusUpdate(placeholderId, p360Status, comments)));
+                            new PlaceholderStatusUpdate(placeholderId, p360Status, action, comments)));
                 } catch (Exception e) {
                     error = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
                     logger.warning("Error processing placeholder source=" + rawPlaceholderCode + " error=" + error);

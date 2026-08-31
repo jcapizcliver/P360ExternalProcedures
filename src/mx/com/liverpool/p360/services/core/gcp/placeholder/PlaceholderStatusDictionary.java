@@ -11,16 +11,27 @@ import java.util.Map;
 public class PlaceholderStatusDictionary {
 
     private final Map<String, String> values = new HashMap<>();
+    private final Map<String, String> actions = new HashMap<>();
 
     public PlaceholderStatusDictionary() {
-        values.put(normalize("aprobado"), "Aceptado");
-        values.put(normalize("aprobado con cambios"), "Aceptado con ajustados");
-        values.put(normalize("rechazado"), "Cancelado");
-        values.put(normalize("rechazado para modificación"), "Rechazada");
+        add("aprobado", "Aceptado", "A");
+        add("aprobado con cambios", "Aceptado con ajustados", "J");
+        add("rechazado", "Cancelado", "C");
+        add("rechazado para modificación", "Rechazada", "R");
     }
 
     public String resolve(String fileStatus) {
         return values.get(normalize(fileStatus));
+    }
+
+    public String resolveAction(String fileStatus) {
+        return actions.get(normalize(fileStatus));
+    }
+
+    private void add(String fileStatus, String p360Status, String action) {
+        String key = normalize(fileStatus);
+        values.put(key, p360Status);
+        actions.put(key, action);
     }
 
     private static String normalize(String value) {
