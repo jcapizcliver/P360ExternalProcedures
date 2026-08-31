@@ -2512,8 +2512,6 @@ public class RealExportProducts {
 		String fnBad = java.nio.file.Paths.get(fileSystemPrefix.toString(), "badgg" + suffix).toString();
 		writeUtf8File(fn, xmlOutputIndented);
 		generatedAtgFiles.add(fn);
-		sendFileToPricingSftp(java.nio.file.Paths.get(fn), ctm);
-
 		Document omsDocument = cloneDocument(batch.doc);
 		Element omsRoot = omsDocument.getDocumentElement();
 		Element omsProducts = directChild(omsRoot, "Products");
@@ -2535,6 +2533,7 @@ public class RealExportProducts {
 
 		if (toDwhOnly && !sendIt && Boolean.parseBoolean(PropertiesManager.get("p360.contingency.dwh.enabled", "true"))) {
 			sendBatchToDwh(xmlOutputIndented, batchNumber);
+			sendFileToPricingSftp(java.nio.file.Paths.get(fn), ctm);
 		}
 		if (!sendIt) {
 			return xmlOutputIndented;
