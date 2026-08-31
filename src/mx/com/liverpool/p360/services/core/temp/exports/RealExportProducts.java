@@ -75,7 +75,6 @@ public class RealExportProducts {
 	private static final String user = PropertiesManager.get("p360.contingency.dwh.user");
 	private static final java.nio.file.Path privateKeyPath = java.nio.file.Paths.get("/home/P360admin/.ssh/id_rsa");
 	private static final String PRICING_SFTP_PREFIX = "p360.contingency.pricing.sftp.";
-
 	private final java.util.Map<String, java.util.Map<String, org.json.JSONObject>> templateMetadataSet = new java.util.TreeMap<>();
 	private final java.util.Map<String, java.util.Map<String, String>> templateStructureGroupAttributeValues = new java.util.TreeMap<>();
 	private final java.util.Map<String, java.util.Set<String>> templateSets = new java.util.TreeMap<>();
@@ -208,7 +207,6 @@ public class RealExportProducts {
 
 		matcher.appendTail(sb);
 		visiting.remove(key);
-
 		return sb.toString();
 	}
 
@@ -2562,8 +2560,6 @@ public class RealExportProducts {
 		String fnBad = java.nio.file.Paths.get(fileSystemPrefix.toString(), "badgg" + suffix).toString();
 		writeUtf8File(fn, xmlOutputIndented);
 		generatedAtgFiles.add(fn);
-		sendFileToPricingSftp(java.nio.file.Paths.get(fn), ctm);
-
 		Document omsDocument = cloneDocument(batch.doc);
 		Element omsRoot = omsDocument.getDocumentElement();
 		Element omsProducts = directChild(omsRoot, "Products");
@@ -2587,6 +2583,7 @@ public class RealExportProducts {
 
 		if (toDwhOnly && !sendIt && Boolean.parseBoolean(PropertiesManager.get("p360.contingency.dwh.enabled", "true"))) {
 			sendBatchToDwh(xmlOutputIndented, batchNumber);
+			sendFileToPricingSftp(java.nio.file.Paths.get(fn), ctm);
 		}
 		if (!sendIt) {
 			logBatchMetric(batchNumber, batch.proposalIds.size(), xmlProductTags, xmlBytes, omsBytes, false, batchStartedNanos);
