@@ -4,16 +4,6 @@ public class SimpleDelimitedFileParser {
 
 	
 	public static void main(String[] args) {
-//		java.util.List<String[]> m1 = new java.util.ArrayList<>();
-//		java.nio.file.Path p = java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "weird_parser_test_v2.csv");
-//		SimpleDelimitedFileParser s = new SimpleDelimitedFileParser('"',',','\\',"\n",java.nio.charset.StandardCharsets.UTF_8,(arr) -> { m1.add(arr); System.out.println( arr.length + " - " + java.util.Arrays.asList(arr)); });
-//		s.parse(p);
-//		String[] p1 = null;
-//		for(int i=0; i<m1.size(); i++) {
-//			p1 = m1.get(i);
-//			System.out.println((i+1) + ": " + java.util.Arrays.asList(p1));
-//		}
-//		System.out.println("Done.");
 		SimpleDelimitedFileParser s = new SimpleDelimitedFileParser('"',',','\\',"\n",java.nio.charset.StandardCharsets.UTF_8,(arr) -> { System.out.println( arr.length + " - " + java.util.Arrays.asList(arr)); }); // S87363150,"0001;\"98\\\"\";;"
 		s.parseString("3135;Reloj de Mesa Howard Miller Davis;;;Servicios DILISA.;;Indirecto;ART. MARKETPLACE;;;Compra única;;;;;0.01;0.01;;;;;\"Caja redonda cepillado de aluminio de este reloj de mesa moderno se encuentra en una, base de cristal cónico negro. El reloj cuenta con una esfera de metal hilado, diamante de corte; un anillo exterior negro mate con marcadores de hora de estilo bar y estilo limpio números romanos en el \\\\\"12\\\\\" y la posición \\\\\"6\\\\\"; y un cristal de vidrio. Pulido hora tono de plata y los minutos con un acento bandas de color negro por la parte media y segundo de plata. fondo cubierto sentido ayuda a proteger la mesa o escritorio. Cuarzo, movimiento operado por baterías incluye una pila de tamaño AA\";");
 	}
@@ -116,8 +106,8 @@ public class SimpleDelimitedFileParser {
 	public SimpleDelimitedFileParser(LineProcessor lp) {
 		delim = '\"';
 		sep = ',';
-		esc = '\\';
-		endLine = "\r\n".toCharArray();
+		esc = null;
+		endLine = "\n".toCharArray();
 		charset = java.nio.charset.StandardCharsets.UTF_8;
 		this.lp = lp;
 	}

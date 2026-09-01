@@ -11,7 +11,6 @@ import org.xml.sax.Attributes;
 import org.xml.sax.helpers.DefaultHandler;
 
 import mx.com.liverpool.p360.services.core.RESTWrapper;
-import mx.com.liverpool.p360.services.core.temp.xml.local.AnotherXMLHandler2.Product;
 
 public class AnotherXMLHandlerClassify {
 

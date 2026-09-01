@@ -133,6 +133,15 @@ public class RealExportProductsExpressOMS {
 	}
 	
 	
+	private static boolean isNetworkTimeout(Throwable error) {
+		for (Throwable current = error; current != null; current = current.getCause()) {
+			if (current instanceof java.net.SocketTimeoutException) {
+				return true;
+			}
+		}
+		return false;
+	}
+
 	private static String[] sourceContent(String source) {
 		java.util.Set<String> lines = new java.util.TreeSet<>();
 		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(source)))){
@@ -1949,6 +1958,9 @@ public class RealExportProductsExpressOMS {
 			        );
 			        return aggregatedMessage.append("<;;>").append(fnO + "<::>" + sendResponse).toString();
 			    } catch (IOException e) {
+			        log(isNetworkTimeout(e)
+			            ? "BROKER TIMEOUT OMS: " + e.getMessage()
+			            : "BROKER FAILED OMS: " + e.getMessage());
 			        logE(e);
 			    }
 			}

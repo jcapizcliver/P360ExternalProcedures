@@ -58,7 +58,6 @@ public class RealExportProducts2Mirakl {
 	private static final RESTWrapper wrapper = new RESTWrapper();
 	private static final RESTWorkshop rw = wrapper.getRw();
 	
-
 	private org.json.JSONObject getMeTheCompa(String compa) throws ServiceUnavailableException{
 		String rawResponse = null;
 		org.json.JSONObject response = null;
@@ -76,9 +75,12 @@ public class RealExportProducts2Mirakl {
 	private int products = 0;
 	private int dropped = 0;
 
-	private static final long MAX_BATCH_BYTES = 7L * 1024L * 1024L;
+	private static final long MAX_BATCH_BYTES = positiveLongProperty("p360.contingency.export.max_batch_mb_mkp", 1L * 1024L) * 1024L;
+	private static final int MAX_BATCH_PRODUCT_TAGS = positiveIntProperty("p360.contingency.export.max_batch_product_tags_mkp", 1000);
+	
 	private final java.util.List<String> generatedMarketplaceFiles = new java.util.ArrayList<>();
 	private final java.util.List<String> marketplaceBrokerResponses = new java.util.ArrayList<>();
+	private final java.util.Map<String, String> nonDeliveryReasons = new java.util.LinkedHashMap<>();
 	private boolean marketplaceBrokerFailure = false;
 	private boolean marketplaceUnrecognizedResponse = false;
 	private final java.util.Map<String, java.util.Map<String, org.json.JSONObject>> templateMetadataSet = new java.util.TreeMap<>();
@@ -231,6 +233,7 @@ public class RealExportProducts2Mirakl {
 				rawResult,
 				exporter.generatedMarketplaceFiles,
 				exporter.marketplaceBrokerResponses,
+				exporter.nonDeliveryReasons,
 				success,
 				exporter.marketplaceUnrecognizedResponse);
 	}
@@ -239,6 +242,7 @@ public class RealExportProducts2Mirakl {
 		private final String rawResult;
 		private final java.util.List<String> payloadFiles;
 		private final java.util.List<String> brokerResponses;
+		private final java.util.Map<String, String> nonDeliveryReasons;
 		private final boolean successful;
 		private final boolean unrecognizedResponse;
 
@@ -246,6 +250,7 @@ public class RealExportProducts2Mirakl {
 				String rawResult,
 				java.util.List<String> payloadFiles,
 				java.util.List<String> brokerResponses,
+				java.util.Map<String, String> nonDeliveryReasons,
 				boolean successful,
 				boolean unrecognizedResponse) {
 			this.rawResult = rawResult;
@@ -253,6 +258,8 @@ public class RealExportProducts2Mirakl {
 					new java.util.ArrayList<>(payloadFiles));
 			this.brokerResponses = java.util.Collections.unmodifiableList(
 					new java.util.ArrayList<>(brokerResponses));
+			this.nonDeliveryReasons = java.util.Collections.unmodifiableMap(
+					new java.util.LinkedHashMap<>(nonDeliveryReasons));
 			this.successful = successful;
 			this.unrecognizedResponse = unrecognizedResponse;
 		}
@@ -267,6 +274,10 @@ public class RealExportProducts2Mirakl {
 
 		public java.util.List<String> getBrokerResponses() {
 			return brokerResponses;
+		}
+
+		public java.util.Map<String, String> getNonDeliveryReasons() {
+			return nonDeliveryReasons;
 		}
 
 		public boolean isSuccessful() {
@@ -409,6 +420,8 @@ public class RealExportProducts2Mirakl {
 		log("Running using fileSystemPrefixLVP: " + fileSystemPrefixLvp);
 		log("Running using fileSystemPrefixMKT: " + fileSystemPrefix);
 		log("Going over: " + proposalIds.length + " proposalIds");
+		log("Batch limits: maxBytes=" + MAX_BATCH_BYTES
+				+ ", maxProductTags=" + MAX_BATCH_PRODUCT_TAGS);
 		System.out.println("Going over: " + proposalIds.length + " proposalIds");
 		try(dastub){
 			init();
@@ -418,8 +431,8 @@ public class RealExportProducts2Mirakl {
 			try {
 				MiraklExportContext batch = createMiraklExportContext();
 				boolean procede;
-				boolean brk = false;
 				for(int index = 0; index<proposalIds.length; index++) {
+					boolean brk = false;
 					MiraklExportContext current = createMiraklExportContext();
 					Document doc = current.doc;
 					Element spim = current.spim;
@@ -442,21 +455,19 @@ public class RealExportProducts2Mirakl {
 					try {
 					procede = true;
 					proposalId = proposalIds[index];
-					java.nio.file.Path p = java.nio.file.Paths.get( PropertiesManager.get("p360.contingency.migration.to_skip_directory"), proposalId );
-					if(java.nio.file.Files.exists(p)) {
-						log("Skipped to be sent since this was reciently migrated --->" + proposalId + "<---");
-						reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1")).put("values", new org.json.JSONArray().put( "Registro recién migrado, si persiste, solicitar mantenimiento manual" )));
-						continue;
-					}
 					// talla normalizada hacia ATG debe de salir como TC-NormalizedSize
 	//				final String[] productsToTestWith = new String[] {proposalId};
 					org.json.JSONObject rp = getMeTheCompa(proposalId);
-					if(rp == null)
+					if(rp == null) {
+						recordNonDeliveryReason(reqPublishMessage, proposalId,
+								"FAILED Marketplace el " + deliveryTimestamp()
+								+ ". No se pudo cargar la información necesaria del Product2G.");
 						continue;
+					}
 					String template = !rp.getJSONObject("_data").has("structureGroupMap") ? null : getPrimaryProductTaxonomyTemplate(rp.getJSONObject("_data").getJSONArray("structureGroupMap")); // rp.getJSONObject("_data").getJSONArray("structureGroupMap").getJSONObject(0).getJSONObject("_qualification").getJSONObject("structureGroup").getString("_externalId").split("@")[0].replaceAll("^'|'$", "");
 					if(template == null) {
 						log("No template found for " + proposalId);
-						reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1")).put("values",new org.json.JSONArray().put(  "Sin plantilla" )));
+						reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1")).put("values",new org.json.JSONArray().put( "SKIPPED Marketplace el " + deliveryTimestamp() + ". Sin plantilla." )));
 						continue;
 					}
 					java.util.LinkedList<org.json.JSONObject> lst = null;
@@ -473,6 +484,9 @@ public class RealExportProducts2Mirakl {
 					} else if ("MKP".equals(business)) {
 						productosMarketplace.addLast(proposalId);
 					}else {
+						recordNonDeliveryReason(reqPublishMessage, proposalId,
+								"SKIPPED Marketplace el " + deliveryTimestamp()
+								+ ". Business no elegible para Marketplace: " + String.valueOf(business) + ".");
 						continue;
 					}
 					
@@ -670,7 +684,7 @@ public class RealExportProducts2Mirakl {
 							log("(" + business + ") No tenía imágenes2: " + proposalId);
 							log("(" + business + ") Had: " + upperRows.length());
 							log("(" + business + ") Raw: " + upperRows);
-							reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1")).put("values", new org.json.JSONArray().put( "Sin imágenes \"congeladas\"" )));
+							reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1")).put("values", new org.json.JSONArray().put( "SKIPPED Marketplace el " + deliveryTimestamp() + ". Sin imágenes \"congeladas\"." )));
 							continue;
 						}
 					} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
@@ -998,6 +1012,7 @@ public class RealExportProducts2Mirakl {
 							} else if("ItemGroupS4H".equals( charId ) || "ItemGroup".equals( charId )) {
 		        				if(isBannedForMarketplace(characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"), "ItemGroups", "MATKLLOV")) {
 	        						log("Returning since the item group was in the no send to mkt list.");
+	        						recordNonDeliveryReason(reqPublishMessage, proposalId, "SKIPPED Marketplace el " + deliveryTimestamp() + ". ItemGroup pertenece a BannedElementsForMarketplacePublication.");
 	        						brk = true;
 		        					break;
 		        				}
@@ -1020,31 +1035,14 @@ public class RealExportProducts2Mirakl {
 													.getJSONArray("values").getJSONObject(0).getString("_label")
 											: itemGroupLabel;
 		        				}
-		        				if (!behvo) {
-			        				String elese = characteristic.getJSONArray("_recordLang").getJSONObject(0)
-			        						.getJSONArray("values").getJSONObject(0).getString("_code");
-			        				String dictionary = "ItemGroup".equals(charId)
-			        						? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H";
-			        				String laetiqueta = queryDictionary(elese, dictionary);
-			        				if (laetiqueta != null && !laetiqueta.isBlank()) {
-			        					String elcode = dastub.getLookupValueCodeByName(
-			        							"SAP_BEHVOLOV", 10, laetiqueta, true);
-			        					if (elcode != null && !elcode.isBlank()) {
-			        						appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO",
-			        								attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
-			        								"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
-			        						behvo = true;
-			        					}
-			        				}
-			        						        				appendPlainElementValue(
-			        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
-			        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
-			        						"ItemGroup2",
-			        						attributeValues,
-			        						"MKP".equals(business) ? attributesMKT : attributes,
-	        								"MKP".equals(business) ? docMKT : doc,
-			        						propiedadesCaracteristicas);
-		        				}
+		        				appendPlainElementValue(
+		        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
+		        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
+		        						"ItemGroup2",
+		        						attributeValues,
+		        						"MKP".equals(business) ? attributesMKT : attributes,
+		        								"MKP".equals(business) ? docMKT : doc,
+		        										propiedadesCaracteristicas);
 		        				appendPlainElementValue(
 		        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
 		        						characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
@@ -1058,7 +1056,11 @@ public class RealExportProducts2Mirakl {
 		        			}else if("BrandName".equals(charId) || "BRAND_ID_S4H".equals(charId)) {
 		        					if(isBannedForMarketplace(characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"), "Brands", "ZCOMALOV")) {
 		        						log("Returning since brand was in no send to mkt list.");
-		        						continue;
+											recordNonDeliveryReason(reqPublishMessage, proposalId,
+													"SKIPPED Marketplace el " + deliveryTimestamp()
+													+ ". Brand pertenece a BannedElementsForMarketplacePublication.");
+		        						brk = true;
+		        							break;
 		        					}
 		        					brandName = brandName == null || "".equals(brandName)
 											? characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
@@ -1114,6 +1116,15 @@ public class RealExportProducts2Mirakl {
 	    									"MKP".equals(business) ? docMKT : doc,
 			    							propiedadesCaracteristicas);
 		        				}
+		        			} else if("SAP_BEHVO".equals(charId)) {
+		        				appendPlainElementValue(
+		        						  characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label")
+		        						, characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code")
+		        						, "SAP_BEHVO"
+		        						, attributeValues, "MKP".equals(business) ? attributesMKT : attributes
+		        						, "MKP".equals(business) ? docMKT : doc
+		        						, propiedadesCaracteristicas);
+		        				behvo = true;
 		        			} else if ("ProductType".equals(charId)) {
 								pt = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
 										.getJSONObject(0).getString("_code");
@@ -1234,6 +1245,22 @@ public class RealExportProducts2Mirakl {
 		        	if(brk) {
 		        		continue;
 		        	}
+    				if (!behvo) {
+        				String elese = characteristic.getJSONArray("_recordLang").getJSONObject(0)
+        						.getJSONArray("values").getJSONObject(0).getString("_code");
+        				String dictionary = "ItemGroup".equals(charId)
+        						? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H";
+        				String laetiqueta = queryDictionary(elese, dictionary);
+        				if (laetiqueta != null && !laetiqueta.isBlank()) {
+        					String elcode = dastub.getLookupValueCodeByName(
+        							"SAP_BEHVOLOV", 10, laetiqueta, true);
+        					if (elcode != null && !elcode.isBlank()) {
+        						appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO",
+        								attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+        								"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+        					}
+        				}
+    				}
 		        	if (embeddedCodeWEB != null && !"".equals(embeddedCodeWEB)) {
 						appendPlainElementValue(embeddedCodeWEB, null, "EmbedCodeWEB", attributeValues, "MKP".equals(business) ? attributesMKT : attributes, "MKP".equals(business) ? docMKT : doc,
 								propiedadesCaracteristicas);
@@ -1342,7 +1369,7 @@ public class RealExportProducts2Mirakl {
 														.put("object",
 																new org.json.JSONObject().put("id",
 																		"'" + proposalId + "'@1"))
-														.put("values", new org.json.JSONArray().put("Sin ProductName")));
+														.put("values", new org.json.JSONArray().put("SKIPPED Marketplace el " + deliveryTimestamp() + ". Sin ProductName.")));
 								continue;
 							}
 						}
@@ -1579,11 +1606,21 @@ public class RealExportProducts2Mirakl {
 										miraklVariantGroupId = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
 									}else if("ProcedeNoProcede".equals(charId)) {
 										procede = imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getBoolean(0);
-									}else {
+									} else if("SAP_BEHVO".equals(charId)) {
+										appendPlainElementValue(
+												imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
+												imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"),
+												charId,
+												subAttributeValues,
+												"MKP".equals(business) ? attributesMKT : attributes,
+		    									"MKP".equals(business) ? docMKT : doc,
+												propiedadesCaracteristicas
+											);
+									} else {
 										if(atributosGeneralesQueSi.contains(charId)) {
-											if(unosQueQuiero.contains(charId)) {
-												heredables.put(charId, characteristic);
-											}
+//											if(unosQueQuiero.contains(charId)) {
+//												heredables.put(charId, characteristic);
+//											}
 											if("LOOKUP".equals(imageObject.getString("_datatype"))){
 												appendPlainElementValue(
 														imageObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label"),
@@ -1688,7 +1725,7 @@ public class RealExportProducts2Mirakl {
 																	new org.json.JSONObject().put("id",
 																			"'" + proposalId + "'@1"))
 															.put("values",
-																	new org.json.JSONArray().put("Sin ProductName")));
+																	new org.json.JSONArray().put("SKIPPED Marketplace el " + deliveryTimestamp() + ". Sin ProductName.")));
 											continue;
 										}
 									}
@@ -2181,7 +2218,10 @@ public class RealExportProducts2Mirakl {
 			        		products.appendChild(product);
 			        	}
 		        	}else {
-		        		log("Dropped. " + product.getAttribute("ID"));
+		        		recordNonDeliveryReason(reqPublishMessage, proposalId,
+								"SKIPPED Marketplace el " + deliveryTimestamp()
+								+ ". Producto sin estructura publicable para Marketplace.");
+						log("Dropped. " + product.getAttribute("ID"));
 		        		System.out.println("Dropped. " + productType + "---");
 		        		System.out.println(rw.getXmm().prettyPrint(product));
 		        		this.dropped++;
@@ -2189,17 +2229,29 @@ public class RealExportProducts2Mirakl {
 	    				    			System.out.println(sku + " - " + proposalId);
 					} finally {
 						if (hasProducts(current)) {
-							long[] candidateBytes = measureMergedSizes(batch, current);
-							if (hasProducts(batch) && exceedsLimit(candidateBytes)) {
+							MarketplaceBatchMeasure candidate = measureMergedBatch(batch, current);
+							if (hasProducts(batch) && exceedsLimit(candidate)) {
 								appendResult(result, finishBatch(batch, send, batchNumber++));
 								batch = createMiraklExportContext();
 							}
 							mergeContext(batch, current, true);
-							long[] batchBytes = serializedSizes(batch);
-							if (exceedsLimit(batchBytes) && batch.proposalIds.size() == 1) {
+							MarketplaceBatchMeasure batchMeasure = measureBatch(batch);
+							log("Batch " + batchNumber
+									+ ": propuestas=" + batch.proposalIds.size()
+									+ ", LVP bytes=" + batchMeasure.lvpBytes
+									+ ", LVP ProductTags=" + batchMeasure.lvpProductTags
+									+ ", MKT bytes=" + batchMeasure.mktBytes
+									+ ", MKT ProductTags=" + batchMeasure.mktProductTags);
+							if (exceedsLimit(batchMeasure) && batch.proposalIds.size() == 1) {
 								log("La propuesta " + current.currentProposalId
-										+ " supera individualmente 7 MB (LVP=" + batchBytes[0]
-										+ ", MKT=" + batchBytes[1] + "). Se conserva íntegra.");
+										+ " supera individualmente algún límite del batch: "
+										+ "maxBytes=" + MAX_BATCH_BYTES
+										+ ", maxProductTags=" + MAX_BATCH_PRODUCT_TAGS
+										+ ", LVP bytes=" + batchMeasure.lvpBytes
+										+ ", LVP ProductTags=" + batchMeasure.lvpProductTags
+										+ ", MKT bytes=" + batchMeasure.mktBytes
+										+ ", MKT ProductTags=" + batchMeasure.mktProductTags
+										+ ". Se conserva íntegra.");
 								appendResult(result, finishBatch(batch, send, batchNumber++));
 								batch = createMiraklExportContext();
 							}
@@ -2308,21 +2360,68 @@ public class RealExportProducts2Mirakl {
 		return false;
 	}
 
-	private long[] measureMergedSizes(MiraklExportContext batch, MiraklExportContext current)
+	private MarketplaceBatchMeasure measureMergedBatch(MiraklExportContext batch, MiraklExportContext current)
 			throws ParserConfigurationException, TransformerException {
 		Document candidateLvp = cloneDocument(batch.doc);
 		Document candidateMkt = cloneDocument(batch.docMKT);
 		mergeDocument(candidateLvp, current.attributes, current.assets, current.products);
 		mergeDocument(candidateMkt, current.attributesMKT, current.assetsMKT, current.productsMKT);
-		return new long[] { serializedSize(candidateLvp), serializedSize(candidateMkt) };
+		return measureBatch(candidateLvp, candidateMkt);
 	}
 
-	private long[] serializedSizes(MiraklExportContext context) throws TransformerException {
-		return new long[] { serializedSize(context.doc), serializedSize(context.docMKT) };
+	private MarketplaceBatchMeasure measureBatch(MiraklExportContext context) throws TransformerException {
+		return measureBatch(context.doc, context.docMKT);
 	}
 
-	private static boolean exceedsLimit(long[] sizes) {
-		return sizes[0] > MAX_BATCH_BYTES || sizes[1] > MAX_BATCH_BYTES;
+	private MarketplaceBatchMeasure measureBatch(Document lvpDocument, Document mktDocument)
+			throws TransformerException {
+		return new MarketplaceBatchMeasure(
+				serializedSize(lvpDocument),
+				countProductTags(lvpDocument),
+				serializedSize(mktDocument),
+				countProductTags(mktDocument));
+	}
+
+	private static boolean exceedsLimit(MarketplaceBatchMeasure measure) {
+		return measure.lvpBytes > MAX_BATCH_BYTES
+				|| measure.mktBytes > MAX_BATCH_BYTES
+				|| measure.lvpProductTags > MAX_BATCH_PRODUCT_TAGS
+				|| measure.mktProductTags > MAX_BATCH_PRODUCT_TAGS;
+	}
+
+	private static int countProductTags(Document document) {
+		return document == null ? 0 : document.getElementsByTagName("Product").getLength();
+	}
+
+	private static long positiveLongProperty(String key, long defaultValue) {
+		try {
+			return Math.max(1L, Long.parseLong(PropertiesManager.get(key, String.valueOf(defaultValue)).trim()));
+		} catch (Exception e) {
+			return Math.max(1L, defaultValue);
+		}
+	}
+
+	private static int positiveIntProperty(String key, int defaultValue) {
+		try {
+			return Math.max(1, Integer.parseInt(PropertiesManager.get(key, String.valueOf(defaultValue)).trim()));
+		} catch (Exception e) {
+			return Math.max(1, defaultValue);
+		}
+	}
+
+	private static final class MarketplaceBatchMeasure {
+		private final long lvpBytes;
+		private final int lvpProductTags;
+		private final long mktBytes;
+		private final int mktProductTags;
+
+		private MarketplaceBatchMeasure(long lvpBytes, int lvpProductTags,
+				long mktBytes, int mktProductTags) {
+			this.lvpBytes = lvpBytes;
+			this.lvpProductTags = lvpProductTags;
+			this.mktBytes = mktBytes;
+			this.mktProductTags = mktProductTags;
+		}
 	}
 
 	private void mergeContext(MiraklExportContext destination, MiraklExportContext source,
@@ -2483,7 +2582,15 @@ public class RealExportProducts2Mirakl {
 
 	private String finishBatch(MiraklExportContext batch, boolean send, int batchNumber)
 			throws TransformerException {
-		sendPublishRows(batch.reqPublishMessage);
+		long batchStartedNanos = System.nanoTime();
+		/*
+		 * send=false sólo genera el XML descargable. No debe modificar
+		 * PublishMktMessage ni simular una entrega a Broker.
+		 */
+		if (send) {
+			stampDeliveryMessageRows(batch.reqPublishMessage);
+			sendPublishRows(batch.reqPublishMessage);
+		}
 		StringBuilder result = new StringBuilder();
 		if (hasDirectElementChild(batch.products, "Product")) {
 			appendResult(result, finishDocumentBatch(batch.doc, batch.productosLiverpool,
@@ -2495,6 +2602,7 @@ public class RealExportProducts2Mirakl {
 		}
 		this.products += directElementCount(batch.products, "Product")
 				+ directElementCount(batch.productsMKT, "Product");
+		logBatchGroupMetric(batch, batchNumber, send, batchStartedNanos);
 		return result.toString();
 	}
 
@@ -2510,8 +2618,10 @@ public class RealExportProducts2Mirakl {
 	private String finishDocumentBatch(Document document, java.util.List<String> productIds,
 			String directory, String endpoint, String channel, boolean send, int batchNumber)
 			throws TransformerException {
+		long documentStartedNanos = System.nanoTime();
 		String xmlOutput = serializeMiraklXml(document);
 		long bytes = xmlOutput.getBytes(StandardCharsets.UTF_8).length;
+		int productTags = countProductTags(document);
 		java.nio.file.Path outputDirectory = java.nio.file.Paths.get(directory);
 		java.nio.file.Path file = outputDirectory.resolve(
 				"pepele_" + channel.toLowerCase() + "_batch"
@@ -2528,28 +2638,169 @@ public class RealExportProducts2Mirakl {
 			this.marketplaceBrokerFailure = true;
 		}
 		log(channel + " batch " + batchNumber + ": " + productIds.size()
-				+ " propuestas, " + bytes + " bytes, archivo " + file);
+				+ " propuestas, " + productTags + " etiquetas Product, "
+				+ bytes + " bytes, archivo " + file);
 		System.out.println(channel + " batch " + batchNumber + ": " + productIds.size()
-		+ " propuestas, " + bytes + " bytes, archivo " + file);
+				+ " propuestas, " + productTags + " etiquetas Product, "
+				+ bytes + " bytes, archivo " + file);
 		if (!send) {
+			logMarketplaceBatchMetric(channel, batchNumber, productIds.size(), productTags, bytes, false, documentStartedNanos);
 			return file.toString();
 		}
+		long endpointStartedNanos = System.nanoTime();
 		try {
 			RestClient client = new RestClient("Content-Type: application/xml", "Accept: application/xml");
 			String response = client.getRequest("POST", endpoint, xmlOutput);
 			this.marketplaceBrokerResponses.add(response == null ? "" : response);
-			if (!isKnownSuccessfulBrokerResponse(response)) {
+			boolean successfulResponse = isKnownSuccessfulBrokerResponse(response);
+			logMarketplaceEndpointMetric(channel, batchNumber, endpoint, productIds.size(), productTags,
+					bytes, endpointStartedNanos, successfulResponse);
+			if (!successfulResponse) {
 				this.marketplaceUnrecognizedResponse = true;
 			}
+			writeMarketplaceDeliveryMessage(
+					productIds,
+					successfulResponse
+						? "Enviado a Marketplace (" + channel + ") el " + deliveryTimestamp()
+							+ ". Respuesta: " + compactDeliveryMessage(response)
+						: "BROKER FAILED Marketplace (" + channel + ") el " + deliveryTimestamp()
+							+ ". Respuesta no reconocida: " + compactDeliveryMessage(response));
 			log(channel + " batch " + batchNumber + " enviado para " + productIds + ": " + response);
 			System.out.println(channel + " batch " + batchNumber + " enviado para " + productIds + ": " + response);
+			logMarketplaceBatchMetric(channel, batchNumber, productIds.size(), productTags, bytes, true, documentStartedNanos);
 			return file + "<::>" + response;
 		} catch (IOException e) {
+			logMarketplaceEndpointMetric(channel, batchNumber, endpoint, productIds.size(), productTags,
+					bytes, endpointStartedNanos, false);
 			this.marketplaceBrokerFailure = true;
-			this.marketplaceBrokerResponses.add("IOException: " + e.getMessage());
+			boolean networkTimeout = isNetworkTimeout(e);
+			this.marketplaceBrokerResponses.add((networkTimeout ? "Timeout: " : "IOException: ") + e.getMessage());
+			writeMarketplaceDeliveryMessage(
+					productIds,
+					(networkTimeout ? "BROKER TIMEOUT Marketplace (" : "BROKER FAILED Marketplace (")
+					+ channel + ") el " + deliveryTimestamp()
+					+ ". " + (networkTimeout ? "Timeout: " : "IOException: ")
+					+ compactDeliveryMessage(e.getMessage()));
 			logE(e);
+			logMarketplaceBatchMetric(channel, batchNumber, productIds.size(), productTags, bytes, true, documentStartedNanos);
 			return file.toString();
 		}
+	}
+
+	private void logBatchGroupMetric(MiraklExportContext batch, int batchNumber,
+			boolean send, long startedNanos) {
+		long elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+				System.nanoTime() - startedNanos);
+		log("[BATCH_METRIC] exporter=RealExportProducts2Mirakl"
+				+ " batch=" + batchNumber
+				+ " proposals=" + batch.proposalIds.size()
+				+ " lvp_products=" + batch.productosLiverpool.size()
+				+ " lvp_product_tags=" + countProductTags(batch.doc)
+				+ " mkt_products=" + batch.productosMarketplace.size()
+				+ " mkt_product_tags=" + countProductTags(batch.docMKT)
+				+ " total_ms=" + elapsedMs
+				+ " send=" + send);
+	}
+
+	private void logMarketplaceBatchMetric(String channel, int batchNumber, int productCount,
+			int productTags, long bytes, boolean send, long startedNanos) {
+		long elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+				System.nanoTime() - startedNanos);
+		log("[BATCH_CHANNEL_METRIC] exporter=RealExportProducts2Mirakl"
+				+ " batch=" + batchNumber
+				+ " channel=" + channel
+				+ " products=" + productCount
+				+ " product_tags=" + productTags
+				+ " bytes=" + bytes
+				+ " total_ms=" + elapsedMs
+				+ " send=" + send);
+	}
+
+	private void logMarketplaceEndpointMetric(String channel, int batchNumber, String endpointUrl,
+			int productCount, int productTags, long bytes, long startedNanos, boolean success) {
+		long elapsedMs = java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(
+				System.nanoTime() - startedNanos);
+		log("[ENDPOINT_METRIC] exporter=RealExportProducts2Mirakl"
+				+ " batch=" + batchNumber
+				+ " endpoint=" + channel
+				+ " url=" + endpointUrl
+				+ " products=" + productCount
+				+ " product_tags=" + productTags
+				+ " bytes=" + bytes
+				+ " elapsed_ms=" + elapsedMs
+				+ " success=" + success);
+	}
+
+	private void recordNonDeliveryReason(org.json.JSONObject request, String productId, String message) {
+		if (productId == null || productId.trim().isEmpty()) {
+			return;
+		}
+		nonDeliveryReasons.put(productId, message);
+		if (request != null && request.has("rows")) {
+			request.getJSONArray("rows").put(new org.json.JSONObject()
+					.put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1"))
+					.put("values", new org.json.JSONArray().put(message)));
+		}
+	}
+
+	private static boolean isNetworkTimeout(Throwable error) {
+		for (Throwable current = error; current != null; current = current.getCause()) {
+			if (current instanceof java.net.SocketTimeoutException) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private static void stampDeliveryMessageRows(org.json.JSONObject request) {
+		if (request == null || !request.has("rows")) {
+			return;
+		}
+		org.json.JSONArray rows = request.getJSONArray("rows");
+		String stamp = " [" + deliveryTimestamp() + "]";
+		for (int i = 0; i < rows.length(); i++) {
+			org.json.JSONArray values = rows.optJSONObject(i) == null
+					? null : rows.optJSONObject(i).optJSONArray("values");
+			if (values == null || values.length() == 0 || values.isNull(0)) {
+				continue;
+			}
+			String value = String.valueOf(values.opt(0));
+			if (!value.matches(".*\\d{2}/\\d{2}/\\d{4} \\d{2}:\\d{2}:\\d{2}\\.\\d{3}.*")) {
+				values.put(0, value + stamp);
+			}
+		}
+	}
+
+	private void writeMarketplaceDeliveryMessage(java.util.List<String> productIds, String message) {
+		if (productIds == null || productIds.isEmpty()) {
+			return;
+		}
+		org.json.JSONObject request = newRequest(
+				"Product2GCharacteristicValueLang.Value('PublishMktMessage',root,\"0000.0000.RK\",'PublishMktMessage',-1)");
+		org.json.JSONArray rows = request.getJSONArray("rows");
+		for (String productId : productIds) {
+			if (productId == null || productId.trim().isEmpty()) {
+				continue;
+			}
+			rows.put(new org.json.JSONObject()
+					.put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1"))
+					.put("values", new org.json.JSONArray().put(message)));
+		}
+		if (rows.length() > 0) {
+			sendPublishRows(request);
+		}
+	}
+
+	private static String deliveryTimestamp() {
+		return new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss.SSS").format(new java.util.Date());
+	}
+
+	private static String compactDeliveryMessage(String value) {
+		if (value == null) {
+			return "<null>";
+		}
+		String compact = value.replace('\r', ' ').replace('\n', ' ').trim();
+		return compact.length() <= 1000 ? compact : compact.substring(0, 1000);
 	}
 
 	private static boolean isKnownSuccessfulBrokerResponse(String response) {

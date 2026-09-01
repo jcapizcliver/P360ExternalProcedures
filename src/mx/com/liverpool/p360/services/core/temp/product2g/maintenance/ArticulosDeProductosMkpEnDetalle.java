@@ -1,7 +1,8 @@
 package mx.com.liverpool.p360.services.core.temp.product2g.maintenance;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
-import mx.com.liverpool.p360.services.core.net.CliTest;
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 
 public class ArticulosDeProductosMkpEnDetalle {
@@ -54,10 +55,20 @@ public class ArticulosDeProductosMkpEnDetalle {
 //			CliTest.enviaDataProducto(id);
 //		}
 		System.out.println("Now sending articles treatment...");
-		DataRequestor dr = new DataRequestor();
-		for(String id : extVarId) {
-			System.out.println("On delete as variant as product (" + id + "): " + dr.retiraProducto(new org.json.JSONArray().put(id)));
-//			CliTest.enviaDataArticulo(id);
+		try(DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+			
+			@Override
+			public void logE(Exception e) {
+			}
+			
+			@Override
+			public void log(String message) {
+			}
+		} )){
+			DataRequestor dr = new DataRequestor(dastub);
+			for(String id : extVarId) {
+				System.out.println("On delete as variant as product (" + id + "): " + dr.retiraProducto(new org.json.JSONArray().put(id)));
+			}
 		}
 	}
 	

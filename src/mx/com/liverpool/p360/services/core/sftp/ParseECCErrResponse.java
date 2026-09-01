@@ -1,6 +1,7 @@
 package mx.com.liverpool.p360.services.core.sftp;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -26,26 +27,41 @@ import org.apache.sshd.sftp.client.SftpClientFactory;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
-import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 import mx.com.liverpool.p360.services.core.SimpleLog;
+import mx.com.liverpool.p360.services.core.net.DataRequestor;
 
-public class ParseECCErrResponse extends Thread {
+public class ParseECCErrResponse extends Thread implements Closeable {
 
-	private static final RESTWrapper rw = new RESTWrapper();
-	private static final RESTWorkshop workshop = rw.getRw();
-	private static final String BASE_URL = PropertiesManager.get("p360.contingency.base_url");
+	private final RESTWrapper rw = new RESTWrapper();
 	
 	private boolean running = true;
+	
 
-	static {
-		workshop.addHeader("Authorization", "Basic " + PropertiesManager.get("p360.contingency.basic_token_auth"));
-		workshop.setBaseUrl(BASE_URL);
+	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			ParseECCErrResponse.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			ParseECCErrResponse.this.log(message);
+		}
+	} );
+	
+	private final DataRequestor dr = new DataRequestor(dastub);
+
+	@Override
+	public void close() {
+		dastub.close();
 	}
 
 	private final ParsersTools tools = new ParsersTools(new SimpleLog() {
-
 
 		public void log(String message) {
 			try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
@@ -63,7 +79,7 @@ public class ParseECCErrResponse extends Thread {
 			} catch (java.io.IOException e) {
 			}
 		}
-	});
+	}, dr);
 	
     // SFTP connection parameters
 	private static final String HOST = PropertiesManager.get( "p360.contingency.ecc.host" );// SFTP server address: 172.16.204.243
@@ -114,22 +130,21 @@ public class ParseECCErrResponse extends Thread {
     }
     
 	public static void main(String[] args) {
-		ParseECCErrResponse rn = new ParseECCErrResponse();
-		rn.launchListenerThread();
-		Runtime.getRuntime().addShutdownHook(rn);
-		while(rn.running) {
-			rn.doIt();
-			try {
-				Thread.sleep(10000);
-			}catch(InterruptedException e) {
-				rn.logE(e);
+		try(ParseECCErrResponse rn = new ParseECCErrResponse()){
+			rn.launchListenerThread();
+			Runtime.getRuntime().addShutdownHook(rn);
+			while(rn.running) {
+				rn.doIt();
+				try {
+					Thread.sleep(10000);
+				}catch(InterruptedException e) {
+					rn.logE(e);
+				}
 			}
 		}
 	}
 	
 	private void doIt() {
-		workshop.addHeader("Authorization", "Basic " + PropertiesManager.get("p360.contingency.basic_token_auth"));
-		workshop.setBaseUrl(BASE_URL);
 
 //        try(SshClient client = SshClient.setUpDefaultClient()){
 //        	client.start();

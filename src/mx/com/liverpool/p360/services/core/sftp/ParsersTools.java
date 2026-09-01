@@ -12,7 +12,10 @@ public class ParsersTools {
 	private final RESTWrapper rw = new RESTWrapper(); 
 	private final RESTWorkshop workshop = rw.getRw();
 	
-	public ParsersTools(SimpleLog sl) {
+	private final DataRequestor dr;
+	
+	public ParsersTools(SimpleLog sl, DataRequestor dr) {
+		this.dr = dr;
 		this.sl = sl == null ? new SimpleLog() {
 
 			@Override
@@ -29,7 +32,6 @@ public class ParsersTools {
 	}
 
 	public String[] checkProductBySKU(String sku) {
-		DataRequestor dr = new DataRequestor();
 		String resp = dr.productBySKU(new org.json.JSONArray().put(sku));
 		if(resp != null) {
 			try {
@@ -84,7 +86,6 @@ public class ParsersTools {
 	}
 	
 	public String checkArticleBySKU(String sku) {
-		DataRequestor dr = new DataRequestor();
 		String resp = dr.articleBySKU(new org.json.JSONArray().put(sku));
 		if(resp != null) {
 			try {
@@ -100,7 +101,6 @@ public class ParsersTools {
 	}
 	
 	public String[] checkProduct(String id) {
-		DataRequestor dr = new DataRequestor();
 		try {
 				String resp = dr.getProductData(new org.json.JSONArray().put(id));
 				if(resp != null) {
@@ -127,7 +127,6 @@ public class ParsersTools {
 	}
 	
 	public String[] checkArticle(String id) {
-		DataRequestor dr = new DataRequestor();
 		String resp = dr.getProductByVariant(new org.json.JSONArray().put(id));
 		sl.log("Req " + id + ": " + resp);
 		if(resp != null) {

@@ -1,6 +1,7 @@
 package mx.com.liverpool.p360.services.core.sftp;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UnsupportedEncodingException;
@@ -30,6 +31,8 @@ import org.apache.sshd.sftp.client.SftpClient.DirEntry;
 import org.apache.sshd.sftp.client.SftpClientFactory;
 import org.xml.sax.SAXException;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.PubSubGCP;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
@@ -41,7 +44,28 @@ import mx.com.liverpool.p360.services.core.sftp.xml.Jana122Handler;
 import mx.com.liverpool.p360.services.core.sftp.xml.Jana122Handler.Product;
 import mx.com.liverpool.p360.services.core.sftp.xml.Jana122Handler.Value;
 
-public class ParseJana122ResponseOLD implements SimpleLog {
+public class ParseJana122ResponseOLD implements SimpleLog, Closeable {
+	
+
+	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			ParseJana122ResponseOLD.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			ParseJana122ResponseOLD.this.log(message);
+		}
+	} );
+	
+	private final DataRequestor dr = new DataRequestor(dastub);
+
+	@Override
+	public void close() {
+		dastub.close();
+	}
 
 	private static final RESTWrapper rw = new RESTWrapper();
 	private static final RESTWorkshop workshop = rw.getRw();
@@ -285,7 +309,7 @@ public class ParseJana122ResponseOLD implements SimpleLog {
     }
     
 	private static final java.util.Map<String, String> s4hFieldMapping = new java.util.TreeMap<>();
-	private final ParsersTools tools = new ParsersTools(this);
+	private final ParsersTools tools = new ParsersTools(this, dr);
 
     private boolean running = true;
 
@@ -400,17 +424,18 @@ public class ParseJana122ResponseOLD implements SimpleLog {
 	}
     
     public static void main(String[] args) throws ServiceUnavailableException {
-    	ParseJana122ResponseOLD object = new ParseJana122ResponseOLD();
-    	object.launchListenerThread();
-    	while(object.running) {
-    		object.runOnSftp(args);
-    		try {
-    			Thread.sleep(60000);
-    		}catch(InterruptedException e) {
-    			object.logE(e);
-    		}
+    	try(ParseJana122ResponseOLD object = new ParseJana122ResponseOLD()){
+	    	object.launchListenerThread();
+	    	while(object.running) {
+	    		object.runOnSftp(args);
+	    		try {
+	    			Thread.sleep(60000);
+	    		}catch(InterruptedException e) {
+	    			object.logE(e);
+	    		}
+	    	}
+	    	object.log("Terminé.");
     	}
-    	object.log("Terminé.");
     }
     
 	public void runOnSftp(String[] args) throws ServiceUnavailableException {
@@ -888,7 +913,6 @@ public class ParseJana122ResponseOLD implements SimpleLog {
 //			}
 			log( "HLPs: " + articleHigherLevelProduct);
 			String parentId = null;
-			DataRequestor dr = new DataRequestor();
 			for( java.util.Map.Entry<String, String> entry : articleHigherLevelProductNotReadyYet.entrySet() ) {
 				parentId = skuToArticleSupplierAID.get(entry.getValue());
 				if(parentId == null) {
@@ -1335,7 +1359,6 @@ public class ParseJana122ResponseOLD implements SimpleLog {
 		response = workshop.makeRequest("PUT", "/object/" + entity + "/'" + id + "'@'MASTER'", qp, request.toString());
 		if(response != null) {
 			if(sku != null && !"".equals(sku) && "Product2G".equals(entity)) {
-				DataRequestor dr = new DataRequestor();
 				org.json.JSONArray items = new org.json.JSONArray();
 				items.put(new org.json.JSONObject().put("productNo", id).put("sku", sku));
 				dr.skuProductNo( items );

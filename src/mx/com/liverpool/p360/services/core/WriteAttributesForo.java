@@ -1,5 +1,6 @@
 package mx.com.liverpool.p360.services.core;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.logging.FileHandler;
@@ -12,13 +13,23 @@ import org.json.JSONObject;
 
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 
-public class WriteAttributesForo {
+public class WriteAttributesForo implements Closeable {
 
-	public static void main(String[] args) throws ServiceUnavailableException {
-		WriteAttributesForo waf = new WriteAttributesForo();
-		waf.processRequest(args);
-	}
-
+	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			WriteAttributesForo.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			WriteAttributesForo.this.log(message);
+		}
+	} );
+	
+	private final DataRequestor dr = new DataRequestor(dastub);
+	
 	public Object processRequest(String[] args) throws ServiceUnavailableException {
 		log("BRAND NEW GLORY. " + args[1]);
 		org.json.JSONObject generalResponse = null;
@@ -29,10 +40,8 @@ public class WriteAttributesForo {
 		RestClient rc = null;
 		String rawMessage = null;
 		org.json.JSONObject request = null;
-//		java.util.Set<String> characteristicThatAreLookup = new java.util.TreeSet<>();
 		java.nio.file.Path lookupFilePath = null;
 		org.json.JSONArray responses = new org.json.JSONArray();
-		DataRequestor dr = new DataRequestor();
 		try{
 			sourceFile= args[0];
 			lookupCharacteristicsFile = args[1];
@@ -46,13 +55,15 @@ public class WriteAttributesForo {
 				boolean needsRefresh = difference >= (1000*60*60*24);
 				if(needsRefresh) {
 					log("Refreshing...");
-					refreshLookupList(lookupFilePath, rc, baseUrl);
+					refreshLookupList(lookupFilePath);
+//					refreshLookupList(lookupFilePath, rc, baseUrl);
 				}
 				log("Releasing fis...");
 				log("Releasing fos...");
 			}else {
 				log("Refreshing from fresh...");
-				refreshLookupList(lookupFilePath, rc, baseUrl);
+				refreshLookupList(lookupFilePath);
+//				refreshLookupList(lookupFilePath, rc, baseUrl);
 			}
 		}catch(java.io.IOException | ArrayIndexOutOfBoundsException e) {
 			System.out.println(generalResponse = new org.json.JSONObject().put("Error", "A file that contains the json message to be processed needs to be specified as the first argument, as the second argument, a file that contains a list of characteristic identifiers that are lookup type needs to be specified as well."));
@@ -74,17 +85,6 @@ public class WriteAttributesForo {
 			logE(e);
 			return generalResponse;
 		}
-//		log("Reading lookup information...");
-//		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(lookupFilePath.toFile()), java.nio.charset.Charset.forName("UTF-8")))){
-//			String line = null;
-//			while((line = br.readLine()) != null) {
-//				characteristicThatAreLookup.add(line);
-//			}
-//		}catch(java.io.IOException e) {
-//			System.out.println(generalResponse = new org.json.JSONObject().put("Error", "Problem trying to read file that contains characteristics that are lookup."));
-//			log(new org.json.JSONObject().put("Error", "Problem trying to read file that contains characteristics that are lookup.").toString());
-//			return generalResponse;
-//		}
 		org.json.JSONObject rr = new org.json.JSONObject(rawMessage);
 		request = rr.has("root") ? rr.getJSONObject("root") : rr;
 		log("Request read");
@@ -103,8 +103,10 @@ public class WriteAttributesForo {
 		org.json.JSONObject writeRequest = null;
 		java.util.Map<String, String> nextStatusMap = new java.util.TreeMap<>();
 		java.util.Map<String, String> externalStatusMap = new java.util.TreeMap<>();
-		loadNextStatusDictionary(nextStatusMap, rc, baseUrl);
-		loadExternalStatusDictionary(externalStatusMap, rc, baseUrl);
+		loadNextStatusDictionary(nextStatusMap);
+		loadExternalStatusDictionary(externalStatusMap);
+//		loadNextStatusDictionary(nextStatusMap, rc, baseUrl);
+//		loadExternalStatusDictionary(externalStatusMap, rc, baseUrl);
 		String nextStatus = null;
 		org.json.JSONObject objectAPIResponse = null;
 		String currentStatusKey = null;
@@ -343,7 +345,7 @@ public class WriteAttributesForo {
 		return generalResponse;
 	}
 
-	private static org.json.JSONObject getEntity(String entity, String externalItemId, RestClient rc, String baseUrl, String entityFilter) throws ServiceUnavailableException{
+	private org.json.JSONObject getEntity(String entity, String externalItemId, RestClient rc, String baseUrl, String entityFilter) throws ServiceUnavailableException{
 		org.json.JSONObject response = null;
 		String rawResponse = null;
 		String url = null;
@@ -357,111 +359,152 @@ public class WriteAttributesForo {
 		return response;
 	}
 
-	private static org.json.JSONObject getEntity(String entity, String externalItemId, RestClient rc, String baseUrl) throws ServiceUnavailableException{
+	private org.json.JSONObject getEntity(String entity, String externalItemId, RestClient rc, String baseUrl) throws ServiceUnavailableException{
 		return getEntity(entity, externalItemId, rc, baseUrl, entity);
 	}
 
-	private static void refreshLookupList(java.nio.file.Path lookupFilePath, RestClient rc, String baseUrl) throws ServiceUnavailableException {
-		String rawResponse = null;
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		int currentIndex = 0;
-		int totalSize = 0;
+	private void refreshLookupList(java.nio.file.Path lookupFilePath) {
 		log("Start writing participantes file caché.");
-		try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(lookupFilePath.toFile()), java.nio.charset.Charset.forName("UTF-8")))){
-			do {
-				rawResponse = rc.getRequest("GET", baseUrl + "/list/Characteristic/bySearch"
-						+ "?query=" + java.net.URLEncoder.encode("Characteristic.DataType = LOOKUP and Characteristic.IsActive = true", "UTF-8")
-						+ "&fields=" + java.net.URLEncoder.encode("Characteristic.Identifier", "UTF-8")
-						+ "&pageSize=2000"
-						+ "&startIndex=" + currentIndex
-						, null);
-				response = new org.json.JSONObject(rawResponse);
-				log("Read response: " + rawResponse);
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for(int i=0; i<rows.length(); i++) {
-					values = rows.getJSONObject(i).getJSONArray("values");
-					pw.println(values.getString(0));
-					log("Just wrote to file: " + values.getString(0));
-				}
-				currentIndex += response.getInt("pageSize");
-			}while(currentIndex < totalSize);
+
+		try (java.io.PrintWriter pw =
+				new java.io.PrintWriter(
+					new java.io.OutputStreamWriter(
+						new java.io.FileOutputStream(lookupFilePath.toFile()),
+						java.nio.charset.StandardCharsets.UTF_8))) {
+
+			for (String identifier : dastub.getActiveLookupCharacteristicIdentifiers()) {
+
+				pw.println(identifier);
+				log("Just wrote to file: " + identifier);
+			}
+
 		} catch (java.io.IOException e) {
 			logE(e);
 		}
 	}
 
-	private static void loadExternalStatusDictionary(java.util.Map<String, String> externalStatusMap, RestClient rc, String baseUrl) {
+	private void loadExternalStatusDictionary(
+			java.util.Map<String, String> externalStatusMap) {
+
 		if (!externalStatusMap.isEmpty()) {
 			return;
 		}
-		String rawResponse = null;
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONObject row = null;
-		org.json.JSONArray values = null;
-		int currentIndex = 0;
-		int totalSize = 0;
-		try {
-			do {
-				rawResponse = rc.getRequest("GET", baseUrl + "/list/StandardizationValue/byDictionary?dictionary="
-						+ java.net.URLEncoder.encode("ExternalStatus", "UTF-8")
-						+ "&fields=StandardizationValue.Value,StandardizationValue.AlternativeValue&pageSize=200&startIndex="
-						+ currentIndex, null);
-				response = new org.json.JSONObject(rawResponse);
-				rows = response.getJSONArray("rows");
-				for (int i = 0; i < rows.length(); i++) {
-					row = rows.getJSONObject(i);
-					values = row.getJSONArray("values");
-					externalStatusMap.put(values.getString(0), values.getString(1));
-				}
-				currentIndex += rows.length();
-				totalSize = response.getInt("totalSize");
-			} while (currentIndex < totalSize);
-		} catch (Exception e) {
-			log(rawResponse);
-			logE(e);
-		}
+
+		externalStatusMap.putAll(
+				dastub.getDictionaryValueAlternativeValueMap("ExternalStatus"));
 	}
 
-	private static void loadNextStatusDictionary(java.util.Map<String, String> nextStatusMap, RestClient rc, String baseUrl) {
+	private void loadNextStatusDictionary(
+			java.util.Map<String, String> nextStatusMap) {
+
 		if (!nextStatusMap.isEmpty()) {
 			return;
 		}
-		String rawResponse = null;
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONObject row = null;
-		org.json.JSONArray values = null;
-		int currentIndex = 0;
-		int totalSize = 0;
-		log(rc.getHeader().toString());
-		try {
-			do {
-				rawResponse = rc.getRequest("GET", baseUrl + "/list/StandardizationValue/byDictionary?dictionary="
-						+ java.net.URLEncoder.encode("NextStatus", "UTF-8")
-						+ "&fields=StandardizationValue.Value,StandardizationValue.AlternativeValue&pageSize=200&startIndex="
-						+ currentIndex, null);
-				response = new org.json.JSONObject(rawResponse);
-				rows = response.getJSONArray("rows");
-				for (int i = 0; i < rows.length(); i++) {
-					row = rows.getJSONObject(i);
-					values = row.getJSONArray("values");
-					nextStatusMap.put(values.getString(0), values.getString(1));
-				}
-				currentIndex += rows.length();
-				totalSize = response.getInt("totalSize");
-			} while (currentIndex < totalSize);
-		} catch (Exception e) {
-			log(rawResponse);
-			logE(e);
-		}
+
+		nextStatusMap.putAll(
+				dastub.getDictionaryValueAlternativeValueMap("NextStatus"));
 	}
+	
+//	private void refreshLookupList(java.nio.file.Path lookupFilePath, RestClient rc, String baseUrl) throws ServiceUnavailableException {
+//		String rawResponse = null;
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		org.json.JSONArray values = null;
+//		int currentIndex = 0;
+//		int totalSize = 0;
+//		log("Start writing participantes file caché.");
+//		try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(lookupFilePath.toFile()), java.nio.charset.Charset.forName("UTF-8")))){
+//			do {
+//				rawResponse = rc.getRequest("GET", baseUrl + "/list/Characteristic/bySearch"
+//						+ "?query=" + java.net.URLEncoder.encode("Characteristic.DataType = LOOKUP and Characteristic.IsActive = true", "UTF-8")
+//						+ "&fields=" + java.net.URLEncoder.encode("Characteristic.Identifier", "UTF-8")
+//						+ "&pageSize=2000"
+//						+ "&startIndex=" + currentIndex
+//						, null);
+//				response = new org.json.JSONObject(rawResponse);
+//				log("Read response: " + rawResponse);
+//				totalSize = response.getInt("totalSize");
+//				rows = response.getJSONArray("rows");
+//				for(int i=0; i<rows.length(); i++) {
+//					values = rows.getJSONObject(i).getJSONArray("values");
+//					pw.println(values.getString(0));
+//					log("Just wrote to file: " + values.getString(0));
+//				}
+//				currentIndex += response.getInt("pageSize");
+//			}while(currentIndex < totalSize);
+//		} catch (java.io.IOException e) {
+//			logE(e);
+//		}
+//	}
+//
+//	private void loadExternalStatusDictionary(java.util.Map<String, String> externalStatusMap, RestClient rc, String baseUrl) {
+//		if (!externalStatusMap.isEmpty()) {
+//			return;
+//		}
+//		String rawResponse = null;
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		org.json.JSONObject row = null;
+//		org.json.JSONArray values = null;
+//		int currentIndex = 0;
+//		int totalSize = 0;
+//		try {
+//			do {
+//				rawResponse = rc.getRequest("GET", baseUrl + "/list/StandardizationValue/byDictionary?dictionary="
+//						+ java.net.URLEncoder.encode("ExternalStatus", "UTF-8")
+//						+ "&fields=StandardizationValue.Value,StandardizationValue.AlternativeValue&pageSize=200&startIndex="
+//						+ currentIndex, null);
+//				response = new org.json.JSONObject(rawResponse);
+//				rows = response.getJSONArray("rows");
+//				for (int i = 0; i < rows.length(); i++) {
+//					row = rows.getJSONObject(i);
+//					values = row.getJSONArray("values");
+//					externalStatusMap.put(values.getString(0), values.getString(1));
+//				}
+//				currentIndex += rows.length();
+//				totalSize = response.getInt("totalSize");
+//			} while (currentIndex < totalSize);
+//		} catch (Exception e) {
+//			log(rawResponse);
+//			logE(e);
+//		}
+//	}
+//
+//	private void loadNextStatusDictionary(java.util.Map<String, String> nextStatusMap, RestClient rc, String baseUrl) {
+//		if (!nextStatusMap.isEmpty()) {
+//			return;
+//		}
+//		String rawResponse = null;
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		org.json.JSONObject row = null;
+//		org.json.JSONArray values = null;
+//		int currentIndex = 0;
+//		int totalSize = 0;
+//		log(rc.getHeader().toString());
+//		try {
+//			do {
+//				rawResponse = rc.getRequest("GET", baseUrl + "/list/StandardizationValue/byDictionary?dictionary="
+//						+ java.net.URLEncoder.encode("NextStatus", "UTF-8")
+//						+ "&fields=StandardizationValue.Value,StandardizationValue.AlternativeValue&pageSize=200&startIndex="
+//						+ currentIndex, null);
+//				response = new org.json.JSONObject(rawResponse);
+//				rows = response.getJSONArray("rows");
+//				for (int i = 0; i < rows.length(); i++) {
+//					row = rows.getJSONObject(i);
+//					values = row.getJSONArray("values");
+//					nextStatusMap.put(values.getString(0), values.getString(1));
+//				}
+//				currentIndex += rows.length();
+//				totalSize = response.getInt("totalSize");
+//			} while (currentIndex < totalSize);
+//		} catch (Exception e) {
+//			log(rawResponse);
+//			logE(e);
+//		}
+//	}
 
-
-	private static void appendMultimediaInformation(org.json.JSONArray multimediaArray, org.json.JSONArray characteristicArray, org.json.JSONArray structureProblems) {
+	private void appendMultimediaInformation(org.json.JSONArray multimediaArray, org.json.JSONArray characteristicArray, org.json.JSONArray structureProblems) {
 		org.json.JSONObject multimedia = null;
 		org.json.JSONArray children = null;
 		int timesOwnersManual = 0;
@@ -629,7 +672,7 @@ public class WriteAttributesForo {
 		}
 	}
 
-	private static String appendPhotos(org.json.JSONArray photosArray, org.json.JSONArray characteristicArray, org.json.JSONArray structureProblems) {
+	private String appendPhotos(org.json.JSONArray photosArray, org.json.JSONArray characteristicArray, org.json.JSONArray structureProblems) {
 		int timesDetailImage = 0;
 		int timesIllustration = 0;
 		int timesSmosh = 0;
@@ -896,19 +939,17 @@ public class WriteAttributesForo {
         }
     }
 
-	private static void log(String message){
+	private void log(String message){
 		LOGGER.info(message);
-//		try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream("../logs/data_write_from_foro.log", true)))){
-//		  pw.println("[" + (new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(new java.util.Date())) + "]  " + message);
-//		}catch(java.io.IOException e){}
-		
 	}
 
-	private static void logE(Exception ex){
+	private void logE(Exception ex){
 		LOGGER.info("Logging: " + ex.getMessage());
 		LOGGER.log( Level.SEVERE, ex.getMessage(), ex);
-//		try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream("../logs/data_write_from_foro.log", true)))){
-//		  ex.printStackTrace(pw);
-//		}catch(java.io.IOException e){}
+	}
+
+	@Override
+	public void close() throws IOException {
+		dastub.close();
 	}
 }

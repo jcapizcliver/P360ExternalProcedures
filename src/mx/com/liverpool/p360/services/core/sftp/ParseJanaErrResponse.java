@@ -1,6 +1,7 @@
 package mx.com.liverpool.p360.services.core.sftp;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -27,13 +28,35 @@ import org.apache.sshd.sftp.client.SftpClientFactory;
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 
-public class ParseJanaErrResponse {
+public class ParseJanaErrResponse implements Closeable {
 
-	private final DataRequestor dr = new DataRequestor();
+
+	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			ParseJanaErrResponse.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			ParseJanaErrResponse.this.log(message);
+		}
+	} );
+	
+	private final DataRequestor dr = new DataRequestor(dastub);
+
+	@Override
+	public void close() {
+		dastub.close();
+	}
+	
 	private final RESTWrapper rw = new RESTWrapper();
 //	private static final RESTWorkshop workshop = rw.getRw(); // new RESTWorkshop();
 //	private final XMLMisc xmm = rw.getXmm();
@@ -84,14 +107,15 @@ public class ParseJanaErrResponse {
 	}
     
 	public static void main(String[] args) {
-		ParseJanaErrResponse rn = new ParseJanaErrResponse();
-		rn.launchListenerThread();
-		while(rn.running) {
-			rn.run();
-			try {
-				Thread.sleep(600000);
-			}catch(InterruptedException e) {
-				rn.logE(e);
+		try(ParseJanaErrResponse rn = new ParseJanaErrResponse()){
+			rn.launchListenerThread();
+			while(rn.running) {
+				rn.run();
+				try {
+					Thread.sleep(600000);
+				}catch(InterruptedException e) {
+					rn.logE(e);
+				}
 			}
 		}
 	}

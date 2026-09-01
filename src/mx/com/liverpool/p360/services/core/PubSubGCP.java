@@ -4,6 +4,7 @@ import java.io.FileInputStream;
 import java.io.IOException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicReference;
 
 import com.google.api.core.ApiFuture;
@@ -15,6 +16,9 @@ import com.google.pubsub.v1.ProjectTopicName;
 import com.google.pubsub.v1.PubsubMessage;
 
 public class PubSubGCP {
+
+    private static final long PUBLISH_TIMEOUT_SECONDS =
+            Long.getLong("p360.pubsub.publish.timeout.seconds", 30L);
 
     private final String PROJECT_ID; // = "";
     private final String TOPIC_ID;   // = "p360_put_proposals";
@@ -171,8 +175,18 @@ public class PubSubGCP {
                 PubsubMessage pubsubMessage = PubsubMessage.newBuilder().setData(data).build();
 
                 ApiFuture<String> a = publisher.publish(pubsubMessage);
-                log(myTag = a.get());
-                log("Published message: " + message.substring(0, Integer.min(message.length(), 100)) + "... Topic: " + TOPIC_ID + ", project: " + PROJECT_ID);
+                try {
+                    log(myTag = a.get(PUBLISH_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+                } catch (TimeoutException e) {
+                    a.cancel(true);
+                    logE(e);
+                    resetPublisher();
+                    continue;
+                }
+                log("Published message: "
+                        + message.substring(0, Math.min(100, message.length()))
+                        + (message.length() > 100 ? "..." : "")
+                        + " Topic: " + TOPIC_ID + ", project: " + PROJECT_ID);
                 return myTag;
 
             } catch (InterruptedException e) {
@@ -215,8 +229,14 @@ public class PubSubGCP {
             PubsubMessage pubsubMessage = PubsubMessage.newBuilder().setData(data).build();
 
             ApiFuture<String> a = publisher.publish(pubsubMessage);
-            log(aoc = a.get());
-            log("Published message: " + message.substring(0, message.length() >= 1000 ? 1000 : message.length()) + (message.length() > 1000 ? "..." : ""));
+            try {
+                log(aoc = a.get(PUBLISH_TIMEOUT_SECONDS, TimeUnit.SECONDS));
+            } catch (TimeoutException e) {
+                a.cancel(true);
+                logE(e);
+            }
+            log("Published message: " + message.substring(0, Math.min(1000, message.length()))
+                    + (message.length() > 1000 ? "..." : ""));
 
         } catch (InterruptedException e) {
             logE(e);

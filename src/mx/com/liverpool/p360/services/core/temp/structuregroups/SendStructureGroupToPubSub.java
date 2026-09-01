@@ -12,7 +12,7 @@ public class SendStructureGroupToPubSub extends RESTWrapper {
 	public static void main(String[] args) {
 		System.out.println(sa);
 		System.out.println(pubSubProject);
-		java.util.List<String> list = new java.util.ArrayList<>( java.util.Arrays.asList(("EU4-97078901").split("\\r\\n")) );
+		java.util.List<String> list = new java.util.ArrayList<>( java.util.Arrays.asList(("EU4-27315947").split("\\r\\n")) );
 		SendStructureGroupToPubSub s = new SendStructureGroupToPubSub();
 		RESTWrapper rw = new RESTWrapper();
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
@@ -27,7 +27,7 @@ public class SendStructureGroupToPubSub extends RESTWrapper {
 		});
 	}
 
-	public void sendDataToPubSub( String structureGroupId, String topic ) {
+	public String sendDataToPubSub( String structureGroupId, String topic ) {
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
 		qp.put("fields", 
 				   "StructureGroupLang.Name(es)"
@@ -54,8 +54,10 @@ public class SendStructureGroupToPubSub extends RESTWrapper {
 					.put("itemsGroup", new org.json.JSONArray()) 
 				);
 		});
+		org.json.JSONObject msg =  new org.json.JSONObject().put("templates", items);
 		new PubSubGCP()
-			.publishMessage(pubSubProject, topic, sa, new org.json.JSONObject().put("templates", items).toString());
+			.publishMessage(pubSubProject, topic, sa, msg.toString());
+		return msg.toString();
 				/*
 		 	new org.json.JSONObject()
 					.put("identifier", template)

@@ -1,6 +1,7 @@
 package mx.com.liverpool.p360.services.core.sftp;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -25,6 +26,8 @@ import org.apache.sshd.sftp.client.SftpClient.DirEntry;
 import org.apache.sshd.sftp.client.SftpClientFactory;
 import org.xml.sax.SAXException;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
@@ -33,8 +36,23 @@ import mx.com.liverpool.p360.services.core.net.DataRequestor;
 import mx.com.liverpool.p360.services.core.sftp.handlers.ECC122AttributesHandler;
 import mx.com.liverpool.p360.services.core.sftp.handlers.Value;
 
-public class ParseECCAttributesFile implements SimpleLog {
+public class ParseECCAttributesFile implements SimpleLog, Closeable {
 
+	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			ParseECCAttributesFile.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			ParseECCAttributesFile.this.log(message);
+		}
+	} );
+	
+	private final DataRequestor dr = new DataRequestor(dastub);
+	
 	private static final RESTWrapper rw = new RESTWrapper();
 	private static final RESTWorkshop workshop = rw.getRw();
 	private static final String BASE_URL = PropertiesManager.get( "p360.contingency.base_url" );
@@ -52,7 +70,7 @@ public class ParseECCAttributesFile implements SimpleLog {
 	private static boolean USE_CACHE =Boolean.parseBoolean(PropertiesManager.get( "p360.contingency.ecc.use_cache" ));//false;
 
 	private static final java.util.Map<String, String> characteristicsAndLookups = new java.util.HashMap<>();
-	private final ParsersTools tools = new ParsersTools(this);
+	private final ParsersTools tools = new ParsersTools(this, dr);
 
 	private final java.util.Map<String, String> dataTypes = new java.util.TreeMap<>();
 	private final java.util.Map<String, String> lkps = new java.util.TreeMap<>();
@@ -127,21 +145,23 @@ public class ParseECCAttributesFile implements SimpleLog {
     
     public static void main(String[] args) {
     	
-    	ParseECCAttributesFile object = new ParseECCAttributesFile();
-    	object.launchListenerThread();
-    	while(object.running) {
-    		try {
-				object.runOnSftp();
-			} catch (ParserConfigurationException | SAXException e) {
-    			object.logE(e);
-			}
-    		try {
-    			Thread.sleep(600000);
-    		}catch(InterruptedException e) {
-    			object.logE(e);
-    		}
+    	try(ParseECCAttributesFile object = new ParseECCAttributesFile()){
+	    	object.launchListenerThread();
+	    	while(object.running) {
+	    		try {
+					object.runOnSftp();
+				} catch (ParserConfigurationException | SAXException e) {
+	    			object.logE(e);
+				}
+	    		try {
+	    			Thread.sleep(600000);
+	    		}catch(InterruptedException e) {
+	    			object.logE(e);
+	    		}
+	    	}
+    	}catch(java.io.IOException e) {
+    		e.printStackTrace();
     	}
-    	
     }
     
 	public void runOnSftp() throws ParserConfigurationException, SAXException {
@@ -292,6 +312,14 @@ public class ParseECCAttributesFile implements SimpleLog {
 		String attEq = null;
 		java.util.LinkedList<String> listaDeDiccionarios = new java.util.LinkedList<>();
 //		loadEqECCAttributes(mapEqs);
+
+		/*
+		 * IMPORTANTE: esto debe ocurrir ANTES de construir listaDeDiccionarios.
+		 * Si el metadata inyectado vino vacío, attEq quedaría null para TODOS
+		 * los ATNAM y jamás se intentaría resolver la talla.
+		 */
+		ensureEccMetadataAvailable();
+
 		loadSizeAttributesMap(atributosTalla);
 		eccToCharID.keySet().forEach(a -> listaDeDiccionarios.addLast( a ));
 		loadDiccionarios(listaDeDiccionarios);
@@ -475,6 +503,26 @@ public class ParseECCAttributesFile implements SimpleLog {
 	    this.articleCharacteristics.clear();
 	    this.articleCharacteristics.addAll(articleCharacteristics);
 	}
+
+	public void setMetadataCache(
+	        java.util.Map<String, String> eccToCharID,
+	        java.util.Map<String, String> eccFieldMapping,
+	        java.util.List<String> product2GCharacteristics,
+	        java.util.List<String> articleCharacteristics,
+	        java.util.Map<String, String> globalDataTypes
+	) {
+	    setMetadataCache(
+	            eccToCharID,
+	            eccFieldMapping,
+	            product2GCharacteristics,
+	            articleCharacteristics
+	    );
+
+	    this.globalDataTypes.clear();
+	    if (globalDataTypes != null) {
+	        this.globalDataTypes.putAll(globalDataTypes);
+	    }
+	}
 	
 //	private void loadEqECCAttributes(java.util.Map<String, String> map) {
 //		org.json.JSONObject response = null;
@@ -503,20 +551,80 @@ public class ParseECCAttributesFile implements SimpleLog {
 //		currentIndex = 0;
 //	}
 	
-	private void loadSizeAttributesMap(java.util.Set<String> atributos) {
-		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.templates_cache_directory"), "dictionaries", "RelAttribSTDATG").toString())))){
-			String line = null;
-			String delim = "\"";
-			String sep = ";";
-			String escp = "\\";
-			String[] pieces = null;
-			while((line = br.readLine()) != null) {
-				pieces = workshop.parseLine(line, delim, sep, escp);
-				atributos.add(pieces[0]);
+
+	private void ensureEccMetadataAvailable() {
+		/*
+		 * Normalmente estos mapas llegan por setMetadataCache() desde
+		 * ParseECC122Response. No los reemplazamos: sólo completamos faltantes.
+		 *
+		 * El cache/characteristics contiene:
+		 *   [0] Characteristic.Identifier
+		 *   [1] Characteristic.DataType
+		 *   [2] AlternativeIdentifier(ECC)
+		 *   ...
+		 */
+		java.nio.file.Path cacheFile = java.nio.file.Paths.get(
+				PropertiesManager.get("p360.contingency.base_directory"),
+				"cache",
+				"characteristics");
+
+		try (java.io.BufferedReader br = java.nio.file.Files.newBufferedReader(
+				cacheFile,
+				java.nio.charset.StandardCharsets.UTF_8)) {
+
+			String line;
+			while ((line = br.readLine()) != null) {
+				String[] pcs = workshop.parseLine(line, "\"", ";", "\\");
+				if (pcs == null || pcs.length < 3) {
+					continue;
+				}
+
+				String characteristicId = pcs[0] == null ? "" : pcs[0].trim();
+				String dataType = pcs[1] == null ? "" : pcs[1].trim();
+				String eccId = pcs[2] == null ? "" : pcs[2].trim();
+
+				if (!characteristicId.isEmpty() && !dataType.isEmpty()) {
+					globalDataTypes.putIfAbsent(characteristicId, dataType);
+				}
+
+				if (!characteristicId.isEmpty() && !eccId.isEmpty()) {
+					eccFieldMapping.putIfAbsent(characteristicId, eccId);
+					eccToCharID.putIfAbsent(eccId, characteristicId);
+				}
 			}
-		}catch(java.io.IOException e) {
+
+			log("ECC Attributes metadata ready. mappings="
+					+ eccToCharID.size()
+					+ ", fieldMappings="
+					+ eccFieldMapping.size()
+					+ ", dataTypes="
+					+ globalDataTypes.size());
+
+		} catch (java.io.IOException e) {
 			logE(e);
 		}
+
+		/*
+		 * Sólo fallback: si no llegaron las listas por setMetadataCache(),
+		 * recupera la clasificación de entidades que ya usaba el flujo viejo.
+		 */
+		if (product2GCharacteristics.isEmpty() && articleCharacteristics.isEmpty()) {
+			tools.collectCharacteristicsByEntity(
+					product2GCharacteristics,
+					articleCharacteristics);
+
+			log("ECC Attributes entities ready. product2G="
+					+ product2GCharacteristics.size()
+					+ ", article="
+					+ articleCharacteristics.size());
+		}
+	}
+
+	private void loadSizeAttributesMap(java.util.Set<String> atributos) {
+		java.util.Map<String, String> relAttrib =
+				dastub.getDictionaryCharacteristicAlternativeValueMap("RelAttribSTDATG");
+		atributos.addAll(relAttrib.keySet());
+		log("Loaded size characteristics from DB. Count: " + atributos.size());
 	}
 	
 	private void loadDiccionarios(java.util.LinkedList<String> atributos) {
@@ -534,20 +642,20 @@ public class ParseECCAttributesFile implements SimpleLog {
 	
 	private java.util.Map<String, String> loadDiccionario(String diccionario) {
 		java.util.Map<String, String> atributos = new java.util.TreeMap<>();
-		String container = diccionario.replaceAll("/", "<::>");
-		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.templates_cache_directory"), "global_lookups", container).toString())))){
-			String line = null;
-			String delim = "\"";
-			String sep = ";";
-			String escp = "\\";
-			String[] pieces = null;
-			while((line = br.readLine()) != null) {
-				pieces = workshop.parseLine(line, delim, sep, escp);
-				atributos.put(pieces[0], pieces[1]);
+		java.util.List<org.json.JSONObject> rows =
+				dastub.getLookupValueCodeNameExternalCodeRows(
+						diccionario,
+						10,
+						null,
+						true);
+		for(org.json.JSONObject row : rows) {
+			String code = row.optString("code", "");
+			if(code == null || code.isBlank()) {
+				continue;
 			}
-		}catch(java.io.IOException e) {
-			logE(e);
+			atributos.put(code, row.optString("name", ""));
 		}
+		log("Loaded lookup from DB: " + diccionario + ", values=" + atributos.size());
 		return atributos;
 	}
 	
@@ -588,7 +696,6 @@ public class ParseECCAttributesFile implements SimpleLog {
 //	}
 	
 	private String checkArticleBySKU(String sku) {
-		DataRequestor dr = new DataRequestor();
 		String resp = dr.articleBySKU(new org.json.JSONArray().put(sku));
 		if(resp != null) {
 			try {
@@ -836,6 +943,11 @@ public class ParseECCAttributesFile implements SimpleLog {
 			ex.printStackTrace(pw);
 		} catch (java.io.IOException e) {
 		}
+	}
+
+	@Override
+	public void close() throws IOException {
+		dastub.close();
 	}
     
 }

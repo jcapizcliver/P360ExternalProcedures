@@ -15,6 +15,11 @@ public class LasImagenes {
 	private static final RESTWrapper rw = new RESTWrapper();
 
 	public String doIt(String arg) {
+		if (!ImageTrafficLimiter.tryAcquire()) {
+			log("Rejected image request: inFlight=" + ImageTrafficLimiter.getInFlight());
+			return ImageTrafficLimiter.busyResponse();
+		}
+		try {
 		long init = System.currentTimeMillis();
 		log("----<----");
 		String input = arg;
@@ -41,19 +46,19 @@ public class LasImagenes {
 		iter[0] = 0;
 		replaceAssets = request.has("replaceAssets") && request.getBoolean("replaceAssets");
 		if(replaceAssets) {
-			StringBuilder sb = new StringBuilder();
+			java.util.LinkedHashSet<String> variantIdsToDelete = new java.util.LinkedHashSet<>();
 			for (int i = 0; i < products.length(); i++) {
 				product = products.getJSONObject(i);
 				variantes = product.getJSONArray("variants");
 				for(int j=0; j<variantes.length(); j++) {
-					sb.append(sb.length() == 0 ? "" : ",");
-					sb.append("'");
-					sb.append(variantes.getJSONObject(j).getString("variantId"));
-					sb.append("'@1");
+					String id = variantes.getJSONObject(j).optString("variantId", null);
+					if(id != null && !id.isEmpty()) {
+						variantIdsToDelete.add(id);
+					}
 				}
 			}
-			eliminator.deleteAssets(sb.toString());
-			sb.setLength(0);
+			log("Deleting current media in batches for " + variantIdsToDelete.size() + " variants");
+			eliminator.deleteAssetsBatched(variantIdsToDelete);
 		}
 		for (int i = 0; i < products.length(); i++) {
 			long pin = System.currentTimeMillis();
@@ -306,7 +311,7 @@ public class LasImagenes {
 					}catch(org.json.JSONException e) {
 						responses.getJSONObject(iter[0]).getJSONArray("variantResponses").put(new org.json.JSONObject().put("error", rr));
 					}
-					log("Resp for update variant: " + rr);
+					log("Variant update response chars=" + (rr == null ? 0 : rr.length()));
 				});
 				responses.getJSONObject(i).getJSONArray("variantResponses").getJSONObject(j).put("structureProblems", structureProblems);
 			}
@@ -315,6 +320,9 @@ public class LasImagenes {
 		log("Done. " + rw.getRw().formatTime(System.currentTimeMillis() - init));
 		org.json.JSONObject response = new JSONObject().put("responses", responses);
 		return response.toString();
+		} finally {
+			ImageTrafficLimiter.release();
+		}
 	}
 
 	private static final Logger LOGGER = Logger.getLogger(LasImagenes.class.getName());

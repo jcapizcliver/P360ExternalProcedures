@@ -295,12 +295,21 @@ public class LoadProductDataRemainingFieldsOnSpecificProducts {
     	
         private final java.util.LinkedList<Product> productStack = new java.util.LinkedList<>();
         private final java.util.List<Product> finished = new ArrayList<>();
+        private final java.util.function.Consumer<Product> rootProductConsumer;
         
         private final java.util.Map<String, Asset> assetMap = new java.util.TreeMap<>();
         private final java.util.LinkedList<Asset> assetStack = new java.util.LinkedList<>();
     	private Integer productsCounter = 0;
     	private boolean assetName = false;
     	private boolean gettingName = false;
+
+        public Handler() {
+            this(null);
+        }
+
+        public Handler(java.util.function.Consumer<Product> rootProductConsumer) {
+            this.rootProductConsumer = rootProductConsumer;
+        }
 
         @Override
         public void startElement(String uri, String localName, String qName, Attributes attributes) {
@@ -405,7 +414,9 @@ public class LoadProductDataRemainingFieldsOnSpecificProducts {
                 	productsCounter++;
                 	if(!productStack.isEmpty()) {
                 		productStack.getLast().addProduct(product);
-                	}else {
+                	}else if(rootProductConsumer != null) {
+                        rootProductConsumer.accept(product);
+                    }else {
                 		finished.add(product);
                 	}
                 }
@@ -453,60 +464,55 @@ public class LoadProductDataRemainingFieldsOnSpecificProducts {
     }
     
     public Integer processContent(String content) throws SAXException, java.io.IOException, ParserConfigurationException {
-    	SAXParserFactory factory = SAXParserFactory.newInstance();
-    	factory.setNamespaceAware(true);
-    	try {
-    		factory.setFeature("http://xml.org/sax/features/external-general-entities",          false);
-    		factory.setFeature("http://xml.org/sax/features/external-parameter-entities",        false);
-    		factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-    	} catch (Exception ignored) {}
-    	SAXParser parser = factory.newSAXParser();
-    	Handler handler = new Handler();
-    	Integer refProductsCount = 0;
-        long in = System.currentTimeMillis();
-        java.util.List<Product> finished = null;
-        try {
-        	parser.parse( new java.io.ByteArrayInputStream(content.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)) , handler);
-        	finished = handler.getFinished();
-	        refProductsCount += handler.getPrductsCounter();
-	        for(Product p : finished) {
-	        	processProduct(p);
-	        }
-        }catch(org.xml.sax.SAXParseException e) {
-        	log("Problem processing content");
-        }
-        log("Parsing products took: " + rw.getRw().formatTime(System.currentTimeMillis() - in));
-        return refProductsCount;
-    }
-    
-    public Integer process(String fn) throws SAXException, java.io.IOException, ParserConfigurationException {
-    	SAXParserFactory factory = SAXParserFactory.newInstance();
-    	factory.setNamespaceAware(true);
-    	try {
-    		factory.setFeature("http://xml.org/sax/features/external-general-entities",          false);
-    		factory.setFeature("http://xml.org/sax/features/external-parameter-entities",        false);
-    		factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-    	} catch (Exception ignored) {}
-    	SAXParser parser = factory.newSAXParser();
-    	java.io.File input = new java.io.File(fn);
+        SAXParserFactory factory = createSafeSaxParserFactory();
+        SAXParser parser = factory.newSAXParser();
+        Handler handler = new Handler(this::processProduct);
         Integer refProductsCount = 0;
         long in = System.currentTimeMillis();
-        java.util.List<Product> finished = null;
-        Handler handler = new Handler();
         try {
-        	parser.parse(input, handler);
-        	finished = handler.getFinished();
-	        refProductsCount += handler.getPrductsCounter();
-	        for(Product p : finished) {
-	        	processProduct(p);
-	        }
-        }catch(org.xml.sax.SAXParseException e) {
-        	log("Problem processing following file: " + input.getAbsolutePath());
+            parser.parse(new java.io.ByteArrayInputStream(
+                    content.getBytes(java.nio.charset.StandardCharsets.ISO_8859_1)), handler);
+            refProductsCount += handler.getPrductsCounter();
+        } catch (org.xml.sax.SAXParseException e) {
+            log("Problem processing content");
         }
         log("Parsing products took: " + rw.getRw().formatTime(System.currentTimeMillis() - in));
         return refProductsCount;
     }
-    
+
+    public Integer processPath(java.nio.file.Path path)
+            throws SAXException, java.io.IOException, ParserConfigurationException {
+        SAXParserFactory factory = createSafeSaxParserFactory();
+        SAXParser parser = factory.newSAXParser();
+        Handler handler = new Handler(this::processProduct);
+        Integer refProductsCount = 0;
+        long in = System.currentTimeMillis();
+        try {
+            parser.parse(path.toFile(), handler);
+            refProductsCount += handler.getPrductsCounter();
+        } catch (org.xml.sax.SAXParseException e) {
+            log("Problem processing following file: " + path);
+        }
+        log("Parsing products took: " + rw.getRw().formatTime(System.currentTimeMillis() - in));
+        return refProductsCount;
+    }
+
+    public Integer process(String fn) throws SAXException, java.io.IOException, ParserConfigurationException {
+        return processPath(java.nio.file.Paths.get(fn));
+    }
+
+    private SAXParserFactory createSafeSaxParserFactory() {
+        SAXParserFactory factory = SAXParserFactory.newInstance();
+        factory.setNamespaceAware(true);
+        try {
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+        } catch (Exception ignored) {
+        }
+        return factory;
+    }
+
     private int lacuenta = 0;
     private int lacuentaVars = 0;
     

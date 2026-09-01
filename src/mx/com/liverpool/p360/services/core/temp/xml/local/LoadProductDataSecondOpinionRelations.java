@@ -1,5 +1,6 @@
 package mx.com.liverpool.p360.services.core.temp.xml.local;
 
+import java.io.Closeable;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -11,10 +12,12 @@ import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
 import org.xml.sax.helpers.DefaultHandler;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 
-public class LoadProductDataSecondOpinionRelations {
+public class LoadProductDataSecondOpinionRelations implements Closeable {
 
 	private RESTWrapper rw = new RESTWrapper();
 	private java.util.Set<String> attributeIDs = new java.util.TreeSet<>();
@@ -22,7 +25,26 @@ public class LoadProductDataSecondOpinionRelations {
 	public static boolean sendProduct = true;
 	public static boolean sendLkpValues = false;
 	private java.nio.file.Path normalLogFilePath = java.nio.file.Paths.get("..", "logs", "list_api_load_from_step_second_opinion_for_relations.log");
+
+	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			LoadProductDataSecondOpinionRelations.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			LoadProductDataSecondOpinionRelations.this.log(message);
+		}
+	} );
 	
+	private final DataRequestor dr = new DataRequestor(dastub);
+
+	@Override
+	public void close() {
+		dastub.close();
+	}
 
 	private class Asset{
 		
@@ -428,139 +450,138 @@ public class LoadProductDataSecondOpinionRelations {
         }
     }
     
-    public static int processContent(String content) throws Exception {
+    public int processContent(String content) throws Exception {
     	long init = System.currentTimeMillis();
-    	LoadProductDataSecondOpinionRelations an = new LoadProductDataSecondOpinionRelations();
-        SAXParserFactory factory = SAXParserFactory.newInstance();
-        factory.setNamespaceAware(true);
-        try {
-            factory.setFeature("http://xml.org/sax/features/external-general-entities",          false);
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities",        false);
-            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-        } catch (Exception ignored) {}
-        SAXParser parser = factory.newSAXParser();
-        an.loadItemGroups();
-        an.loadOfInterest();
-        an.qp.put("includeObjectsInProtocol", "false");
-        int cantidad = an.procesaContenido(content, parser);
-        org.json.JSONArray columns = new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "ProductReference.ReferencedSupplierAid"));
-        org.json.JSONArray rows = new org.json.JSONArray();
-        org.json.JSONObject request = new org.json.JSONObject();
-        request.put("columns", columns);
-        request.put("rows", rows);
-        DataRequestor dr = new DataRequestor();
-        String r = null;
-        for(java.util.Map.Entry<String, String> entry : an.childParent.entrySet()) {
-        	r = dr.getArticleData(new org.json.JSONArray().put(entry.getKey()));
-        	if(r != null) {
-        		org.json.JSONObject jo = new org.json.JSONObject(r);
-        		org.json.JSONArray itms = jo.getJSONArray("items");
-        		for(int i=0; i<itms.length(); i++) {
-        			jo = itms.getJSONObject(i);
-        			jo.put("ProductNo", entry.getValue());
-        			dr.putArticleData(itms);
-        		}
-        	}
-        	rows.put(
-        			new org.json.JSONObject()
-        				.put("object", new org.json.JSONObject().put("id", "'" + entry.getKey() + "'@1"))
-        				.put("qualification", new org.json.JSONObject().put("referencedSupplierAid", entry.getValue()))
-        				.put("values", new org.json.JSONArray().put(entry.getValue())));
-        	if(rows.length() == 5000) {
-        		an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
-        		while(rows.length() > 0) {
-        			rows.remove(0);
-        		}
-        	}
-        }
-        if(rows.length() > 0) {
-        	an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
-    		while(rows.length() > 0) {
-    			rows.remove(0);
-    		}
-        }
-		an.log("Ahora los que faltaron:");
-		for(int a = 0; a<an.ofInterest.length; a++) {
-			if(!an.losEncontrados.contains(an.ofInterest[a])) {
+    	try(LoadProductDataSecondOpinionRelations an = new LoadProductDataSecondOpinionRelations()){
+	        SAXParserFactory factory = SAXParserFactory.newInstance();
+	        factory.setNamespaceAware(true);
+	        try {
+	            factory.setFeature("http://xml.org/sax/features/external-general-entities",          false);
+	            factory.setFeature("http://xml.org/sax/features/external-parameter-entities",        false);
+	            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+	        } catch (Exception ignored) {}
+	        SAXParser parser = factory.newSAXParser();
+	        an.loadItemGroups();
+	        an.loadOfInterest();
+	        an.qp.put("includeObjectsInProtocol", "false");
+	        int cantidad = an.procesaContenido(content, parser);
+	        org.json.JSONArray columns = new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "ProductReference.ReferencedSupplierAid"));
+	        org.json.JSONArray rows = new org.json.JSONArray();
+	        org.json.JSONObject request = new org.json.JSONObject();
+	        request.put("columns", columns);
+	        request.put("rows", rows);
+	        String r = null;
+	        for(java.util.Map.Entry<String, String> entry : an.childParent.entrySet()) {
+	        	r = dr.getArticleData(new org.json.JSONArray().put(entry.getKey()));
+	        	if(r != null) {
+	        		org.json.JSONObject jo = new org.json.JSONObject(r);
+	        		org.json.JSONArray itms = jo.getJSONArray("items");
+	        		for(int i=0; i<itms.length(); i++) {
+	        			jo = itms.getJSONObject(i);
+	        			jo.put("ProductNo", entry.getValue());
+	        			dr.putArticleData(itms);
+	        		}
+	        	}
+	        	rows.put(
+	        			new org.json.JSONObject()
+	        				.put("object", new org.json.JSONObject().put("id", "'" + entry.getKey() + "'@1"))
+	        				.put("qualification", new org.json.JSONObject().put("referencedSupplierAid", entry.getValue()))
+	        				.put("values", new org.json.JSONArray().put(entry.getValue())));
+	        	if(rows.length() == 5000) {
+	        		an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
+	        		while(rows.length() > 0) {
+	        			rows.remove(0);
+	        		}
+	        	}
+	        }
+	        if(rows.length() > 0) {
+	        	an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
+	    		while(rows.length() > 0) {
+	    			rows.remove(0);
+	    		}
+	        }
+			an.log("Ahora los que faltaron:");
+			for(int a = 0; a<an.ofInterest.length; a++) {
+				if(!an.losEncontrados.contains(an.ofInterest[a])) {
+				}
 			}
-		}
-        an.log("Total products found: " + an.lacuenta);
-        an.log("Total vars found: " + an.lacuentaVars);
-        an.log("Done. " + an.rw.getRw().formatTime(System.currentTimeMillis() - init) );
-        return cantidad;
+	        an.log("Total products found: " + an.lacuenta);
+	        an.log("Total vars found: " + an.lacuentaVars);
+	        an.log("Done. " + an.rw.getRw().formatTime(System.currentTimeMillis() - init) );
+	        return cantidad;
+    	}
     }
     
     public static void main(String[] args) throws Exception {
     	long init = System.currentTimeMillis();
-    	LoadProductDataSecondOpinionRelations an = new LoadProductDataSecondOpinionRelations();
-    	java.nio.file.Files.createDirectories( java.nio.file.Paths.get("..", "logs", args.length == 1 ? "" : args[1]) );
-    	an.normalLogFilePath = java.nio.file.Paths.get(
-    											  ".."
-    											, "logs"
-    											, args.length == 1 ? "" : args[1]
-    											, "list_api_load_from_step_second_opinion_for_relations.log"
-    										);
-    	if (args.length == 0) {
-            System.err.println("Usage: java CuentaSKUsConNegocios <directory with xml files>");
-            System.exit(1);
-        }
-        SAXParserFactory factory = SAXParserFactory.newInstance();
-        factory.setNamespaceAware(true);
-        try {
-            factory.setFeature("http://xml.org/sax/features/external-general-entities",          false);
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities",        false);
-            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-        } catch (Exception ignored) {}
-        SAXParser parser = factory.newSAXParser();
-        an.loadItemGroups();
-        an.loadOfInterest();
-        an.qp.put("includeObjectsInProtocol", "false");
-        an.procesaDirectorio(args[0], parser);
-        org.json.JSONArray columns = new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "ProductReference.ReferencedSupplierAid"));
-        org.json.JSONArray rows = new org.json.JSONArray();
-        org.json.JSONObject request = new org.json.JSONObject();
-        request.put("columns", columns);
-        request.put("rows", rows);
-        DataRequestor dr = new DataRequestor();
-        String r = null;
-        for(java.util.Map.Entry<String, String> entry : an.childParent.entrySet()) {
-        	r = dr.getArticleData(new org.json.JSONArray().put(entry.getKey()));
-        	if(r != null) {
-        		org.json.JSONObject jo = new org.json.JSONObject(r);
-        		org.json.JSONArray itms = jo.getJSONArray("items");
-        		for(int i=0; i<itms.length(); i++) {
-        			jo = itms.getJSONObject(i);
-        			jo.put("ProductNo", entry.getValue());
-        			dr.putArticleData(itms);
-        		}
-        	}
-        	rows.put(
-        			new org.json.JSONObject()
-        				.put("object", new org.json.JSONObject().put("id", "'" + entry.getKey() + "'@1"))
-        				.put("qualification", new org.json.JSONObject().put("referencedSupplierAid", entry.getValue()))
-        				.put("values", new org.json.JSONArray().put(entry.getValue())));
-        	if(rows.length() == 5000) {
-        		an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
-        		while(rows.length() > 0) {
-        			rows.remove(0);
-        		}
-        	}
-        }
-        if(rows.length() > 0) {
-        	an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
-    		while(rows.length() > 0) {
-    			rows.remove(0);
-    		}
-        }
-		an.log("Ahora los que faltaron:");
-		for(int a = 0; a<an.ofInterest.length; a++) {
-			if(!an.losEncontrados.contains(an.ofInterest[a])) {
-//				an.log("Este no estuvo: " + an.ofInterest[a]);
+    	try(LoadProductDataSecondOpinionRelations an = new LoadProductDataSecondOpinionRelations()){
+	    	java.nio.file.Files.createDirectories( java.nio.file.Paths.get("..", "logs", args.length == 1 ? "" : args[1]) );
+	    	an.normalLogFilePath = java.nio.file.Paths.get(
+	    											  ".."
+	    											, "logs"
+	    											, args.length == 1 ? "" : args[1]
+	    											, "list_api_load_from_step_second_opinion_for_relations.log"
+	    										);
+	    	if (args.length == 0) {
+	            System.err.println("Usage: java CuentaSKUsConNegocios <directory with xml files>");
+	            System.exit(1);
+	        }
+	        SAXParserFactory factory = SAXParserFactory.newInstance();
+	        factory.setNamespaceAware(true);
+	        try {
+	            factory.setFeature("http://xml.org/sax/features/external-general-entities",          false);
+	            factory.setFeature("http://xml.org/sax/features/external-parameter-entities",        false);
+	            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+	        } catch (Exception ignored) {}
+	        SAXParser parser = factory.newSAXParser();
+	        an.loadItemGroups();
+	        an.loadOfInterest();
+	        an.qp.put("includeObjectsInProtocol", "false");
+	        an.procesaDirectorio(args[0], parser);
+	        org.json.JSONArray columns = new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "ProductReference.ReferencedSupplierAid"));
+	        org.json.JSONArray rows = new org.json.JSONArray();
+	        org.json.JSONObject request = new org.json.JSONObject();
+	        request.put("columns", columns);
+	        request.put("rows", rows);
+	        String r = null;
+	        for(java.util.Map.Entry<String, String> entry : an.childParent.entrySet()) {
+	        	r = an.dr.getArticleData(new org.json.JSONArray().put(entry.getKey()));
+	        	if(r != null) {
+	        		org.json.JSONObject jo = new org.json.JSONObject(r);
+	        		org.json.JSONArray itms = jo.getJSONArray("items");
+	        		for(int i=0; i<itms.length(); i++) {
+	        			jo = itms.getJSONObject(i);
+	        			jo.put("ProductNo", entry.getValue());
+	        			an.dr.putArticleData(itms);
+	        		}
+	        	}
+	        	rows.put(
+	        			new org.json.JSONObject()
+	        				.put("object", new org.json.JSONObject().put("id", "'" + entry.getKey() + "'@1"))
+	        				.put("qualification", new org.json.JSONObject().put("referencedSupplierAid", entry.getValue()))
+	        				.put("values", new org.json.JSONArray().put(entry.getValue())));
+	        	if(rows.length() == 5000) {
+	        		an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
+	        		while(rows.length() > 0) {
+	        			rows.remove(0);
+	        		}
+	        	}
+	        }
+	        if(rows.length() > 0) {
+	        	an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
+	    		while(rows.length() > 0) {
+	    			rows.remove(0);
+	    		}
+	        }
+			an.log("Ahora los que faltaron:");
+			for(int a = 0; a<an.ofInterest.length; a++) {
+				if(!an.losEncontrados.contains(an.ofInterest[a])) {
+				}
 			}
-		}
-        an.log("Total products found: " + an.lacuenta);
-        an.log("Total vars found: " + an.lacuentaVars);
-        an.log("Done. " + an.rw.getRw().formatTime(System.currentTimeMillis() - init) );
+	        an.log("Total products found: " + an.lacuenta);
+	        an.log("Total vars found: " + an.lacuentaVars);
+	        an.log("Done. " + an.rw.getRw().formatTime(System.currentTimeMillis() - init) );
+    	}
     }
     
     private String[] ofInterest;

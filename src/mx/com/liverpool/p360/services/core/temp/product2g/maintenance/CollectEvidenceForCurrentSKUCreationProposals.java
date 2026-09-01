@@ -1,7 +1,5 @@
 package mx.com.liverpool.p360.services.core.temp.product2g.maintenance;
 
-import java.util.MissingFormatArgumentException;
-
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 

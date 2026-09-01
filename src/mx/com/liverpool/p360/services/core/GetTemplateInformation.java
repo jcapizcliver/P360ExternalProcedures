@@ -1,7 +1,6 @@
 package mx.com.liverpool.p360.services.core;
 
 import java.io.Closeable;
-import java.io.IOException;
 
 import org.json.JSONObject;
 
@@ -39,10 +38,6 @@ public class GetTemplateInformation implements Closeable {
 		return handleStart(args);
 	}
 
-	/*
-	 * baseUrl y encoded se conservan en la firma para no romper consumidores.
-	 * Ya no se usan porque este flujo no realiza solicitudes HTTP.
-	 */
 	public String processRequest(
 			String plantilla,
 			String negocio,
@@ -51,10 +46,6 @@ public class GetTemplateInformation implements Closeable {
 			String encoded) throws ServiceUnavailableException {
 
 		long init = System.currentTimeMillis();
-		if (creationType == null)
-	    {
-	        creationType = this.creationType;
-	    }
 		try {
 			java.util.Map<String, org.json.JSONObject> atributos =
 					new java.util.TreeMap<>();
@@ -103,8 +94,7 @@ public class GetTemplateInformation implements Closeable {
 
 			lastModified = latest(
 					lastModified,
-					dastub.getTemplateCharacteristicMetadataLastChangeDate(
-							plantilla));
+					dastub.getTemplateCharacteristicMetadataLastChangeDate(plantilla));
 
 			lastModified = latest(
 					lastModified,
@@ -172,10 +162,6 @@ public class GetTemplateInformation implements Closeable {
 		}
 	}
 
-	/*
-	 * Se conserva la firma pública anterior. baseUrl y authorization ya no
-	 * intervienen: el dato sale de StructureGroupRevision por JDBC.
-	 */
 	public java.util.Date getLastChangeDateStructureGroup(
 			String template,
 			String baseUrl,
@@ -225,8 +211,7 @@ public class GetTemplateInformation implements Closeable {
 			}
 		}
 
-		return dastub.getDictionaryLastChangeDate(
-				"GlobalTemplateAttributeConfiguration");
+		return dastub.getDictionaryLastChangeDate("GlobalTemplateAttributeConfiguration");
 	}
 
 	private boolean isEligibleForBusiness(
@@ -549,15 +534,11 @@ public class GetTemplateInformation implements Closeable {
 
 		if (globalProperties.length() > 0) {
 			try {
-				java.util.LinkedList<org.json.JSONObject> dependent =
-						new java.util.LinkedList<>();
-
+				java.util.LinkedList<org.json.JSONObject> dependent = new java.util.LinkedList<>();
 				String[] keyNames = org.json.JSONObject.getNames(globalProperties);
 				if (keyNames != null) {
 					for (String keyName : keyNames) {
-						org.json.JSONObject json =
-								globalProperties.getJSONObject(keyName);
-
+						org.json.JSONObject json = globalProperties.getJSONObject(keyName);
 						json.put("dependentAttributes", new org.json.JSONArray());
 						json.remove("listofValuesValidValues");
 						json.remove("ecC");
@@ -590,11 +571,7 @@ public class GetTemplateInformation implements Closeable {
 
 				for (org.json.JSONObject child : dependent) {
 					decorateLegacyAttribute(child);
-
-					org.json.JSONObject parent =
-							globalProperties.optJSONObject(
-									child.optString("dependentAttribute"));
-
+					org.json.JSONObject parent = globalProperties.optJSONObject(child.optString("dependentAttribute"));
 					if (parent != null) {
 						parent.getJSONArray("dependentAttributes").put(child);
 					}
@@ -841,8 +818,7 @@ public class GetTemplateInformation implements Closeable {
 	}
 
 	@Override
-	public void close() throws IOException {
-		// TODO Auto-generated method stub
-		
+	public void close() {
+		dastub.close();
 	}
 }

@@ -15,7 +15,6 @@ import org.xml.sax.helpers.DefaultHandler;
 import mx.com.liverpool.dataprofiling.preparison.envioproductos.PruebaEnvioPubSubMediaAssets;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
-import mx.com.liverpool.p360.services.core.temp.xml.local.precise.LoadProductDataRemainingFieldsOnSpecificProducts;
 
 public class AnotherXMLHandlerFastProcessProductsStatus {
 

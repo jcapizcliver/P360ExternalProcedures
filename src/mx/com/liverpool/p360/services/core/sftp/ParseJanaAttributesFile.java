@@ -1,6 +1,7 @@
 package mx.com.liverpool.p360.services.core.sftp;
 
 import java.io.ByteArrayOutputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -27,13 +28,28 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.xml.sax.SAXException;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 import mx.com.liverpool.p360.services.core.SimpleLog;
+import mx.com.liverpool.p360.services.core.net.DataRequestor;
 import mx.com.liverpool.p360.services.xmlutils.XMLMisc;
 
-public class ParseJanaAttributesFile {
+public class ParseJanaAttributesFile implements Closeable {
+
+	private final DBAccessDataStub dastub = new DBAccessDataStub(new ELog() {
+		@Override
+		public void log(String message) {
+			ParseJanaAttributesFile.this.log(message);
+		}
+
+		@Override
+		public void logE(Exception e) {
+			ParseJanaAttributesFile.this.logE(e);
+		}
+	});
 
 	private static final RESTWrapper rw = new RESTWrapper();
 	private static final RESTWorkshop workshop = rw.getRw();
@@ -47,7 +63,7 @@ public class ParseJanaAttributesFile {
 		workshop.setBaseUrl(BASE_URL);
 	}
 	
-	private static final ParsersTools tools = new ParsersTools(new SimpleLog() {
+	private final ParsersTools tools = new ParsersTools(new SimpleLog() {
 			
 			@Override
 			public final void log(String message) {
@@ -67,7 +83,7 @@ public class ParseJanaAttributesFile {
 				} catch (java.io.IOException e) {
 				}
 			}
-		});
+		}, new DataRequestor(dastub));
 
     // SFTP connection parameters
 	 	private static final String HOST = PropertiesManager.get( "p360.contingency.s4h.host" ); //SFTP server address: 172.18.184.26
@@ -115,14 +131,15 @@ public class ParseJanaAttributesFile {
 	
 
     public static void main(String[] args) {
-    	ParseJanaAttributesFile object = new ParseJanaAttributesFile();
-    	while(true) {
-    		object.runOnSftp(args);
-    		try {
-    			Thread.sleep(600000);
-    		}catch(InterruptedException e) {
-    			object.logE(e);
-    		}
+    	try(ParseJanaAttributesFile object = new ParseJanaAttributesFile()){
+	    	while(true) {
+	    		object.runOnSftp(args);
+	    		try {
+	    			Thread.sleep(600000);
+	    		}catch(InterruptedException e) {
+	    			object.logE(e);
+	    		}
+	    	}
     	}
     	
 //    	ParseECCAttributesFile parser = new ParseECCAttributesFile();
@@ -492,20 +509,20 @@ public class ParseJanaAttributesFile {
 	
 	private java.util.Map<String, String> loadDiccionario(String diccionario) {
 		java.util.Map<String, String> atributos = new java.util.TreeMap<>();
-		String container = diccionario.replaceAll("/", "<::>");
-		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.templates_cache_directory"), "global_lookups", container).toString())))){
-			String line = null;
-			String delim = "\"";
-			String sep = ";";
-			String escp = "\\";
-			String[] pieces = null;
-			while((line = br.readLine()) != null) {
-				pieces = workshop.parseLine(line, delim, sep, escp);
-				atributos.put(pieces[0], pieces[1]);
+		java.util.List<org.json.JSONObject> rows =
+				dastub.getLookupValueCodeNameExternalCodeRows(
+						diccionario,
+						10,
+						null,
+						true);
+		for(org.json.JSONObject row : rows) {
+			String code = row.optString("code", "");
+			if(code == null || code.isBlank()) {
+				continue;
 			}
-		}catch(java.io.IOException e) {
-			logE(e);
+			atributos.put(code, row.optString("name", ""));
 		}
+		log("Loaded lookup from DB: " + diccionario + ", values=" + atributos.size());
 		return atributos;
 	}
 	
@@ -540,30 +557,9 @@ public class ParseJanaAttributesFile {
 //	}
 	
 	private void loadSizeAttributesMap(java.util.Set<String> atributos) {
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		int currentIndex = 0;
-		int totalSize = 0;
-		qp.put("dictionary", "RelAttribSTDATG");
-		qp.put("fields", "StandardizationValue.Value");
-		do {
-			qp.put("startIndex", String.valueOf(currentIndex));
-			response = workshop.makeRequest("GET", "/list/StandardizationValue/byDictionary", qp, null);
-			if(response != null && response.has("totalSize")) {
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for(int i=0; i<rows.length(); i++) {
-					values = rows.getJSONObject(i).getJSONArray("values");
-					atributos.add(values.getString(0));
-				}
-				currentIndex += response.getInt("pageSize");
-			}else {
-				log("ERROR: " + workshop.getRawResponse());
-			}
-		}while(currentIndex < totalSize);
-		currentIndex = 0;
+		java.util.Map<String, String> relAttrib = dastub.getDictionaryCharacteristicAlternativeValueMap("RelAttribSTDATG");
+		atributos.addAll(relAttrib.keySet());
+		log("Loaded size characteristics from DB. Count: " + atributos.size());
 	}
 	
 	private void collectCharacteristicsByEntity(java.util.LinkedList<String> product2G, java.util.LinkedList<String> article) {
@@ -617,12 +613,13 @@ public class ParseJanaAttributesFile {
 	}
 	
 	private String checkArticleBySKU(String sku) {
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("query",  "characteristic('SKU',-1) equals \"" + sku + "\"");
-		qp.put("fields", "Article.SupplierAID");
-		org.json.JSONObject response = null;
-		response = workshop.makeRequest("GET", "/list/Article/bySearch", qp, null);
-		return (response != null && response.getJSONArray("rows").length() > 0) ? response.getJSONArray("rows").getJSONObject(0).getJSONArray("values").getString(0) : null;
+		return dastub.getSkuSupplierAid(sku);
+//		java.util.Map<String, String> qp = new java.util.TreeMap<>();
+//		qp.put("query",  "characteristic('SKU',-1) equals \"" + sku + "\"");
+//		qp.put("fields", "Article.SupplierAID");
+//		org.json.JSONObject response = null;
+//		response = workshop.makeRequest("GET", "/list/Article/bySearch", qp, null);
+//		return (response != null && response.getJSONArray("rows").length() > 0) ? response.getJSONArray("rows").getJSONObject(0).getJSONArray("values").getString(0) : null;
 	}
 	
 	private String[] checkProductBySKU(String sku) {
@@ -706,94 +703,94 @@ public class ParseJanaAttributesFile {
 //		}
 //	}
 	
-	private String getMeTheLookup(String characteristicIdentifier) {
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("fields", "Characteristic.Lookup->Lookup.Identifier");
-		qp.put("query", "Characteristic.Identifier equals \"" + characteristicIdentifier + "\"");
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		response = workshop.makeRequest("GET", "/list/Characteristic/bySearch", qp, null);
-		if(response != null) {
-			rows = response.getJSONArray("rows");
-			if(rows.length() > 0) {
-				return rows.getJSONObject(0).getJSONArray("values").getString(0);
-			}
-		}
-		return null;
-	}
+//	private String getMeTheLookup(String characteristicIdentifier) {
+//		java.util.Map<String, String> qp = new java.util.TreeMap<>();
+//		qp.put("fields", "Characteristic.Lookup->Lookup.Identifier");
+//		qp.put("query", "Characteristic.Identifier equals \"" + characteristicIdentifier + "\"");
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		response = workshop.makeRequest("GET", "/list/Characteristic/bySearch", qp, null);
+//		if(response != null) {
+//			rows = response.getJSONArray("rows");
+//			if(rows.length() > 0) {
+//				return rows.getJSONObject(0).getJSONArray("values").getString(0);
+//			}
+//		}
+//		return null;
+//	}
 	
-	private java.util.Map<String, String> collectLookupValues(String charId) {
-		java.util.Map<String, String> keyValues = new java.util.TreeMap<>();
-		log("Loading regular data for: " + charId);
-		String lookup = getMeTheLookup(charId);
-		if(lookup == null || "".equals(lookup)) {
-			return null;
-		}
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("fields", "LookupValue.Code,LookupValueLang.Name(es)");
-		qp.put("query", "LookupValue.IsActive = true");
-		qp.put("lookup", lookup);
-		qp.put("pageSize", "1200");
-		int currentIndex = 0;
-		int totalSize = 0;
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		do {
-			qp.put("startIndex", String.valueOf(currentIndex));
-			response = workshop.makeRequest("GET", "/list/LookupValue/bySearch", qp, null);
-			if(response != null && response.has("totalSize")) {
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for(int i=0; i<rows.length(); i++) {
-					values = rows.getJSONObject(i).getJSONArray("values");
-					keyValues.put(values.getString(0), values.getString(1));
-				}
-				currentIndex += response.getInt("pageSize");
-			}else {
-				log("ERR: " + workshop.getRawResponse());
-			}
-		}while(currentIndex < totalSize);
-		currentIndex = 0;
-		return keyValues;
-	}
+//	private java.util.Map<String, String> collectLookupValues(String charId) {
+//		java.util.Map<String, String> keyValues = new java.util.TreeMap<>();
+//		log("Loading regular data for: " + charId);
+//		String lookup = getMeTheLookup(charId);
+//		if(lookup == null || "".equals(lookup)) {
+//			return null;
+//		}
+//		java.util.Map<String, String> qp = new java.util.TreeMap<>();
+//		qp.put("fields", "LookupValue.Code,LookupValueLang.Name(es)");
+//		qp.put("query", "LookupValue.IsActive = true");
+//		qp.put("lookup", lookup);
+//		qp.put("pageSize", "1200");
+//		int currentIndex = 0;
+//		int totalSize = 0;
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		org.json.JSONArray values = null;
+//		do {
+//			qp.put("startIndex", String.valueOf(currentIndex));
+//			response = workshop.makeRequest("GET", "/list/LookupValue/bySearch", qp, null);
+//			if(response != null && response.has("totalSize")) {
+//				totalSize = response.getInt("totalSize");
+//				rows = response.getJSONArray("rows");
+//				for(int i=0; i<rows.length(); i++) {
+//					values = rows.getJSONObject(i).getJSONArray("values");
+//					keyValues.put(values.getString(0), values.getString(1));
+//				}
+//				currentIndex += response.getInt("pageSize");
+//			}else {
+//				log("ERR: " + workshop.getRawResponse());
+//			}
+//		}while(currentIndex < totalSize);
+//		currentIndex = 0;
+//		return keyValues;
+//	}
 	
 	
 	
-	private java.util.Map<String, String> collectLookupValuesBackwards(String charId) {
-		java.util.Map<String, String> keyValues = new java.util.TreeMap<>();
-		String lookup = getMeTheLookup(charId);
-		if(lookup == null || "".equals(lookup)) {
-			return null;
-		}
-		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("fields", "LookupValueLang.Name(es),LookupValue.Code");
-		qp.put("query", "LookupValue.IsActive = true");
-		qp.put("lookup", lookup);
-		qp.put("pageSize", "1200");
-		int currentIndex = 0;
-		int totalSize = 0;
-		org.json.JSONObject response = null;
-		org.json.JSONArray rows = null;
-		org.json.JSONArray values = null;
-		do {
-			qp.put("startIndex", String.valueOf(currentIndex));
-			response = workshop.makeRequest("GET", "/list/LookupValue/bySearch", qp, null);
-			if(response != null && response.has("totalSize")) {
-				totalSize = response.getInt("totalSize");
-				rows = response.getJSONArray("rows");
-				for(int i=0; i<rows.length(); i++) {
-					values = rows.getJSONObject(i).getJSONArray("values");
-					keyValues.put(values.getString(0), values.getString(1));
-				}
-				currentIndex += response.getInt("pageSize");
-			}else {
-				log("Problem in collect lkp values back: " + workshop.getRawResponse());
-			}
-		}while(currentIndex < totalSize);
-		currentIndex = 0;
-		return keyValues;
-	}
+//	private java.util.Map<String, String> collectLookupValuesBackwards(String charId) {
+//		java.util.Map<String, String> keyValues = new java.util.TreeMap<>();
+//		String lookup = getMeTheLookup(charId);
+//		if(lookup == null || "".equals(lookup)) {
+//			return null;
+//		}
+//		java.util.Map<String, String> qp = new java.util.TreeMap<>();
+//		qp.put("fields", "LookupValueLang.Name(es),LookupValue.Code");
+//		qp.put("query", "LookupValue.IsActive = true");
+//		qp.put("lookup", lookup);
+//		qp.put("pageSize", "1200");
+//		int currentIndex = 0;
+//		int totalSize = 0;
+//		org.json.JSONObject response = null;
+//		org.json.JSONArray rows = null;
+//		org.json.JSONArray values = null;
+//		do {
+//			qp.put("startIndex", String.valueOf(currentIndex));
+//			response = workshop.makeRequest("GET", "/list/LookupValue/bySearch", qp, null);
+//			if(response != null && response.has("totalSize")) {
+//				totalSize = response.getInt("totalSize");
+//				rows = response.getJSONArray("rows");
+//				for(int i=0; i<rows.length(); i++) {
+//					values = rows.getJSONObject(i).getJSONArray("values");
+//					keyValues.put(values.getString(0), values.getString(1));
+//				}
+//				currentIndex += response.getInt("pageSize");
+//			}else {
+//				log("Problem in collect lkp values back: " + workshop.getRawResponse());
+//			}
+//		}while(currentIndex < totalSize);
+//		currentIndex = 0;
+//		return keyValues;
+//	}
 	
 	private Object resolveDataType(String charId, String dataType, String value, java.util.Map<String, java.util.Map<String, String>> map, java.util.Map<String, java.util.Map<String, String>> mapB) {
 		if(dataType != null && value != null) {
@@ -902,6 +899,11 @@ public class ParseJanaAttributesFile {
 			ex.printStackTrace(pw);
 		} catch (java.io.IOException e) {
 		}
+	}
+
+	@Override
+	public void close(){
+		dastub.close();
 	}
     
 }

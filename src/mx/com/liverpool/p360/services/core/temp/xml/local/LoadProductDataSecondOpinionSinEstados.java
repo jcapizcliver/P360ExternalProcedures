@@ -11,8 +11,9 @@ import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
 import org.xml.sax.helpers.DefaultHandler;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
-import mx.com.liverpool.p360.services.core.PubSubGCP;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 
@@ -462,50 +463,61 @@ public class LoadProductDataSecondOpinionSinEstados {
         org.json.JSONObject request = new org.json.JSONObject();
         request.put("columns", columns);
         request.put("rows", rows);
-        DataRequestor dr = new DataRequestor();
-        String r = null;
-        for(java.util.Map.Entry<String, String> entry : an.childParent.entrySet()) {
-        	r = dr.getArticleData(new org.json.JSONArray().put(entry.getKey()));
-        	if(r != null) {
-        		org.json.JSONObject jo = new org.json.JSONObject(r);
-        		org.json.JSONArray itms = jo.getJSONArray("items");
-        		for(int i=0; i<itms.length(); i++) {
-        			jo = itms.getJSONObject(i);
-        			jo.put("ProductNo", entry.getValue());
-        			dr.putArticleData(itms);
-        		}
-        	}
-        	rows.put(
-        			new org.json.JSONObject()
-        				.put("object", new org.json.JSONObject().put("id", "'" + entry.getKey() + "'@1"))
-        				.put("qualification", new org.json.JSONObject().put("referencedSupplierAid", entry.getValue()))
-        				.put("values", new org.json.JSONArray().put(entry.getValue())));
-        	if(rows.length() == 5000) {
-        		an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
-        		while(rows.length() > 0) {
-        			rows.remove(0);
-        		}
-        	}
-        }
-        if(rows.length() > 0) {
-        	an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
-    		while(rows.length() > 0) {
-    			rows.remove(0);
-    		}
-        }
-		an.rw.writeData("list", "Product2G", "Product2GStructureMap", an.qp, an.requestStructureGroup, an::log);
-		while(an.rowsStructureGroupMap.length() > 0) {
-			an.rowsStructureGroupMap.remove(0);
-		}
-		an.log("Ahora los que faltaron:");
-		for(int a = 0; a<an.ofInterest.length; a++) {
-			if(!an.losEncontrados.contains(an.ofInterest[a])) {
+        try(DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+			
+			@Override
+			public void logE(Exception e) {
 			}
-		}
-        an.log("Total products found: " + an.lacuenta);
-        an.log("Total vars found: " + an.lacuentaVars);
-        an.log("Done. " + an.rw.getRw().formatTime(System.currentTimeMillis() - init) );
-        return cantidad;
+			
+			@Override
+			public void log(String message) {
+			}
+		} )){
+	        DataRequestor dr = new DataRequestor(dastub);
+	        String r = null;
+	        for(java.util.Map.Entry<String, String> entry : an.childParent.entrySet()) {
+	        	r = dr.getArticleData(new org.json.JSONArray().put(entry.getKey()));
+	        	if(r != null) {
+	        		org.json.JSONObject jo = new org.json.JSONObject(r);
+	        		org.json.JSONArray itms = jo.getJSONArray("items");
+	        		for(int i=0; i<itms.length(); i++) {
+	        			jo = itms.getJSONObject(i);
+	        			jo.put("ProductNo", entry.getValue());
+	        			dr.putArticleData(itms);
+	        		}
+	        	}
+	        	rows.put(
+	        			new org.json.JSONObject()
+	        				.put("object", new org.json.JSONObject().put("id", "'" + entry.getKey() + "'@1"))
+	        				.put("qualification", new org.json.JSONObject().put("referencedSupplierAid", entry.getValue()))
+	        				.put("values", new org.json.JSONArray().put(entry.getValue())));
+	        	if(rows.length() == 5000) {
+	        		an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
+	        		while(rows.length() > 0) {
+	        			rows.remove(0);
+	        		}
+	        	}
+	        }
+	        if(rows.length() > 0) {
+	        	an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
+	    		while(rows.length() > 0) {
+	    			rows.remove(0);
+	    		}
+	        }
+			an.rw.writeData("list", "Product2G", "Product2GStructureMap", an.qp, an.requestStructureGroup, an::log);
+			while(an.rowsStructureGroupMap.length() > 0) {
+				an.rowsStructureGroupMap.remove(0);
+			}
+			an.log("Ahora los que faltaron:");
+			for(int a = 0; a<an.ofInterest.length; a++) {
+				if(!an.losEncontrados.contains(an.ofInterest[a])) {
+				}
+			}
+	        an.log("Total products found: " + an.lacuenta);
+	        an.log("Total vars found: " + an.lacuentaVars);
+	        an.log("Done. " + an.rw.getRw().formatTime(System.currentTimeMillis() - init) );
+	        return cantidad;
+        }
     }
     
     public static void main(String[] args) throws Exception {
@@ -551,50 +563,65 @@ public class LoadProductDataSecondOpinionSinEstados {
         org.json.JSONObject request = new org.json.JSONObject();
         request.put("columns", columns);
         request.put("rows", rows);
-        DataRequestor dr = new DataRequestor();
-        String r = null;
-        for(java.util.Map.Entry<String, String> entry : an.childParent.entrySet()) {
-        	r = dr.getArticleData(new org.json.JSONArray().put(entry.getKey()));
-        	if(r != null) {
-        		org.json.JSONObject jo = new org.json.JSONObject(r);
-        		org.json.JSONArray itms = jo.getJSONArray("items");
-        		for(int i=0; i<itms.length(); i++) {
-        			jo = itms.getJSONObject(i);
-        			jo.put("ProductNo", entry.getValue());
-        			dr.putArticleData(itms);
-        		}
-        	}
-        	rows.put(
-        			new org.json.JSONObject()
-        				.put("object", new org.json.JSONObject().put("id", "'" + entry.getKey() + "'@1"))
-        				.put("qualification", new org.json.JSONObject().put("referencedSupplierAid", entry.getValue()))
-        				.put("values", new org.json.JSONArray().put(entry.getValue())));
-        	if(rows.length() == 5000) {
-        		an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
-        		while(rows.length() > 0) {
-        			rows.remove(0);
-        		}
-        	}
-        }
-        if(rows.length() > 0) {
-        	an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
-    		while(rows.length() > 0) {
-    			rows.remove(0);
-    		}
-        }
-		an.rw.writeData("list", "Product2G", "Product2GStructureMap", an.qp, an.requestStructureGroup, an::log);
-		while(an.rowsStructureGroupMap.length() > 0) {
-			an.rowsStructureGroupMap.remove(0);
-		}
-		an.log("Ahora los que faltaron:");
-		for(int a = 0; a<an.ofInterest.length; a++) {
-			if(!an.losEncontrados.contains(an.ofInterest[a])) {
-//				an.log("Este no estuvo: " + an.ofInterest[a]);
+        try(DBAccessDataStub dastub = new DBAccessDataStub(new ELog() {
+			
+			@Override
+			public void logE(Exception e) {
+				// TODO Auto-generated method stub
+				
 			}
-		}
-        an.log("Total products found: " + an.lacuenta);
-        an.log("Total vars found: " + an.lacuentaVars);
-        an.log("Done. " + an.rw.getRw().formatTime(System.currentTimeMillis() - init) );
+			
+			@Override
+			public void log(String message) {
+				// TODO Auto-generated method stub
+				
+			}
+		})){
+	        DataRequestor dr = new DataRequestor(dastub);
+	        String r = null;
+	        for(java.util.Map.Entry<String, String> entry : an.childParent.entrySet()) {
+	        	r = dr.getArticleData(new org.json.JSONArray().put(entry.getKey()));
+	        	if(r != null) {
+	        		org.json.JSONObject jo = new org.json.JSONObject(r);
+	        		org.json.JSONArray itms = jo.getJSONArray("items");
+	        		for(int i=0; i<itms.length(); i++) {
+	        			jo = itms.getJSONObject(i);
+	        			jo.put("ProductNo", entry.getValue());
+	        			dr.putArticleData(itms);
+	        		}
+	        	}
+	        	rows.put(
+	        			new org.json.JSONObject()
+	        				.put("object", new org.json.JSONObject().put("id", "'" + entry.getKey() + "'@1"))
+	        				.put("qualification", new org.json.JSONObject().put("referencedSupplierAid", entry.getValue()))
+	        				.put("values", new org.json.JSONArray().put(entry.getValue())));
+	        	if(rows.length() == 5000) {
+	        		an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
+	        		while(rows.length() > 0) {
+	        			rows.remove(0);
+	        		}
+	        	}
+	        }
+	        if(rows.length() > 0) {
+	        	an.rw.writeData("list", "Article", "ProductReference", an.qp, request, System.out::println);
+	    		while(rows.length() > 0) {
+	    			rows.remove(0);
+	    		}
+	        }
+			an.rw.writeData("list", "Product2G", "Product2GStructureMap", an.qp, an.requestStructureGroup, an::log);
+			while(an.rowsStructureGroupMap.length() > 0) {
+				an.rowsStructureGroupMap.remove(0);
+			}
+			an.log("Ahora los que faltaron:");
+			for(int a = 0; a<an.ofInterest.length; a++) {
+				if(!an.losEncontrados.contains(an.ofInterest[a])) {
+	//				an.log("Este no estuvo: " + an.ofInterest[a]);
+				}
+			}
+	        an.log("Total products found: " + an.lacuenta);
+	        an.log("Total vars found: " + an.lacuentaVars);
+	        an.log("Done. " + an.rw.getRw().formatTime(System.currentTimeMillis() - init) );
+        }
     }
     
     private String[] ofInterest;

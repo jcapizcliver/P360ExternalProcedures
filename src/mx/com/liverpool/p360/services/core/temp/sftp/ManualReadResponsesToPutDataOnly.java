@@ -1,33 +1,57 @@
 package mx.com.liverpool.p360.services.core.temp.sftp;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.net.URISyntaxException;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 
-import mx.com.liverpool.p360.services.core.ServiceUnavailableException;
 import javax.xml.parsers.ParserConfigurationException;
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
 
 import org.xml.sax.SAXException;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
+import mx.com.liverpool.p360.services.core.ServiceUnavailableException;
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 import mx.com.liverpool.p360.services.core.sftp.handlers.ECC122ResponseHandler;
 import mx.com.liverpool.p360.services.core.sftp.handlers.Product122;
 import mx.com.liverpool.p360.services.core.sftp.handlers.Value;
 
-public class ManualReadResponsesToPutDataOnly {
+public class ManualReadResponsesToPutDataOnly implements Closeable {
 
 
 	private static final RESTWrapper rw = new RESTWrapper();
 	private static final RESTWorkshop workshop = rw.getRw();
 
 	private static final java.util.Map<String, String> eccFieldMapping = new java.util.TreeMap<>();
+	
+
+	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			ManualReadResponsesToPutDataOnly.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			ManualReadResponsesToPutDataOnly.this.log(message);
+		}
+	} );
+	
+	private final DataRequestor dr = new DataRequestor(dastub);
+
+	@Override
+	public void close() {
+		dastub.close();
+	}
 
 	static {
 		if(java.nio.file.Files.notExists(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory")))) {
@@ -115,12 +139,13 @@ public class ManualReadResponsesToPutDataOnly {
 			e.printStackTrace();
 		}
 		if(!filePathsRaw.isEmpty()) {
-			ManualReadResponsesToPutDataOnly m = new ManualReadResponsesToPutDataOnly();
-			for(String rawPath : filePathsRaw) {
-				try {
-					m.processFile(java.nio.file.Paths.get(rawPath));
-				} catch (ParserConfigurationException | SAXException | java.io.IOException e) {
-					e.printStackTrace();
+			try(ManualReadResponsesToPutDataOnly m = new ManualReadResponsesToPutDataOnly()){
+				for(String rawPath : filePathsRaw) {
+					try {
+						m.processFile(java.nio.file.Paths.get(rawPath));
+					} catch (ParserConfigurationException | SAXException | java.io.IOException e) {
+						e.printStackTrace();
+					}
 				}
 			}
 		}
@@ -375,7 +400,6 @@ public class ManualReadResponsesToPutDataOnly {
 			updateArticleHigherLevelProduct(entry.getKey(), data);
 		}
 		String parentId = null;
-		DataRequestor dr = new DataRequestor();
 		for( java.util.Map.Entry<String, String> entry : articleHigherLevelProductNotReadyYet.entrySet() ) {
 			parentId = skuToArticleSupplierAID.get(entry.getValue());
 			if(parentId == null) {
@@ -620,7 +644,6 @@ public class ManualReadResponsesToPutDataOnly {
 	}
 	
 	private String[] checkProductBySKU(String sku) {
-		DataRequestor dr = new DataRequestor();
 		String resp = dr.productBySKU(new org.json.JSONArray().put(sku));
 		if(resp != null) {
 			try {
@@ -639,7 +662,6 @@ public class ManualReadResponsesToPutDataOnly {
 	}
 	
 	private String checkArticleBySKU(String sku) {
-		DataRequestor dr = new DataRequestor();
 		String resp = dr.articleBySKU(new org.json.JSONArray().put(sku));
 		if(resp != null) {
 			try {
@@ -655,7 +677,6 @@ public class ManualReadResponsesToPutDataOnly {
 	}
 	
 	private String[] checkProduct(String id) {
-		DataRequestor dr = new DataRequestor();
 		try {
 				String resp = dr.getProductData(new org.json.JSONArray().put(id));
 				if(resp != null) {
@@ -682,7 +703,6 @@ public class ManualReadResponsesToPutDataOnly {
 	}
 	
 	private String[] checkArticle(String id) {
-		DataRequestor dr = new DataRequestor();
 		String resp = dr.getProductByVariant(new org.json.JSONArray().put(id));
 		if(resp != null) {
 			try {

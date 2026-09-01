@@ -6,11 +6,6 @@ import org.xml.sax.SAXException;
 
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 import mx.com.liverpool.p360.services.core.RequestHandler;
-import mx.com.liverpool.p360.services.core.temp.characteristic.AttributeListHandler.Attribute;
-import mx.com.liverpool.p360.services.core.temp.characteristic.AttributeListHandler.AttributeGroupLink;
-import mx.com.liverpool.p360.services.core.temp.characteristic.AttributeListHandler.MetaData;
-import mx.com.liverpool.p360.services.core.temp.characteristic.AttributeListHandler.MultiValue;
-import mx.com.liverpool.p360.services.core.temp.characteristic.AttributeListHandler.Value;
 
 public class CreaRechazoPorAtributo extends RESTWrapper{
 

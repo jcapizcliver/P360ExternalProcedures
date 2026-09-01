@@ -1,5 +1,6 @@
 package mx.com.liverpool.p360.services.core.amqp.run;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.logging.FileHandler;
@@ -26,6 +27,8 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.xml.sax.SAXException;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.PubSubGCP;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
@@ -34,9 +37,29 @@ import mx.com.liverpool.p360.services.core.SimpleDelimitedFileParser;
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 import mx.com.liverpool.p360.services.xmlutils.XMLMisc;
 
-public class LookupsAndDictionariesProcessor {
+public class LookupsAndDictionariesProcessor implements Closeable {
 
 	private boolean running = true;
+
+	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			LookupsAndDictionariesProcessor.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			LookupsAndDictionariesProcessor.this.log(message);
+		}
+	} );
+	
+	private final DataRequestor dr = new DataRequestor(dastub);
+
+	@Override
+	public void close() {
+		dastub.close();
+	}
 	
 	private final RESTWrapper rw;
 	private final RESTWorkshop workshop;
@@ -162,8 +185,6 @@ public class LookupsAndDictionariesProcessor {
 //							Node _OStructureGroupNode 	= structureGroupNode 	== null ? null : xmm.byName(structureGroupNode, "_old");
 							Node _OValueNode			= value 				== null ? null : xmm.byName(value, "_old");
 //							Node _OAlternativeValueNode	= alternativeValue 		== null ? null : xmm.byName(alternativeValue, "_old");
-							
-							DataRequestor dr = new DataRequestor();
 							
 							Node _CPropertyNode 		= propertyNode 			== null ? null : xmm.byName(propertyNode, "_current");
 							Node _CPropertyValueNode 	= propertyValueNode 	== null ? null : xmm.byName(propertyValueNode, "_current");
@@ -491,7 +512,6 @@ public class LookupsAndDictionariesProcessor {
 			}
 		}else if(json.has("entityItemsDeleted")){
 			org.json.JSONArray identifiers = json.getJSONObject("entityItemsDeleted").getJSONArray("_identifier");
-			DataRequestor dr = new DataRequestor();
 			org.json.JSONArray items = new org.json.JSONArray();
 			String container = json.getJSONObject("entityItemsDeleted").getJSONObject("_container").getString("_externalId").replaceAll("'", "");
 			if("GlobalTemplateAttributeConfiguration".equals(container) || "ExtensionDeMetadatos_ ValoresPredeterminadosPorPlantilla".equals(container)) {

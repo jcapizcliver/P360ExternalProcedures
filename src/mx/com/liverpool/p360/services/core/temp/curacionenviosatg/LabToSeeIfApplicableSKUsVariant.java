@@ -7,7 +7,8 @@ public class LabToSeeIfApplicableSKUsVariant {
 	private static final RESTWrapper rw = new RESTWrapper();
 
 	public static void main(String[] args) {
-		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "No existen en ATG 30 Mayo.csv").toFile())))){
+		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "Reproceso_detenidos_11082026.csv").toFile())))){
+//		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "No existen en ATG 30 Mayo.csv").toFile())))){
 //		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "SKUs variantes a analizar.txt").toFile())))){
 //		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "sqlrunner_20260521_184137 _ SKUs variantes nuevos respecto a anterior (20 contra 19 de Mayo).csv").toFile())))){
 //		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "PROD", "SKUs.csv").toFile())))){

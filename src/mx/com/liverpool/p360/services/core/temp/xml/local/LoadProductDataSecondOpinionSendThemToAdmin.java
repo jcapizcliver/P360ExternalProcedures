@@ -1,5 +1,6 @@
 package mx.com.liverpool.p360.services.core.temp.xml.local;
 
+import java.io.Closeable;
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -13,11 +14,13 @@ import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
 import org.xml.sax.helpers.DefaultHandler;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.ELog;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
 
-public class LoadProductDataSecondOpinionSendThemToAdmin {
+public class LoadProductDataSecondOpinionSendThemToAdmin implements Closeable {
 
 	private RESTWrapper rw = new RESTWrapper();
 	private java.util.Set<String> attributeIDs = new java.util.TreeSet<>();
@@ -25,7 +28,6 @@ public class LoadProductDataSecondOpinionSendThemToAdmin {
 	public static boolean sendLkpValues = false;
 	private java.nio.file.Path normalLogFilePath = java.nio.file.Paths.get("../logs/loadProductDataSendToAdmin.log");
 	
-
 	private class Asset{
 		
 		private String id;
@@ -483,74 +485,74 @@ public class LoadProductDataSecondOpinionSendThemToAdmin {
     
     public static void processContent(String content) throws ParserConfigurationException, SAXException, IOException {
     	long init = System.currentTimeMillis();
-    	LoadProductDataSecondOpinionSendThemToAdmin an = new LoadProductDataSecondOpinionSendThemToAdmin();
-        SAXParserFactory factory = SAXParserFactory.newInstance();
-        factory.setNamespaceAware(true);
-        try {
-            factory.setFeature("http://xml.org/sax/features/external-general-entities",          false);
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities",        false);
-            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-        } catch (Exception ignored) {}
-        SAXParser parser = factory.newSAXParser();
-        an.procesaContent(content, parser);
-        if(an.itemsP.length() > 0) {
-        	an.log("From sending product data: " + an.dr.putProductData(an.itemsP) );
-        	while(an.itemsP.length() > 0) {
-        		an.itemsP.remove(0);
-        	}
-        }
-        if(an.itemsV.length() > 0) {
-        	an.log("From sending items data: " + an.dr.putArticleData(an.itemsV) );
-        	while(an.itemsV.length() > 0) {
-        		an.itemsV.remove(0);
-        	}
-        }
-        an.log("Total products found: " + an.lacuenta);
-        an.log("Total vars found: " + an.lacuentaVars);
-        an.log("Done. " + an.rw.getRw().formatTime(System.currentTimeMillis() - init) );
+    	try(LoadProductDataSecondOpinionSendThemToAdmin an = new LoadProductDataSecondOpinionSendThemToAdmin()){
+	        SAXParserFactory factory = SAXParserFactory.newInstance();
+	        factory.setNamespaceAware(true);
+	        try {
+	            factory.setFeature("http://xml.org/sax/features/external-general-entities",          false);
+	            factory.setFeature("http://xml.org/sax/features/external-parameter-entities",        false);
+	            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+	        } catch (Exception ignored) {}
+	        SAXParser parser = factory.newSAXParser();
+	        an.procesaContent(content, parser);
+	        if(an.itemsP.length() > 0) {
+	        	an.log("From sending product data: " + an.dr.putProductData(an.itemsP) );
+	        	while(an.itemsP.length() > 0) {
+	        		an.itemsP.remove(0);
+	        	}
+	        }
+	        if(an.itemsV.length() > 0) {
+	        	an.log("From sending items data: " + an.dr.putArticleData(an.itemsV) );
+	        	while(an.itemsV.length() > 0) {
+	        		an.itemsV.remove(0);
+	        	}
+	        }
+	        an.log("Total products found: " + an.lacuenta);
+	        an.log("Total vars found: " + an.lacuentaVars);
+	        an.log("Done. " + an.rw.getRw().formatTime(System.currentTimeMillis() - init) );
+    	}
     }
     
     public static void main(String[] args) throws Exception {
     	long init = System.currentTimeMillis();
-    	LoadProductDataSecondOpinionSendThemToAdmin an = new LoadProductDataSecondOpinionSendThemToAdmin();
-    	java.nio.file.Files.createDirectories( java.nio.file.Paths.get("..", "logs", args.length == 1 ? "" : args[1]) );
-    	an.normalLogFilePath = java.nio.file.Paths.get(
-    											  ".."
-    											, "logs"
-    											, args.length == 1 ? "" : args[1]
-    											, "loadProductDataSendToAdmin.log"
-    										);
-    	if (args.length == 0) {
-            System.err.println("Usage: java CuentaSKUsConNegocios <directory with xml files>");
-            System.exit(1);
-        }
-        SAXParserFactory factory = SAXParserFactory.newInstance();
-        factory.setNamespaceAware(true);
-        try {
-            factory.setFeature("http://xml.org/sax/features/external-general-entities",          false);
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities",        false);
-            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
-        } catch (Exception ignored) {}
-        SAXParser parser = factory.newSAXParser();
-        an.procesaDirectorio(args[0], parser);
-        if(an.itemsP.length() > 0) {
-        	an.log( an.dr.putProductData(an.itemsP) );
-        	while(an.itemsP.length() > 0) {
-        		an.itemsP.remove(0);
-        	}
-        }
-        if(an.itemsV.length() > 0) {
-        	an.log( an.dr.putArticleData(an.itemsV) );
-        	while(an.itemsV.length() > 0) {
-        		an.itemsV.remove(0);
-        	}
-        }
-        an.log("Total products found: " + an.lacuenta);
-        an.log("Total vars found: " + an.lacuentaVars);
-        an.log("Done. " + an.rw.getRw().formatTime(System.currentTimeMillis() - init) );
+    	try(LoadProductDataSecondOpinionSendThemToAdmin an = new LoadProductDataSecondOpinionSendThemToAdmin()){
+	    	java.nio.file.Files.createDirectories( java.nio.file.Paths.get("..", "logs", args.length == 1 ? "" : args[1]) );
+	    	an.normalLogFilePath = java.nio.file.Paths.get(
+	    											  ".."
+	    											, "logs"
+	    											, args.length == 1 ? "" : args[1]
+	    											, "loadProductDataSendToAdmin.log"
+	    										);
+	    	if (args.length == 0) {
+	            System.err.println("Usage: java CuentaSKUsConNegocios <directory with xml files>");
+	            System.exit(1);
+	        }
+	        SAXParserFactory factory = SAXParserFactory.newInstance();
+	        factory.setNamespaceAware(true);
+	        try {
+	            factory.setFeature("http://xml.org/sax/features/external-general-entities",          false);
+	            factory.setFeature("http://xml.org/sax/features/external-parameter-entities",        false);
+	            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false);
+	        } catch (Exception ignored) {}
+	        SAXParser parser = factory.newSAXParser();
+	        an.procesaDirectorio(args[0], parser);
+	        if(an.itemsP.length() > 0) {
+	        	an.log( an.dr.putProductData(an.itemsP) );
+	        	while(an.itemsP.length() > 0) {
+	        		an.itemsP.remove(0);
+	        	}
+	        }
+	        if(an.itemsV.length() > 0) {
+	        	an.log( an.dr.putArticleData(an.itemsV) );
+	        	while(an.itemsV.length() > 0) {
+	        		an.itemsV.remove(0);
+	        	}
+	        }
+	        an.log("Total products found: " + an.lacuenta);
+	        an.log("Total vars found: " + an.lacuentaVars);
+	        an.log("Done. " + an.rw.getRw().formatTime(System.currentTimeMillis() - init) );
+    	}
     }
-    
-    private String[] ofInterest;
     
     private Integer procesaContent(String contenido, SAXParser parser) throws SAXException, java.io.IOException {
         Integer refProductsCount = 0;
@@ -601,10 +603,28 @@ public class LoadProductDataSecondOpinionSendThemToAdmin {
 
     private org.json.JSONArray itemsP = new org.json.JSONArray();
     private org.json.JSONArray itemsV = new org.json.JSONArray();
-    private DataRequestor dr = new DataRequestor();
+
+	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
+		
+		@Override
+		public void logE(Exception e) {
+			LoadProductDataSecondOpinionSendThemToAdmin.this.logE(e);
+		}
+		
+		@Override
+		public void log(String message) {
+			LoadProductDataSecondOpinionSendThemToAdmin.this.log(message);
+		}
+	} );
+	
+	private final DataRequestor dr = new DataRequestor(dastub);
+
+	@Override
+	public void close() {
+		dastub.close();
+	}
     private int lacuenta = 0;
     private int lacuentaVars = 0;
-    private final java.util.Set<String> losEncontrados = new java.util.TreeSet<>();
 
     private final java.util.Map<String, String> internalToExternalStatusMap = loadExternalStatusMap();
 
@@ -735,10 +755,6 @@ public class LoadProductDataSecondOpinionSendThemToAdmin {
     
     private String dataFromMap(Value v) {
     	return v == null ? "" : v.getId() != null ? v.getId() : v.getText() == null ? "" : v.getText() ;
-    }
-    
-    private String dataFromMapV(Value v) {
-    	return v == null ? "" : v.getText() != null ? v.getText() : v.getId() == null ? "" : v.getId() ;
     }
     
 	private final java.util.regex.Pattern p = java.util.regex.Pattern.compile("(?<=Flujo Actual: )([^|]+)");

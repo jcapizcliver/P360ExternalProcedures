@@ -1,15 +1,10 @@
 package mx.com.liverpool.p360.services.core.temp;
 
-import java.net.URISyntaxException;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
-
-import mx.com.liverpool.p360.services.core.ServiceUnavailableException;
-
 import org.json.JSONObject;
 
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RestClient;
+import mx.com.liverpool.p360.services.core.ServiceUnavailableException;
 
 public class AddRejectionChildCharacteristics {
 

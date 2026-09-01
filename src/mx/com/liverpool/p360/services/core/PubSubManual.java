@@ -1,7 +1,5 @@
 package mx.com.liverpool.p360.services.core;
 
-import mx.com.liverpool.p360.services.core.ServiceUnavailableException;
-
 public class PubSubManual {
 
 
