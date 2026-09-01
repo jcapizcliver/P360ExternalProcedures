@@ -1368,6 +1368,9 @@ public class GetProposals implements Closeable {
       case 1030: return "Rechazo Category";
       case 1031: return "Repoblamiento";
       case 1032: return "Excepción de Catalogación";
+      case 2001: return "Aceptado";
+      case 2002: return "Aceptado con ajustados";
+      case 2003: return "Placeholder en Revisión";
       case 10031: return "Borrador";
       default: return String.valueOf(status);
     }
