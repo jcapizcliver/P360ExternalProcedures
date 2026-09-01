@@ -572,10 +572,16 @@ public class ParseJanaAttributesFile implements Closeable {
 //		return atributos;
 //	}
 	
+//	private void loadSizeAttributesMap(java.util.Set<String> atributos) {
+//		java.util.Map<String, String> relAttrib = dastub.getDictionaryCharacteristicAlternativeValueMap("RelAttribSTDATG");
+//		atributos.addAll(relAttrib.keySet());
+//		log("Loaded size characteristics from DB. Count: " + atributos.size());
+//	}
+	
 	private void loadSizeAttributesMap(java.util.Set<String> atributos) {
-		java.util.Map<String, String> relAttrib = dastub.getDictionaryCharacteristicAlternativeValueMap("RelAttribSTDATG");
-		atributos.addAll(relAttrib.keySet());
-		log("Loaded size characteristics from DB. Count: " + atributos.size());
+	    java.util.Map<String, String> relAttrib = dastub.getDictionaryValueAlternativeValueMap("RelAttribSTDATG");
+	    atributos.addAll(relAttrib.keySet());
+	    log("Loaded size characteristics from DB. Count: " + atributos.size());
 	}
 	
 	private void collectCharacteristicsByEntity(java.util.LinkedList<String> product2G, java.util.LinkedList<String> article) {

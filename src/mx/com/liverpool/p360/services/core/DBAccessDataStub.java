@@ -4125,7 +4125,7 @@ public class DBAccessDataStub implements AutoCloseable {
 		}catch(java.sql.SQLException e) {
 			logE(e);
 		}
-		log("From getProductByVariant: " + rw.formatTime(System.currentTimeMillis() - init));
+//		log("From getProductByVariant: " + rw.formatTime(System.currentTimeMillis() - init));
 		return null;
 	}
 	

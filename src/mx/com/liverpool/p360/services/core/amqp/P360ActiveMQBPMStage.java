@@ -150,7 +150,7 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 	
     public P360ActiveMQBPMStage() throws ServiceUnavailableException {
     	ccp = new CharacteristicChangeProcessor();
-    	pacp = new ProductArticleChangeProcessor();
+    	pacp = new ProductArticleChangeProcessor(dastub);
 		ladp = new LookupsAndDictionariesProcessor();
 		pacvcp = new ProductArticleCharacteristicValueChangeProcessor();
 		sgcp = new StructureGroupChangeProcessor();
@@ -158,7 +158,7 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
     
     public P360ActiveMQBPMStage(String baseUrl) throws ServiceUnavailableException {
     	ccp = new CharacteristicChangeProcessor();
-    	pacp = new ProductArticleChangeProcessor();
+    	pacp = new ProductArticleChangeProcessor(dastub);
 		ladp = new LookupsAndDictionariesProcessor();
 		pacvcp = new ProductArticleCharacteristicValueChangeProcessor();
 		sgcp = new StructureGroupChangeProcessor();
@@ -167,7 +167,7 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
     
     public P360ActiveMQBPMStage(String baseUrl, String baseCacheDirectory) throws ServiceUnavailableException {
     	ccp = new CharacteristicChangeProcessor();
-    	pacp = new ProductArticleChangeProcessor();
+    	pacp = new ProductArticleChangeProcessor(dastub);
 		ladp = new LookupsAndDictionariesProcessor();
 		pacvcp = new ProductArticleCharacteristicValueChangeProcessor();
 		sgcp = new StructureGroupChangeProcessor();
