@@ -33,6 +33,8 @@ import org.apache.sshd.common.config.keys.FilePasswordProvider;
 import org.apache.sshd.common.keyprovider.FileKeyPairProvider;
 import org.apache.sshd.sftp.client.SftpClient;
 import org.apache.sshd.sftp.client.SftpClientFactory;
+import org.apache.sshd.sftp.common.SftpConstants;
+import org.apache.sshd.sftp.common.SftpException;
 
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 
@@ -297,7 +299,18 @@ public class ToAtgSftpDispatcher {
 				SftpClient.OpenMode.Write, SftpClient.OpenMode.Create, SftpClient.OpenMode.Truncate)) {
 			Files.copy(localFile, remote);
 		}
-		sftp.rename(temporaryRemoteFile, remoteFile, SftpClient.CopyMode.Overwrite);
+		removeRemoteFileIfExists(sftp, remoteFile);
+		sftp.rename(temporaryRemoteFile, remoteFile);
+	}
+
+	private void removeRemoteFileIfExists(SftpClient sftp, String remoteFile) throws IOException {
+		try {
+			sftp.remove(remoteFile);
+		} catch (SftpException e) {
+			if (e.getStatus() != SftpConstants.SSH_FX_NO_SUCH_FILE) {
+				throw e;
+			}
+		}
 	}
 
 	private static String joinRemotePath(String directory, String fileName) {
