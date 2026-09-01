@@ -44,7 +44,6 @@ import mx.com.liverpool.p360.services.core.PubSubGCP;
 import mx.com.liverpool.p360.services.core.PublicationExceptions;
 import mx.com.liverpool.p360.services.core.RESTWorkshop;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
-import mx.com.liverpool.p360.services.core.RequestHandler;
 import mx.com.liverpool.p360.services.core.ServiceUnavailableException;
 import mx.com.liverpool.p360.services.core.amqp.run.CharacteristicChangeProcessor;
 import mx.com.liverpool.p360.services.core.amqp.run.LookupsAndDictionariesProcessor;
@@ -52,8 +51,6 @@ import mx.com.liverpool.p360.services.core.amqp.run.ProductArticleChangeProcesso
 import mx.com.liverpool.p360.services.core.amqp.run.ProductArticleCharacteristicValueChangeProcessor;
 import mx.com.liverpool.p360.services.core.amqp.run.StructureGroupChangeProcessor;
 import mx.com.liverpool.p360.services.core.net.DataRequestor;
-import mx.com.liverpool.p360.services.core.temp.exports.RealExportProducts;
-import mx.com.liverpool.p360.services.core.temp.exports.RealExportProducts2Mirakl;
 import mx.com.liverpool.p360.services.xmlutils.XMLMisc;
 
 public class P360ActiveMQBPMStage extends Thread implements Closeable {
@@ -133,8 +130,8 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 	private final org.json.JSONObject reqLastDateApproved = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2G.LastDateApproved"))).put("rows", new org.json.JSONArray());
 	private final org.json.JSONObject reqPublishMessage = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Product2GCharacteristicValueLang.Value('PublishMessage',root,\"0000.0000.RK\",'PublishMessage',-1)"))).put("rows", new org.json.JSONArray());
 	
-	private final RealExportProducts rep = new RealExportProducts();
-	private final RealExportProducts2Mirakl rep2m = new RealExportProducts2Mirakl();
+//	private final RealExportProducts rep = new RealExportProducts();
+//	private final RealExportProducts2Mirakl rep2m = new RealExportProducts2Mirakl();
 
 	private final PubSubGCP pubIdmcPutProducts = new PubSubGCP(
 		    PropertiesManager.get("p360.contingency.gcp.service_account_back"),
@@ -148,8 +145,8 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 //		    PropertiesManager.get("p360.contingency.gcp.post_products_topic")
 //		);
 	
-	private final java.util.List<String> toPublish = new java.util.ArrayList<>();
-	private final java.util.List<String> toMkt = new java.util.ArrayList<>();
+//	private final java.util.List<String> toPublish = new java.util.ArrayList<>();
+//	private final java.util.List<String> toMkt = new java.util.ArrayList<>();
 	
     public P360ActiveMQBPMStage() throws ServiceUnavailableException {
     	ccp = new CharacteristicChangeProcessor();
@@ -182,7 +179,10 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 			connectionFactory = new ActiveMQConnectionFactory("tcp://" + host + ":" + port + "?wireFormat.maxInactivityDuration=60000&keepAlive=true");
 			connection = connectionFactory.createConnection();
 			connection.start();
-			session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+			session = connection.createSession(false, Session.CLIENT_ACKNOWLEDGE);
+//			java.util.concurrent.ArrayBlockingQueue<String> queue = new java.util.concurrent.ArrayBlockingQueue<String>(2);
+//			String elmensaje = queue.poll(100, java.util.concurrent.TimeUnit.MICROSECONDS);
+//			queue.put(elmensaje);
 	        responseQueue = session.createQueue(qName);
 	        consumer = session.createConsumer(responseQueue);
 			connected = true;
@@ -251,23 +251,23 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 		});
 		t.setDaemon(true);
 		t.start();
-		t = new Thread(()->{
-			log("Running sender to outer systems watcher...");
-			while(running) {
-
-				sendToPublication();
-				sendToMkt();
-				
-				try{
-					Thread.sleep(60000);
-				}catch(InterruptedException e) {
-					logE(e);
-				}
-			}
-			log("Watcher end");
-		});
-		t.setDaemon(true);
-		t.start();
+//		t = new Thread(()->{
+//			log("Running sender to outer systems watcher...");
+//			while(running) {
+//
+//				sendToPublication();
+//				sendToMkt();
+//				
+//				try{
+//					Thread.sleep(60000);
+//				}catch(InterruptedException e) {
+//					logE(e);
+//				}
+//			}
+//			log("Watcher end");
+//		});
+//		t.setDaemon(true);
+//		t.start();
 	}
 	
 	private void launchListenerThread() {
@@ -311,140 +311,142 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 		t.start();
 	}
 	
-	private void sendToMkt() {
-		if(!toMkt.isEmpty()) {
-			java.util.Date currentDate = new java.util.Date();
-			String sent2 = rep2m.doIt( toMkt.toArray(new String[] {}), true, workshop.getBaseUrl() );
-			for(String externalId : toMkt) {
-				addLastSentToMarketplace(externalId, new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").format(currentDate));
-				addPublishMktMessage(externalId, sent2 == null ? "Problema enviando a MKT." : sent2);
-				log("Result from sending to mkt: " + sent2);
-			}
-			toMkt.clear();
-		}
-		
-	}
+//	private void sendToMkt() {
+//		if(!toMkt.isEmpty()) {
+//			java.util.Date currentDate = new java.util.Date();
+//			String sent2 = rep2m.doIt( toMkt.toArray(new String[] {}), true, workshop.getBaseUrl() );
+//			for(String externalId : toMkt) {
+//				addLastSentToMarketplace(externalId, new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").format(currentDate));
+//				addPublishMktMessage(externalId, sent2 == null ? "Problema enviando a MKT." : sent2);
+//				log("Result from sending to mkt: " + sent2);
+//			}
+//			toMkt.clear();
+//		}
+//		
+//	}
 
-	private void sendToPublication() {
-		if(!toPublish.isEmpty()) {
-			java.util.Date currentDate = new java.util.Date();
-			String sent = rep.doIt(toPublish.toArray(new String[] {}), true, workshop.getBaseUrl());
-			log("Result from sending to mkt,oms: " + sent);
-			if(sent != null && sent.contains("Se proceso correctamente") && sent.contains("pépele")) {
-				java.util.Map<String, String> qp = new java.util.HashMap<>();
-				qp.put("fields", 
-						   "Product2G.ProductNo"
-						+ ",Product2G.FirstDateApproved"
-						+ ",Product2G.StatusModification"
-						+ ",Product2G.LastDateApproved"
-					);
-				qp.put("pageSize", "2000" );
-				java.util.Map<String, String> qp1 = new java.util.HashMap<>();
-				qp1.put("fields", 
-								   "Article.SupplierAID"
-								+ ",Article.FirstDateApproved"
-								+ ",Article.ProductImageURL"
-						);
-				qp1.put("pageSize", "2000" );
-				org.json.JSONArray ir = new org.json.JSONArray();
-				org.json.JSONObject jsonResponse = new org.json.JSONObject();
-				org.json.JSONObject jsonResponsePO = new org.json.JSONObject();
-				int a = 0;
-				StringBuilder sb = new StringBuilder();
-				java.util.Map<String, String> qp0 = new java.util.HashMap<>();
-				qp0.put("includeObjectsInProtocol", "false");
-				RequestHandler rh = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Article.FirstDateApproved")), 2000, request -> rw.writeData("list", "Article", null, qp0, request, this::log) );
-				RequestHandler rh2 = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Article.LastDateApproved")),  2000, request -> rw.writeData("list", "Article", null, qp0, request, this::log) );
-				String currentDateStr = currentDate.toInstant().atZone(java.time.ZoneId.systemDefault()).format( java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss") );
-				org.json.JSONArray items = new org.json.JSONArray();
-				jsonResponse.put("products", items);
-				org.json.JSONArray itemsPO = new org.json.JSONArray();
-				jsonResponsePO.put("products", itemsPO);
-				for(String externalId : toPublish) {
-					addFechaUltimaPublicacion(externalId, currentDateStr);
-					addLastDateApprove(externalId, currentDateStr);
-					addPublishMessage(externalId, sent == null ? "Problema enviando a ATG." : sent);
-					ir.put(externalId);
-					sb.append(sb.length() == 0 ? "" : ",").append("'").append(externalId).append("'@1");
-					a++;
-					if(a % 1000 == 0) {
-						qp.put("items", sb.toString());
-						rw.collectData("list", "Product2G", null, "byItems", qp, row -> {
-							org.json.JSONArray values = row.getJSONArray("values");
-							String lastDateApproved = null;
-							if("".equals(values.getString(1))) {
-								addFirstDateApproved(values.getString(0), currentDateStr);
-								addFirstApprovedDate(values.getString(0), currentDateStr);
-								lastDateApproved = currentDateStr;
-							}else {
-								lastDateApproved = values.getString(3);
-							}
-							boolean wereYouInForo = wereYouInForo(lastDateApproved, values.getString(2));
-	                        addEnriquecidoEnForo(values.getString(0), wereYouInForo);
-	                        org.json.JSONObject item = new org.json.JSONObject();
-							item.put( "enrichmentOriginForo", wereYouInForo);
-							item.put( "proposalId", values.getString(0));
-							item.put( "entityType", "Generic" );
-							items.put(item);
-							org.json.JSONObject itemPO = new org.json.JSONObject();
-							itemPO.put( "enrichmentOriginForo", wereYouInForo);
-							itemPO.put( "proposalId", values.getString(0));
-							itemsPO.put(itemPO);
-						});
-						qp1.put("products", sb.toString());
-						rw.collectData("list", "Article", null, "byProducts", qp1, row -> {
-							org.json.JSONArray values = row.getJSONArray("values");
-							if(!"".equals(values.getString(2))) {
-								if("".equals(values.getString(1)))
-									rh.addRow(new org.json.JSONObject().put("object", row.getJSONObject("object")).put("values", new org.json.JSONArray().put(currentDateStr)));
-								rh2.addRow(new org.json.JSONObject().put("object", row.getJSONObject("object")).put("values", new org.json.JSONArray().put(currentDateStr)));
-							}
-						});
-						sb.setLength(0);
-					}
-				}
-				if(sb.length() > 0) {
-					qp.put("items", sb.toString());
-					rw.collectData("list", "Product2G", null, "byItems", qp, row -> {
-						org.json.JSONArray values = row.getJSONArray("values");
-						String lastDateApproved = null;
-						if("".equals(values.getString(1))) {
-							addFirstDateApproved(values.getString(0), currentDateStr);
-							addFirstApprovedDate(values.getString(0), currentDateStr);
-							lastDateApproved = currentDateStr;
-						}else {
-							lastDateApproved = values.getString(3);
-						}
-						boolean wereYouInForo = wereYouInForo(lastDateApproved, values.getString(2));
-	                    addEnriquecidoEnForo(values.getString(0), wereYouInForo);
-	                    org.json.JSONObject item = new org.json.JSONObject();
-						item.put( "enrichmentOriginForo", wereYouInForo);
-						item.put( "proposalId", values.getString(0));
-						item.put("entityType", "Generic" );
-						items.put(item);
-						org.json.JSONObject itemPO = new org.json.JSONObject();
-						itemPO.put( "enrichmentOriginForo", wereYouInForo);
-						itemPO.put( "proposalId", values.getString(0));
-						itemsPO.put(itemPO);
-					});
-					rw.collectData("list", "Article", null, "byProducts", qp1, row -> {
-						org.json.JSONArray values = row.getJSONArray("values");
-						if(!"".equals(values.getString(2))) {
-							if("".equals(values.getString(1)))
-								rh.addRow(new org.json.JSONObject().put("object", row.getJSONObject("object")).put("values", new org.json.JSONArray().put(currentDateStr)));
-							rh2.addRow(new org.json.JSONObject().put("object", row.getJSONObject("object")).put("values", new org.json.JSONArray().put(currentDateStr)));
-						}
-					});
-					sb.setLength(0);
-				}
-				rh.sendData();
-				rh2.sendData();
-				pubIdmcPutProducts.publishMessage(jsonResponse.toString());
-//				pubPostProducts.publishMessage(jsonResponsePO.toString());
-				toPublish.clear();
-			}
-		}
-	}
+//	private void sendToPublication() {
+//		if(!toPublish.isEmpty()) {
+//			java.util.Date currentDate = new java.util.Date();
+//			String sent = rep.doIt(toPublish.toArray(new String[] {}), true, workshop.getBaseUrl());
+//			log("Result from sending to mkt,oms: " + sent);
+//			if(sent != null && sent.contains("Se proceso correctamente") && sent.contains("pépele")) {
+//				java.util.Map<String, String> qp = new java.util.HashMap<>();
+//				qp.put("fields", 
+//						   "Product2G.ProductNo"
+//						+ ",Product2G.FirstDateApproved"
+//						+ ",Product2G.StatusModification"
+//						+ ",Product2G.LastDateApproved"
+//					);
+//				qp.put("pageSize", "2000" );
+//				java.util.Map<String, String> qp1 = new java.util.HashMap<>();
+//				qp1.put("fields", 
+//								   "Article.SupplierAID"
+//								+ ",Article.FirstDateApproved"
+//								+ ",Article.ProductImageURL"
+//						);
+//				qp1.put("pageSize", "2000" );
+//				org.json.JSONArray ir = new org.json.JSONArray();
+//				org.json.JSONObject jsonResponse = new org.json.JSONObject();
+//				org.json.JSONObject jsonResponsePO = new org.json.JSONObject();
+//				int a = 0;
+//				StringBuilder sb = new StringBuilder();
+//				java.util.Map<String, String> qp0 = new java.util.HashMap<>();
+//				qp0.put("includeObjectsInProtocol", "false");
+//				RequestHandler rh = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Article.FirstDateApproved")), 2000, request -> rw.writeData("list", "Article", null, qp0, request, this::log) );
+//				RequestHandler rh2 = new RequestHandler( new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "Article.LastDateApproved")),  2000, request -> rw.writeData("list", "Article", null, qp0, request, this::log) );
+//				String currentDateStr = currentDate.toInstant().atZone(java.time.ZoneId.systemDefault()).format( java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss") );
+//				org.json.JSONArray items = new org.json.JSONArray();
+//				jsonResponse.put("products", items);
+//				org.json.JSONArray itemsPO = new org.json.JSONArray();
+//				jsonResponsePO.put("products", itemsPO);
+//				for(String externalId : toPublish) {
+//					addFechaUltimaPublicacion(externalId, currentDateStr);
+//					addLastDateApprove(externalId, currentDateStr);
+//					addPublishMessage(externalId, sent == null ? "Problema enviando a ATG." : sent);
+//					ir.put(externalId);
+//					sb.append(sb.length() == 0 ? "" : ",").append("'").append(externalId).append("'@1");
+//					a++;
+//					if(a % 1000 == 0) {
+//						qp.put("items", sb.toString());
+//						rw.collectData("list", "Product2G", null, "byItems", qp, row -> {
+//							org.json.JSONArray values = row.getJSONArray("values");
+//							String lastDateApproved = null;
+//							if("".equals(values.getString(1))) {
+//								addFirstDateApproved(values.getString(0), currentDateStr);
+//								addFirstApprovedDate(values.getString(0), currentDateStr);
+//								lastDateApproved = currentDateStr;
+//							}else {
+//								lastDateApproved = values.getString(3);
+//							}
+//							boolean wereYouInForo = wereYouInForo(lastDateApproved, values.getString(2));
+//	                        addEnriquecidoEnForo(values.getString(0), wereYouInForo);
+//	                        org.json.JSONObject item = new org.json.JSONObject();
+//							item.put( "enrichmentOriginForo", wereYouInForo);
+//							item.put( "proposalId", values.getString(0));
+//							item.put( "entityType", "Generic" );
+//							items.put(item);
+//							org.json.JSONObject itemPO = new org.json.JSONObject();
+//							itemPO.put( "enrichmentOriginForo", wereYouInForo);
+//							itemPO.put( "proposalId", values.getString(0));
+//							itemsPO.put(itemPO);
+//						});
+//						qp1.put("products", sb.toString());
+//						rw.collectData("list", "Article", null, "byProducts", qp1, row -> {
+//							org.json.JSONArray values = row.getJSONArray("values");
+//							if(!"".equals(values.getString(2))) {
+//								if("".equals(values.getString(1)))
+//									rh.addRow(new org.json.JSONObject().put("object", row.getJSONObject("object")).put("values", new org.json.JSONArray().put(currentDateStr)));
+//								rh2.addRow(new org.json.JSONObject().put("object", row.getJSONObject("object")).put("values", new org.json.JSONArray().put(currentDateStr)));
+//							}
+//						});
+//						sb.setLength(0);
+//					}
+//				}
+//				if(sb.length() > 0) {
+//					qp.put("items", sb.toString());
+//					rw.collectData("list", "Product2G", null, "byItems", qp, row -> {
+//						org.json.JSONArray values = row.getJSONArray("values");
+//						String lastDateApproved = null;
+//						if("".equals(values.getString(1))) {
+//							addFirstDateApproved(values.getString(0), currentDateStr);
+//							addFirstApprovedDate(values.getString(0), currentDateStr);
+//							lastDateApproved = currentDateStr;
+//						}else {
+//							lastDateApproved = values.getString(3);
+//						}
+//						boolean wereYouInForo = wereYouInForo(lastDateApproved, values.getString(2));
+//	                    addEnriquecidoEnForo(values.getString(0), wereYouInForo);
+//	                    org.json.JSONObject item = new org.json.JSONObject();
+//						item.put( "enrichmentOriginForo", wereYouInForo);
+//						item.put( "proposalId", values.getString(0));
+//						item.put("entityType", "Generic" );
+//						items.put(item);
+//						org.json.JSONObject itemPO = new org.json.JSONObject();
+//						itemPO.put( "enrichmentOriginForo", wereYouInForo);
+//						itemPO.put( "proposalId", values.getString(0));
+//						itemsPO.put(itemPO);
+//					});
+//					qp1.put("products", sb.toString());
+//					rw.collectData("list", "Article", null, "byProducts", qp1, row -> {
+//						org.json.JSONArray values = row.getJSONArray("values");
+//						if(!"".equals(values.getString(2))) {
+//							if("".equals(values.getString(1)))
+//								rh.addRow(new org.json.JSONObject().put("object", row.getJSONObject("object")).put("values", new org.json.JSONArray().put(currentDateStr)));
+//							rh2.addRow(new org.json.JSONObject().put("object", row.getJSONObject("object")).put("values", new org.json.JSONArray().put(currentDateStr)));
+//						}
+//					});
+//					sb.setLength(0);
+//				}
+//				rh.sendData();
+//				rh2.sendData();
+//				pubIdmcPutProducts.publishMessage(jsonResponse.toString());
+////				pubPostProducts.publishMessage(jsonResponsePO.toString());
+//				toPublish.clear();
+//			}
+//		}
+//	}
+
 	
 	private void process(String host, String port, String qName) throws ServiceUnavailableException {
 		if(!failed){
@@ -513,9 +515,13 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 						try{
 							log("Now processing message...");
 							messageProcessor(((TextMessage) responseMessage).getText());
+							responseMessage.acknowledge();
+				            log("Message processed and acknowledged. JMSMessageID=" + responseMessage.getJMSMessageID());
 						}catch(Exception e) {
 							// Un mensaje defectuoso o una indisponibilidad transitoria no debe matar el consumer principal.
-							logE(e);
+							log("Message processing failed. JMSMessageID=" + responseMessage.getJMSMessageID());
+				            logE(e);
+				            session.recover();
 						}
 						log("Doney");
 					}
@@ -569,7 +575,6 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 		String currentStatusNew = null;
 		String rejectionInfo = null;
 		org.json.JSONObject jsonResponse = null;
-		org.json.JSONObject jsonResponse4PO = null;
 		org.json.JSONArray rechazos = new org.json.JSONArray();
 		org.json.JSONArray changedField = null;
 
@@ -656,40 +661,6 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 													.put("sku", sku)
 													.put("entityType", "Product2G".equals(entity) ? "Generic" : "Variant")
 											));
-							if("Product2G".equals(entity)) {
-								jsonResponse4PO = new org.json.JSONObject()
-										.put("products", new org.json.JSONArray()
-												.put(new org.json.JSONObject()
-														.put("proposalId", externalId)
-														.put("internalStatus", getStatusLabel(currentStatusNew))
-														.put("externalStatus", externalStatusCode == null ? "" : externalStatusCode)
-														.put("previousStatus", getStatusLabel(currentStatusOld))
-														.put("sku", sku)
-														));
-							}else {
-								String rr = dr.getArticleData(new org.json.JSONArray().put(externalId));
-								if(rr != null) {
-									org.json.JSONObject jr = new org.json.JSONObject(rr);
-									org.json.JSONArray items = jr.getJSONArray("items");
-									org.json.JSONObject item = items.getJSONObject(0);
-									if(item.has("ProductNo") && !"".equals(item.getString("ProductNo"))) {
-										jsonResponse4PO = new org.json.JSONObject()
-												.put("products", new org.json.JSONArray()
-														.put(new org.json.JSONObject()
-																.put("proposalId", item.getString("ProductNo"))
-																.put("variants", new org.json.JSONArray()
-																			.put(new org.json.JSONObject()
-																					.put("internalStatus", getStatusLabel(currentStatusNew))
-																					.put("externalStatus", externalStatusCode == null ? "" : externalStatusCode)
-																					.put("previousStatus", getStatusLabel(currentStatusOld))
-																					.put("sku", sku)
-																				)
-																	)
-															));
-									}
-								}
-							}
-							
 							log("Old current status: " + currentStatusOld);
 							log("Current current status: " + currentStatusNew);
 							log("external status: " + externalStatusCode);
@@ -729,25 +700,34 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 												qp00.put("entityFilter", "Product2GCharacteristicValue");
 												qp00.put("qualificationFilter", "characteristic(SistemaOrigen)");
 												org.json.JSONObject jResp = rw.getRw().makeRequest("GET", "/object/Product2G/'" + externalId + "'@1", qp00, null);
-												org.json.JSONObject jd = jResp.getJSONObject("_data");
-												String sistemaOrigen = "1"; //jd.has("_characteristicRecords") ? jd.getJSONArray("_characteristicRecords").getJSONObject(0).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code") : "1";
-												org.json.JSONArray cs = jd.has("_characteristicRecords") ? jr.getJSONArray("_characteristicRecords") : new org.json.JSONArray();
-												String cid = null;
-												log("On 1007 for product (" + externalId + "): " + jr);
-												for( int idx = 0; idx < cs.length(); idx++ ) {
-													cid = cs.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
-													if("SistemaOrigen".equals(cid)) {
-														sistemaOrigen = cs.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+												if(jResp != null && jResp.has("_data")) {
+													org.json.JSONObject jd = jResp.getJSONObject("_data");
+													String sistemaOrigen = "1"; //jd.has("_characteristicRecords") ? jd.getJSONArray("_characteristicRecords").getJSONObject(0).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code") : "1";
+													org.json.JSONArray cs = jd.has("_characteristicRecords") ? jd.getJSONArray("_characteristicRecords") : new org.json.JSONArray();
+													String cid = null;
+													log("On 1007 for product (" + externalId + "): " + jd);
+													for( int idx = 0; idx < cs.length(); idx++ ) {
+														cid = cs.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
+														if("SistemaOrigen".equals(cid)) {
+															sistemaOrigen = cs.getJSONObject(idx).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
+														}
 													}
-												}
-												if(!"N".equals(fotoTomadaLiverpool)) {
-													log("(tf40) SistemaOrigen: " + sistemaOrigen);
-													Object[] objs = getClientToECC();
-													try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
-														writeToSftp(sftpCli, "Código SKU|ESTADO|ORIGEN\n" + sku + "|" + ( "1007".equals(currentStatusNew) ? 1 : 3) + "|" + (sistemaOrigen == null || "".equals(sistemaOrigen) ? "1" : sistemaOrigen), REMOTE_DIR_ECC);
-													}catch(java.io.IOException e) {
-											        	log("No fue posible escribir a foro 40 " + externalId);
-											        }
+													if(!"N".equals(fotoTomadaLiverpool)) {
+														log("(tf40) SistemaOrigen: " + sistemaOrigen);
+														try {
+															Object[] objs = getClientToECC();
+															try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
+																writeToSftp(sftpCli, "Código SKU|ESTADO|ORIGEN\n" + sku + "|" + ( "1007".equals(currentStatusNew) ? 1 : 3) + "|" + (sistemaOrigen == null || "".equals(sistemaOrigen) ? "1" : sistemaOrigen), REMOTE_DIR_ECC);
+															}catch(java.io.IOException e) {
+													        	log("No fue posible escribir a foro 40 " + externalId);
+													        }
+														}catch(java.io.IOException e) {
+															log("No fue posible escribir a foro 40 (dió IOException) " + externalId);
+														}
+													}
+												}else {
+													// ¿Y ahora qué?
+													// Guárda lo que estabas haciendo en un algo de "lo intento más tarde"
 												}
 											}else {
 												log("(tf40) Estaba vacío, por eso no se fue a foro 40");
@@ -767,9 +747,9 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 												}else {
 													org.json.JSONObject jd = jResp.getJSONObject("_data");
 													String sistemaOrigen = "1"; //jd.has("_characteristicRecords") ? jd.getJSONArray("_characteristicRecords").getJSONObject(0).getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code") : "1";
-													org.json.JSONArray cs = jd.has("_characteristicRecords") ? jr.getJSONArray("_characteristicRecords") : new org.json.JSONArray();
+													org.json.JSONArray cs = jd.has("_characteristicRecords") ? jd.getJSONArray("_characteristicRecords") : new org.json.JSONArray();
 													String cid = null;
-													log("On 1007 for product (" + externalId + "): " + jr);
+													log("On 1007 for product (" + externalId + "): " + jd);
 													for( int idx = 0; idx < cs.length(); idx++ ) {
 														cid = cs.getJSONObject(idx).getJSONObject("_qualification").getJSONObject("characteristic").getString("_code");
 														if("SistemaOrigen".equals(cid)) {
@@ -786,18 +766,22 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 														if(rsp != null) {
 															jr = new org.json.JSONObject(rsp);
 															items = jr.getJSONArray("items");
-															Object[] objs = getClientToECC();
-															try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
-																StringBuilder ssb = new StringBuilder();
-																for(int i=0; i<items.length(); i++) {
-																	j0 = items.getJSONObject(i);
-																	sku = j0.getString("SKU");
-																	ssb.append(ssb.length() == 0 ? "" : "\n").append( sku + "|" + ( "1007".equals(currentStatusNew) ? 1 : 3) + "|" + (sistemaOrigen == null || "".equals(sistemaOrigen) ? "1" : sistemaOrigen) );
-																}
-																writeToSftp(sftpCli, "Código SKU|ESTADO|ORIGEN\n" + ssb.toString(), REMOTE_DIR_ECC);
+															try {
+																Object[] objs = getClientToECC();
+																try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
+																	StringBuilder ssb = new StringBuilder();
+																	for(int i=0; i<items.length(); i++) {
+																		j0 = items.getJSONObject(i);
+																		sku = j0.getString("SKU");
+																		ssb.append(ssb.length() == 0 ? "" : "\n").append( sku + "|" + ( "1007".equals(currentStatusNew) ? 1 : 3) + "|" + (sistemaOrigen == null || "".equals(sistemaOrigen) ? "1" : sistemaOrigen) );
+																	}
+																	writeToSftp(sftpCli, "Código SKU|ESTADO|ORIGEN\n" + ssb.toString(), REMOTE_DIR_ECC);
+																}catch(java.io.IOException e) {
+														        	log("No fue posible escribir a foro 40 " + externalId);
+														        }
 															}catch(java.io.IOException e) {
-													        	log("No fue posible escribir a foro 40 " + externalId);
-													        }
+																log("No fue posible escribir a foro 40 (dió IOException) " + externalId);
+															}
 														}
 													}else { log("Skipped due to Foto No Tomada Liverpool: " + externalId + ":" + fotoTomadaLiverpool); }
 												}
@@ -829,11 +813,15 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 													org.json.JSONObject jResp = rw.getRw().makeRequest("GET", "/object/Product2G/'" + externalId + "'@1", qp00, null);
 													org.json.JSONObject jd = jResp.getJSONObject("_data");
 													String fda = jd.has("firstDateApproved") ? jd.getString("firstDateApproved").replace("T", " ") : "1007".equals(currentStatusNew) ? new java.util.Date().toInstant().atZone(java.time.ZoneId.systemDefault()).format( java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss") ) : "" ;
-													Object[] objs = getClientToS4H();
-													try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
-														writeToSftp(sftpCli, "Código SKU,Estado,Responsabilidad de fotos,Fecha Primera Aprobación\n" +  sku + "," + ("1007".equals(currentStatusNew) ? 1 : 3) + "," + fotoTomadaLiverpool + "," + fda, REMOTE_DIR_S4H);
+													try {
+														Object[] objs = getClientToS4H();
+														try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
+															writeToSftp(sftpCli, "Código SKU,Estado,Responsabilidad de fotos,Fecha Primera Aprobación\n" +  sku + "," + ("1007".equals(currentStatusNew) ? 1 : 3) + "," + fotoTomadaLiverpool + "," + fda, REMOTE_DIR_S4H);
+														}catch(java.io.IOException e) {
+															log("No fue posible escribir a foro 40 " + externalId);
+														}
 													}catch(java.io.IOException e) {
-														log("No fue posible escribir a foro 40 " + externalId);
+														log("No fue posible escribir a foro 40 (dió IOException) " + externalId);
 													}
 												}else {
 													log("(tf40) Estaba vacío, por eso no se fue a foro 40");
@@ -846,40 +834,44 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 													qp00.put("includeIds", "true");
 													qp00.put("entityFilter", "Product2G");
 													org.json.JSONObject jResp = rw.getRw().makeRequest("GET", "/object/Product2G/'" + externalId + "'@1", qp00, null);
-													org.json.JSONObject jd = jResp.getJSONObject("_data");
-													String fda = jd.has("firstDateApproved") ? jd.getString("firstDateApproved").replace("T", " ") : "1007".equals(currentStatusNew) ? new java.util.Date().toInstant().atZone(java.time.ZoneId.systemDefault()).format( java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss") ) : "";
-													org.json.JSONArray jvars = new org.json.JSONArray();
-													for(int i=0; i<vars.size(); i++) {
-														jvars.put(vars.get(i));
-													}
-													rsp = dr.getArticleData(jvars);
-													if(rsp != null) {
-														jr = new org.json.JSONObject(rsp);
-														items = jr.getJSONArray("items");
-														log("(tf40) About to send to sbb");
-														Object[] objs = getClientToS4H();
-														StringBuilder sb = new StringBuilder();
-														sb.append("Código SKU,Estado,Responsabilidad de fotos,Fecha Primera Aprobación\n");
-														try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
-															for(int i=0; i<items.length(); i++) {
-																j0 = items.getJSONObject(i);
-																sku = j0.getString("SKU");
-																if("1007".equals(currentStatusNew)) {
-																	sb.append(sku + "," + 1 + "," + fotoTomadaLiverpool + "," + fda).append("\n");
-																}else {
-																	if("Y".equals(fotoTomadaLiverpool)) {
-																		sb.append(sku + "," + 3 + ",Y," + fda).append("\n");
+													if(jResp != null && jResp.has("_data")) {
+														org.json.JSONObject jd = jResp.getJSONObject("_data");
+														String fda = jd.has("firstDateApproved") ? jd.getString("firstDateApproved").replace("T", " ") : "1007".equals(currentStatusNew) ? new java.util.Date().toInstant().atZone(java.time.ZoneId.systemDefault()).format( java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss") ) : "";
+														org.json.JSONArray jvars = new org.json.JSONArray();
+														for(int i=0; i<vars.size(); i++) {
+															jvars.put(vars.get(i));
+														}
+														rsp = dr.getArticleData(jvars);
+														if(rsp != null) {
+															jr = new org.json.JSONObject(rsp);
+															items = jr.getJSONArray("items");
+															log("(tf40) About to send to sbb");
+															Object[] objs = getClientToS4H();
+															StringBuilder sb = new StringBuilder();
+															sb.append("Código SKU,Estado,Responsabilidad de fotos,Fecha Primera Aprobación\n");
+															try(SshClient cli = (SshClient)objs[0]; SftpClient sftpCli = (SftpClient)objs[1]){
+																for(int i=0; i<items.length(); i++) {
+																	j0 = items.getJSONObject(i);
+																	sku = j0.getString("SKU");
+																	if("1007".equals(currentStatusNew)) {
+																		sb.append(sku + "," + 1 + "," + fotoTomadaLiverpool + "," + fda).append("\n");
 																	}else {
-																		sb.append(sku + "," + 2 + "," + "N" + "," + fda);
+																		if("Y".equals(fotoTomadaLiverpool)) {
+																			sb.append(sku + "," + 3 + ",Y," + fda).append("\n");
+																		}else {
+																			sb.append(sku + "," + 2 + "," + "N" + "," + fda);
+																		}
 																	}
 																}
+																writeToSftp(sftpCli, sb.toString(), REMOTE_DIR_S4H);
+															}catch(java.io.IOException e) {
+																log("No fue posible escribir a foro 40 " + externalId);
+																logE(e);
+																e.printStackTrace();
 															}
-															writeToSftp(sftpCli, sb.toString(), REMOTE_DIR_S4H);
-														}catch(java.io.IOException e) {
-															log("No fue posible escribir a foro 40 " + externalId);
-															logE(e);
-															e.printStackTrace();
 														}
+													}else {
+														// PANIC
 													}
 												}else {
 													log("Estaba vacío, por eso no se fue a foro 40");
@@ -949,17 +941,14 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 								org.json.JSONArray rws = response.has("rows") ? response.getJSONArray("rows") : null;
 								if(rws != null && rws.length() > 0) {
 									org.json.JSONArray values = rws.getJSONObject(0).getJSONArray("values");
-									String lastDateApprove =  values.getString(0);// data.has("lastDateApproved") ? data.getString("lastDateApproved") : "";
+									String lastDateApprove =  values.getString(0); // data.has("lastDateApproved") ? data.getString("lastDateApproved") : "";
 									boolean wereYouInForo = wereYouInForo(lastDateApprove, values.getString(1));// data.getString("statusModification"));
 									if("1026".equals(currentStatusOld)) {
 										wereYouInForo = true;
 									}
 									log("EnriquecidoForo: " + wereYouInForo + " (firstDateApproved: " + firstDateApproved + ", sm: " + values.getString(1) + ")");// data.getString("statusModification") + ")");
 									jsonResponse.getJSONArray("products").getJSONObject(0).put("enrichmentOriginForo", wereYouInForo);
-									jsonResponse4PO.getJSONArray("products").getJSONObject(0).put("enrichmentOriginForo", wereYouInForo);
-//								addCharacteristicValue(characteristicRecordsForUpdate, "EnriquecidoEnForo", String.valueOf(wereYouInForo), false, false);
 									addEnriquecidoEnForo(externalId, wereYouInForo);
-//								sendUpdateObjectAPI(externalId, new org.json.JSONObject().put("_characteristicRecords", characteristicRecordsForUpdate));
 									log("Setting \"ProcedeNoProcede\"");
 									setProcedeNoProcede(externalId);
 									ingresaWorkflow(internalId, "23540", "QARevision", "Revisión QA");
@@ -1015,12 +1004,10 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 								
 							}else if("1002".equals(currentStatusNew)) {
 								jsonResponse.getJSONArray("products").getJSONObject(0).put("enrichmentOriginForo", true);
-								jsonResponse4PO.getJSONArray("products").getJSONObject(0).put("enrichmentOriginForo", true);
 //								addCharacteristicValue(characteristicRecordsForUpdate, "EnriquecidoEnForo", "true", false, false);
 								addEnriquecidoEnForo(externalId, true);
 							} else if("1026".equals(currentStatusNew)) {
 								jsonResponse.getJSONArray("products").getJSONObject(0).put("enrichmentOriginForo", true);
-								jsonResponse4PO.getJSONArray("products").getJSONObject(0).put("enrichmentOriginForo", true);
 //								addCharacteristicValue(characteristicRecordsForUpdate, "EnriquecidoEnForo", "true", false, false);
 								addEnriquecidoEnForo(externalId, true);
 							}else if("1004".equals(currentStatusNew)) {
@@ -1029,7 +1016,6 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 //									addCharacteristicValue(characteristicRecordsForUpdate, "EnriquecidoEnForo", "false", false, false);
 									addEnriquecidoEnForo(externalId, false);
 									jsonResponse.getJSONArray("products").getJSONObject(0).put("enrichmentOriginForo", false);
-									jsonResponse4PO.getJSONArray("products").getJSONObject(0).put("enrichmentOriginForo", false);
 									org.json.JSONObject dataForUpdate = new org.json.JSONObject();
 									dataForUpdate.put("_characteristicRecords", characteristicRecordsForUpdate);
 									revisaTieneImagen(externalId, dataForUpdate);
@@ -1039,9 +1025,7 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 								log("Calculating new statuses...");
 								setExternalStatus(identifier, currentStatusNew, externalStatus, currentStatusOld );
 							}
-							log("JSONResponse (from product status change): " + jsonResponse);
-							pubIdmcPutProducts.publishMessage(jsonResponse.toString());
-//							pubPostProducts.publishMessage(jsonResponse4PO.toString());
+							log("JSONResponse (from product status change) " + pubIdmcPutProducts.publishMessage(jsonResponse.toString()) + ": " + jsonResponse);
 						}else if(changedFieldSet.contains("Article.CurrentStatus")) {
 						}
 				}else if("StructureGroup".equals(entity)) {
@@ -1229,6 +1213,8 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 		}
 	}
 	
+	/*
+	
 	private void addLastSentToMarketplace(String externalId, String lastSentToMarketplace) {
 		org.json.JSONArray rows = reqLastSentToMarketplace.getJSONArray("rows");
 		rows.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray().put(lastSentToMarketplace)));
@@ -1284,6 +1270,8 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 			sendData("Product2G", reqPublishMessage);
 		}
 	}
+	
+	*/
 	
 	private void revisaTieneImagen(String externalId, org.json.JSONObject data){
 		String resp = dr.getArticleData(new org.json.JSONArray().put(externalId));
@@ -1349,127 +1337,297 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 	}
 	
 	
-	private boolean wereYouInForo(String lastDateApproved, String lastStatusChangeRaw) {
-		if(lastStatusChangeRaw == null || "".equals(lastStatusChangeRaw))
-			return false;
-		String[] records = lastStatusChangeRaw.split("\\r\\n");
-		if(lastDateApproved == null || "".equals(lastDateApproved)) {
-			java.util.regex.Pattern datePattern = java.util.regex.Pattern.compile("(\\d{1,2}/\\d{1,2}/\\d{4})");
-			java.util.regex.Matcher m = null;
-			String datePart = null;
-			java.util.Date currentLogDate = null;
-			String prevStatus = null;
-			String currentStatus = null;
-			java.util.regex.Pattern statusPattern = java.util.regex.Pattern.compile("(?<=\")(.+)(?=\")");
-			java.util.regex.Matcher mSP = null;
-			String[][] tuplas = collectStatusInformation();
-			java.util.Map<String, String> espMap = fromTuples(tuplas, 1);
-			java.util.Map<String, String> engMap = fromTuples(tuplas, 2);
-			log("Spanish map: " + espMap);
-			log("English map: " + engMap);
-			for(int i=0; i<records.length; i++) {
-				 m = datePattern.matcher(records[i]);
-				 if(m.find()) {
-					 try {
-						 datePart = m.group();
-						 if(records[i].startsWith("El usuario")) {
-							 currentLogDate = new java.text.SimpleDateFormat("dd/MM/yyyy").parse(datePart);
-							 log("Parsed date from Spanish message: " + datePart + " (" + new java.text.SimpleDateFormat("yyyy-MM-dd").format(currentLogDate) + ")");
-						 }else if(records[i].startsWith("The user")) {
-							 currentLogDate = new java.text.SimpleDateFormat("MM/dd/yyyy").parse(datePart);
-							 log("Parsed date from English message: " + datePart + " (" + new java.text.SimpleDateFormat("yyyy-MM-dd").format(currentLogDate) + ")");
-						 }else {
-							 currentLogDate = null;
-						 }
-						 if(currentLogDate != null) {
-							 mSP = statusPattern.matcher(records[i]);
-							 if(mSP.find()) {
-								 if(records[i].startsWith("El usuario")) {
-									 currentStatus = espMap.get(mSP.group());
-									 log("Parsed status from Spanish message: " + currentStatus + " ( from: " + mSP.group() + ")" );
-								 }else if(records[i].startsWith("The user")) {
-									 currentStatus = engMap.get(mSP.group());
-									 log("Parsed status from English message: " + currentStatus + " ( from: " + mSP.group() + ")" );
-								 }else {
-									 currentStatus = null;
-								 }
-								 if(currentStatus != null) {
-									 if(prevStatus != null && "1022".equals(prevStatus) && ("1026".equals(currentStatus) /* || "1002".equals(currentStatus) */)) {
-										 log("Found a transition from Foro Process to QA within last approved time frame.");
-										 return true;
-									 }
-									 prevStatus = currentStatus;
-								 }
-							 }
-						 }
-					 }catch(java.text.ParseException e) {
-						 logE(e);
-					 }
-				 }
-			 }
-		}else {
-			java.util.Date lastDateApprovedDate = null;
-			java.util.regex.Pattern datePattern = java.util.regex.Pattern.compile("(\\d{1,2}/\\d{1,2}/\\d{4})");
-			java.util.regex.Matcher m = null;
-			String datePart = null;
-			java.util.Date currentLogDate = null;
-			String prevStatus = null;
-			String currentStatus = null;
-			java.util.regex.Pattern statusPattern = java.util.regex.Pattern.compile("(?<=\")(.+)(?=\")");
-			java.util.regex.Matcher mSP = null;
-			String[][] tuplas = collectStatusInformation();
-			java.util.Map<String, String> espMap = fromTuples(tuplas, 1);
-			java.util.Map<String, String> engMap = fromTuples(tuplas, 2);
-			try{
-				 lastDateApprovedDate = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").parse( lastDateApproved.replaceFirst("(\\d{2}:\\d{2}:\\d{2}):", "$1.") );
-				 log("Got last date approved: " + lastDateApproved + " (" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(lastDateApprovedDate) + ")");
-				 for(int i=0; i<records.length; i++) {
-					 m = datePattern.matcher(records[i]);
-					 if(m.find()) {
-						 datePart = m.group();
-						 if(records[i].startsWith("El usuario")) {
-							 currentLogDate = new java.text.SimpleDateFormat("dd/MM/yyyy").parse(datePart);
-							 log("Parsed date from Spanish message: " + datePart + " (" + new java.text.SimpleDateFormat("yyyy-MM-dd").format(currentLogDate) + ")");
-						 }else if(records[i].startsWith("The user")) {
-							 currentLogDate = new java.text.SimpleDateFormat("MM/dd/yyyy").parse(datePart);
-							 log("Parsed date from English message: " + datePart + " (" + new java.text.SimpleDateFormat("yyyy-MM-dd").format(currentLogDate) + ")");
-						 }else {
-							 currentLogDate = null;
-						 }
-						 if(currentLogDate != null) {
-							 log("Comparing dates (currentLogDate vs lastDateApproved, " + new java.text.SimpleDateFormat("yyyy-MM-dd").format(currentLogDate) + " vs " + new java.text.SimpleDateFormat("yyyy-MM-dd").format(lastDateApprovedDate) + "): " + currentLogDate.compareTo(lastDateApprovedDate));
-							 if(currentLogDate.compareTo(lastDateApprovedDate) < 0) {
-								 break;
-							 }else {
-								 mSP = statusPattern.matcher(records[i]);
-								 if(mSP.find()) {
-									 if(records[i].startsWith("El usuario")) {
-										 currentStatus = espMap.get(mSP.group());
-										 log("Parsed status from Spanish message: " + currentStatus + " ( from: " + mSP.group() + ")" );
-									 }else if(records[i].startsWith("The user")) {
-										 currentStatus = engMap.get(mSP.group());
-										 log("Parsed status from English message: " + currentStatus + " ( from: " + mSP.group() + ")" );
-									 }else {
-										 currentStatus = null;
-									 }
-									 if(currentStatus != null) {
-										 if(prevStatus != null && "1022".equals(prevStatus) && "1026".equals(currentStatus)) {
-											 log("Found a transition from Foro Process to QA within last approved time frame.");
-											 return true;
-										 }
-										 prevStatus = currentStatus;
-									 }
-								 }
-							 }
-						 }
-					 }
-				 }
-			}catch(java.text.ParseException e) {
-				logE(e);
-			}
-		}
-		return false;
+	private java.time.LocalDate parseApprovedDate(String raw) {
+	    if (raw == null || raw.trim().isEmpty()) {
+	        return null;
+	    }
+	    String value = raw.trim().replaceFirst("(\\d{2}:\\d{2}:\\d{2}):(\\d+)", "$1.$2");
+
+	    try {
+	        return java.time.OffsetDateTime.parse(value, java.time.format.DateTimeFormatter.ISO_OFFSET_DATE_TIME).toLocalDate();
+	    } catch (java.time.format.DateTimeParseException ignored) {
+	    }
+
+	    try {
+	        return java.time.LocalDateTime.parse(value, java.time.format.DateTimeFormatter.ISO_LOCAL_DATE_TIME).toLocalDate();
+	    } catch (java.time.format.DateTimeParseException ignored) {
+	    }
+
+	    try {
+	        return java.time.LocalDate.parse(value, java.time.format.DateTimeFormatter.ISO_LOCAL_DATE);
+	    } catch (java.time.format.DateTimeParseException e) {
+	        log("Formato inválido de LastDateApproved: [" + raw + "]");
+	        logE(e);
+	        return null;
+	    }
 	}
+	
+	
+	private boolean wereYouInForo(String lastDateApproved, String lastStatusChangeRaw) {
+        if(lastStatusChangeRaw == null || "".equals(lastStatusChangeRaw))
+            return false;
+        String[] records = lastStatusChangeRaw.split("\\r\\n");
+        if(lastDateApproved == null || "".equals(lastDateApproved)) {
+            java.util.regex.Pattern datePattern = java.util.regex.Pattern.compile("(\\d{1,2}/\\d{1,2}/\\d{4})");
+            java.util.regex.Matcher m = null;
+            String datePart = null;
+            java.util.Date currentLogDate = null;
+            String prevStatus = null;
+            String currentStatus = null;
+            java.util.regex.Pattern statusPattern = java.util.regex.Pattern.compile("(?<=\")(.+)(?=\")");
+            java.util.regex.Matcher mSP = null;
+            String[][] tuplas = collectStatusInformation();
+            java.util.Map<String, String> espMap = fromTuples(tuplas, 1);
+            java.util.Map<String, String> engMap = fromTuples(tuplas, 2);
+            log("Spanish map: " + espMap);
+            log("English map: " + engMap);
+            for(int i=0; i<records.length; i++) {
+                 m = datePattern.matcher(records[i]);
+                 if(m.find()) {
+                     try {
+                         datePart = m.group();
+                         if(records[i].startsWith("El usuario")) {
+                             currentLogDate = new java.text.SimpleDateFormat("dd/MM/yyyy").parse(datePart);
+                             log("Parsed date from Spanish message: " + datePart + " (" + new java.text.SimpleDateFormat("yyyy-MM-dd").format(currentLogDate) + ")");
+                         }else if(records[i].startsWith("The user")) {
+                             currentLogDate = new java.text.SimpleDateFormat("MM/dd/yyyy").parse(datePart);
+                             log("Parsed date from English message: " + datePart + " (" + new java.text.SimpleDateFormat("yyyy-MM-dd").format(currentLogDate) + ")");
+                         }else {
+                             currentLogDate = null;
+                         }
+                         if(currentLogDate != null) {
+                             mSP = statusPattern.matcher(records[i]);
+                             if(mSP.find()) {
+                                 if(records[i].startsWith("El usuario")) {
+                                     currentStatus = espMap.get(mSP.group());
+                                     log("Parsed status from Spanish message: " + currentStatus + " ( from: " + mSP.group() + ")" );
+                                 }else if(records[i].startsWith("The user")) {
+                                     currentStatus = engMap.get(mSP.group());
+                                     log("Parsed status from English message: " + currentStatus + " ( from: " + mSP.group() + ")" );
+                                 }else {
+                                     currentStatus = null;
+                                 }
+                                 if(currentStatus != null) {
+                                     if(prevStatus != null && "1022".equals(prevStatus) && ("1026".equals(currentStatus) /* || "1002".equals(currentStatus) */)) {
+                                         log("Found a transition from Foro Process to QA within last approved time frame.");
+                                         return true;
+                                     }
+                                     prevStatus = currentStatus;
+                                 }
+                             }
+                         }
+                     }catch(java.text.ParseException e) {
+                         logE(e);
+                     }
+                 }
+             }
+        }else {
+            java.time.LocalDate lastDateApprovedDate = null;
+            java.util.regex.Pattern datePattern = java.util.regex.Pattern.compile("(\\d{1,2}/\\d{1,2}/\\d{4})");
+            java.util.regex.Matcher m = null;
+            String datePart = null;
+            java.time.LocalDate currentLogDate = null;
+            String prevStatus = null;
+            String currentStatus = null;
+            java.util.regex.Pattern statusPattern = java.util.regex.Pattern.compile("(?<=\")(.+)(?=\")");
+            java.util.regex.Matcher mSP = null;
+            String[][] tuplas = collectStatusInformation();
+            java.util.Map<String, String> espMap = fromTuples(tuplas, 1);
+            java.util.Map<String, String> engMap = fromTuples(tuplas, 2);
+            try{
+                 java.util.regex.Matcher approvedDateMatcher = java.util.regex.Pattern
+                        .compile("^(\\d{4}-\\d{1,2}-\\d{1,2})")
+                        .matcher(lastDateApproved.trim());
+                 if(!approvedDateMatcher.find()) {
+                     throw new java.time.format.DateTimeParseException(
+                            "Formato de LastDateApproved no reconocido",
+                            lastDateApproved,
+                            0
+                     );
+                 }
+                 lastDateApprovedDate = java.time.LocalDate.parse(
+                         approvedDateMatcher.group(1),
+                         java.time.format.DateTimeFormatter.ofPattern("uuuu-M-d")
+                 );
+                 log("Got last date approved: " + lastDateApproved + " (" + lastDateApprovedDate + ")");
+                 for(int i=0; i<records.length; i++) {
+                     m = datePattern.matcher(records[i]);
+                     if(m.find()) {
+                         datePart = m.group();
+                         if(records[i].startsWith("El usuario")) {
+                             currentLogDate = java.time.LocalDate.parse(datePart, java.time.format.DateTimeFormatter.ofPattern("d/M/uuuu"));
+                             log("Parsed date from Spanish message: " + datePart + " (" + currentLogDate + ")");
+                         }else if(records[i].startsWith("The user")) {
+                             currentLogDate = java.time.LocalDate.parse(datePart, java.time.format.DateTimeFormatter.ofPattern("M/d/uuuu"));
+                             log("Parsed date from English message: " + datePart + " (" + currentLogDate + ")");
+                         }else {
+                             currentLogDate = null;
+                         }
+                         if(currentLogDate != null) {
+                             log("Comparing dates (currentLogDate vs lastDateApproved, " + currentLogDate + " vs " + lastDateApprovedDate + "): " + currentLogDate.compareTo(lastDateApprovedDate));
+                             if(currentLogDate.isBefore(lastDateApprovedDate)) {
+                                 break;
+                             }else {
+                                 mSP = statusPattern.matcher(records[i]);
+                                 if(mSP.find()) {
+                                     if(records[i].startsWith("El usuario")) {
+                                         currentStatus = espMap.get(mSP.group());
+                                         log("Parsed status from Spanish message: " + currentStatus + " ( from: " + mSP.group() + ")" );
+                                     }else if(records[i].startsWith("The user")) {
+                                         currentStatus = engMap.get(mSP.group());
+                                         log("Parsed status from English message: " + currentStatus + " ( from: " + mSP.group() + ")" );
+                                     }else {
+                                         currentStatus = null;
+                                     }
+                                     if(currentStatus != null) {
+                                         if(prevStatus != null && "1022".equals(prevStatus) && "1026".equals(currentStatus)) {
+                                             log("Found a transition from Foro Process to QA within last approved time frame.");
+                                             return true;
+                                         }
+                                         prevStatus = currentStatus;
+                                     }
+                                 }
+                             }
+                         }
+                     }
+                 }
+            }catch(java.time.format.DateTimeParseException e) {
+                logE(e);
+            }
+        }
+        return false;
+    }
+	
+	
+//	private boolean wereYouInForo(String lastDateApproved, String lastStatusChangeRaw) {
+//		if(lastStatusChangeRaw == null || "".equals(lastStatusChangeRaw))
+//			return false;
+//		String[] records = lastStatusChangeRaw.split("\\r\\n");
+//		if(lastDateApproved == null || "".equals(lastDateApproved)) {
+//			java.util.regex.Pattern datePattern = java.util.regex.Pattern.compile("(\\d{1,2}/\\d{1,2}/\\d{4})");
+//			java.util.regex.Matcher m = null;
+//			String datePart = null;
+//			java.util.Date currentLogDate = null;
+//			String prevStatus = null;
+//			String currentStatus = null;
+//			java.util.regex.Pattern statusPattern = java.util.regex.Pattern.compile("(?<=\")(.+)(?=\")");
+//			java.util.regex.Matcher mSP = null;
+//			String[][] tuplas = collectStatusInformation();
+//			java.util.Map<String, String> espMap = fromTuples(tuplas, 1);
+//			java.util.Map<String, String> engMap = fromTuples(tuplas, 2);
+//			log("Spanish map: " + espMap);
+//			log("English map: " + engMap);
+//			for(int i=0; i<records.length; i++) {
+//				 m = datePattern.matcher(records[i]);
+//				 if(m.find()) {
+//					 try {
+//						 datePart = m.group();
+//						 if(records[i].startsWith("El usuario")) {
+//							 currentLogDate = new java.text.SimpleDateFormat("dd/MM/yyyy").parse(datePart);
+//							 log("Parsed date from Spanish message: " + datePart + " (" + new java.text.SimpleDateFormat("yyyy-MM-dd").format(currentLogDate) + ")");
+//						 }else if(records[i].startsWith("The user")) {
+//							 currentLogDate = new java.text.SimpleDateFormat("MM/dd/yyyy").parse(datePart);
+//							 log("Parsed date from English message: " + datePart + " (" + new java.text.SimpleDateFormat("yyyy-MM-dd").format(currentLogDate) + ")");
+//						 }else {
+//							 currentLogDate = null;
+//						 }
+//						 if(currentLogDate != null) {
+//							 mSP = statusPattern.matcher(records[i]);
+//							 if(mSP.find()) {
+//								 if(records[i].startsWith("El usuario")) {
+//									 currentStatus = espMap.get(mSP.group());
+//									 log("Parsed status from Spanish message: " + currentStatus + " ( from: " + mSP.group() + ")" );
+//								 }else if(records[i].startsWith("The user")) {
+//									 currentStatus = engMap.get(mSP.group());
+//									 log("Parsed status from English message: " + currentStatus + " ( from: " + mSP.group() + ")" );
+//								 }else {
+//									 currentStatus = null;
+//								 }
+//								 if(currentStatus != null) {
+//									 if(prevStatus != null && "1022".equals(prevStatus) && ("1026".equals(currentStatus) /* || "1002".equals(currentStatus) */)) {
+//										 log("Found a transition from Foro Process to QA within last approved time frame.");
+//										 return true;
+//									 }
+//									 prevStatus = currentStatus;
+//								 }
+//							 }
+//						 }
+//					 }catch(java.text.ParseException e) {
+//						 logE(e);
+//					 }
+//				 }
+//			 }
+//		}else {
+//			java.util.Date lastDateApprovedDate = null;
+//			java.util.regex.Pattern datePattern = java.util.regex.Pattern.compile("(\\d{1,2}/\\d{1,2}/\\d{4})");
+//			java.util.regex.Matcher m = null;
+//			String datePart = null;
+//			java.util.Date currentLogDate = null;
+//			String prevStatus = null;
+//			String currentStatus = null;
+//			java.util.regex.Pattern statusPattern = java.util.regex.Pattern.compile("(?<=\")(.+)(?=\")");
+//			java.util.regex.Matcher mSP = null;
+//			String[][] tuplas = collectStatusInformation();
+//			java.util.Map<String, String> espMap = fromTuples(tuplas, 1);
+//			java.util.Map<String, String> engMap = fromTuples(tuplas, 2);
+//			try{
+//				java.time.LocalDate lastApprovedDate =
+//				        parseApprovedDate(lastDateApproved);
+//
+//				if (lastApprovedDate == null) {
+//				    return false;
+//				}
+//
+//				 lastDateApprovedDate = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").parse( lastDateApproved.replaceFirst("(\\d{2}:\\d{2}:\\d{2}):", "$1.") );
+//				 log("Got last date approved: " + lastDateApproved + " (" + new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS").format(lastDateApprovedDate) + ")");
+//				 for(int i=0; i<records.length; i++) {
+//					 m = datePattern.matcher(records[i]);
+//					 if(m.find()) {
+//						 datePart = m.group();
+//						 if(records[i].startsWith("El usuario")) {
+//							 currentLogDate = new java.text.SimpleDateFormat("dd/MM/yyyy").parse(datePart);
+//							 log("Parsed date from Spanish message: " + datePart + " (" + new java.text.SimpleDateFormat("yyyy-MM-dd").format(currentLogDate) + ")");
+//						 }else if(records[i].startsWith("The user")) {
+//							 currentLogDate = new java.text.SimpleDateFormat("MM/dd/yyyy").parse(datePart);
+//							 log("Parsed date from English message: " + datePart + " (" + new java.text.SimpleDateFormat("yyyy-MM-dd").format(currentLogDate) + ")");
+//						 }else {
+//							 currentLogDate = null;
+//						 }
+//						 if(currentLogDate != null) {
+//							 log("Comparing dates (currentLogDate vs lastDateApproved, " + new java.text.SimpleDateFormat("yyyy-MM-dd").format(currentLogDate) + " vs " + new java.text.SimpleDateFormat("yyyy-MM-dd").format(lastDateApprovedDate) + "): " + currentLogDate.compareTo(lastDateApprovedDate));
+//							 if(currentLogDate.compareTo(lastDateApprovedDate) < 0) {
+//								 break;
+//							 }else {
+//								 mSP = statusPattern.matcher(records[i]);
+//								 if(mSP.find()) {
+//									 if(records[i].startsWith("El usuario")) {
+//										 currentStatus = espMap.get(mSP.group());
+//										 log("Parsed status from Spanish message: " + currentStatus + " ( from: " + mSP.group() + ")" );
+//									 }else if(records[i].startsWith("The user")) {
+//										 currentStatus = engMap.get(mSP.group());
+//										 log("Parsed status from English message: " + currentStatus + " ( from: " + mSP.group() + ")" );
+//									 }else {
+//										 currentStatus = null;
+//									 }
+//									 if(currentStatus != null) {
+//										 if(prevStatus != null && "1022".equals(prevStatus) && "1026".equals(currentStatus)) {
+//											 log("Found a transition from Foro Process to QA within last approved time frame.");
+//											 return true;
+//										 }
+//										 prevStatus = currentStatus;
+//									 }
+//								 }
+//							 }
+//						 }
+//					 }
+//				 }
+//			}catch(java.text.ParseException e) {
+//				logE(e);
+//			}
+//		}
+//		return false;
+//	}
+//	
 	
 	private java.util.Map<String, String> fromTuples(String[][] tuplas, int index){
 		java.util.Map<String, String> map = new java.util.TreeMap<>();
@@ -1550,10 +1708,8 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 			return;
 		}
 		log("Checking to update---");
-		if( /* java.util.Arrays.binarySearch(losIDs, externalId) < 0 */ !java.nio.file.Files.exists(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.migration.to_skip_directory"), externalId)) ) {
-			addExternalStatus(externalId, externalStatus);
-			addPrevStatus(externalId, currentStatusOld);
-		}
+		addExternalStatus(externalId, externalStatus);
+		addPrevStatus(externalId, currentStatusOld);
 		log("Writing to file for further variant updates... " + rw.getRw().serializeChunk( new Object[] {externalId, currentStatus, externalStatus, currentStatusOld}) );
 		log("Completed.");
 		replicateToVariants(externalId, currentStatus, externalStatus, currentStatusOld);
@@ -2160,11 +2316,15 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
     }
 
     private void logE(Exception ex) {
-        try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
-                new java.io.FileOutputStream("../logs/activeMQListener.log", true)))) {
-            ex.printStackTrace(pw);
-        } catch (java.io.IOException e) {
-        }
+    	java.util.logging.LogRecord record = new java.util.logging.LogRecord(java.util.logging.Level.SEVERE, "");
+	    record.setLoggerName(LOGGER.getName());
+	    record.setThrown(ex);
+	    LOGGER.log(record);
+//        try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(
+//                new java.io.FileOutputStream("../logs/activeMQListener.log", true)))) {
+//            ex.printStackTrace(pw);
+//        } catch (java.io.IOException e) {
+//        }
     }
 
 	public static void main(String[] args) throws ServiceUnavailableException {

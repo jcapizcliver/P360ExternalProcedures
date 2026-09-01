@@ -198,7 +198,6 @@ public class ParseECCAttributesFile implements SimpleLog, Closeable {
                     session.auth().verify(15, TimeUnit.SECONDS);
 
                     try (SftpClient sftp = SftpClientFactory.instance().createSftpClient(session)) {
-
                         new Thread(()->{
                         	while (running) {
                         	    try {
@@ -254,7 +253,6 @@ public class ParseECCAttributesFile implements SimpleLog, Closeable {
 		                            	break;
                                 } catch (Exception perFileError) {
                                     logE(perFileError);
-
                                     String msg = String.valueOf(perFileError.getMessage());
                                     if (msg.contains("client is closed") || msg.contains("Channel is closed")) {
                                         throw perFileError;

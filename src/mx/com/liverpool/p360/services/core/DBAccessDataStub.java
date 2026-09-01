@@ -5431,6 +5431,56 @@ public class DBAccessDataStub implements AutoCloseable {
 	    return result;
 	}
 	
+	public java.util.List<String> identifiersBySKU(String sku, int entityId) {
+	    long init = System.currentTimeMillis();
+	    java.util.List<String> identifiers = new java.util.ArrayList<>();
+
+	    if (sku == null || sku.trim().isEmpty()) {
+	        return identifiers;
+	    }
+	    if (entityId != 1000 && entityId != 1100) {
+	        throw new IllegalArgumentException("EntityID no soportado para búsqueda por SKU: " + entityId);
+	    }
+
+	    handleRefreshConnection();
+
+	    String sql =
+	            " select /*+ leading(ad ar) use_nl(ar) index(ad IX_AD_TUNE_01) */ distinct "
+	          + "        ar.\"Identifier\" "
+	          + " from \"ArticleDetail\" ad "
+	          + " inner join \"ArticleRevision\" ar "
+	          + "    on ar.ID = ad.\"ArticleRevisionID\" "
+	          + "   and ar.\"RevisionID\" = 1 "
+	          + "   and ar.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
+	          + " where ad.\"Res_Int_02\" = ? "
+	          + "   and ad.\"DeletionTimestamp\" = timestamp '9999-12-31 00:00:00.0' "
+	          + "   and ar.\"EntityID\" = ? "
+	          + " order by ar.\"Identifier\" ";
+
+	    try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(sql)) {
+	        pstmnt.setString(1, sku.trim());
+	        pstmnt.setInt(2, entityId);
+
+	        try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+	            while (rs.next()) {
+	                String identifier = rs.getString(1);
+	                if (identifier != null && !identifier.isEmpty()) {
+	                    identifiers.add(identifier);
+	                }
+	            }
+	        }
+	    } catch (java.sql.SQLException e) {
+	        logE(e);
+	    }
+
+	    log("From identifiersBySKU(" + sku + ", " + entityId + "): "
+	            + rw.formatTime(System.currentTimeMillis() - init)
+	            + ", found=" + identifiers.size());
+
+	    return identifiers;
+	}
+
+	
 	public org.json.JSONObject getProductData(String identifier) {
 		long init = System.currentTimeMillis();
 		org.json.JSONObject productData = new org.json.JSONObject()

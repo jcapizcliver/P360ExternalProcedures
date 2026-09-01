@@ -7010,12 +7010,9 @@ public class CreateProposal implements Closeable {
 	}
 
 	private void logE(Exception ex) {
-	    java.util.logging.LogRecord record =
-	            new java.util.logging.LogRecord(java.util.logging.Level.SEVERE, "");
-
+	    java.util.logging.LogRecord record = new java.util.logging.LogRecord(java.util.logging.Level.SEVERE, "");
 	    record.setLoggerName(LOGGER.getName());
 	    record.setThrown(ex);
-
 	    LOGGER.log(record);
 	}
 

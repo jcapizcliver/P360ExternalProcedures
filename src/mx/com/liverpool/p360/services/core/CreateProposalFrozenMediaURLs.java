@@ -65,8 +65,7 @@ public class CreateProposalFrozenMediaURLs {
 			return run();
 		} catch (ArrayIndexOutOfBoundsException e) {
 			logE(e);
-			System.err.print(
-					"Invalid number of arguments for java routine. Mandatories are: <inputFile> <baseCacheDir>, optionals are: <dictionary> <nextStatusDictionaryId> <externalStatusDictionaryId>, in that order.");
+			System.err.print("Invalid number of arguments for java routine. Mandatories are: <inputFile> <baseCacheDir>, optionals are: <dictionary> <nextStatusDictionaryId> <externalStatusDictionaryId>, in that order.");
 		}
 		return null;
 		} finally {
@@ -358,10 +357,7 @@ public class CreateProposalFrozenMediaURLs {
 						try {
 							JSONObject rsp = new JSONObject(rawResp);
 							genericResponse = new JSONObject();
-							genericResponse
-									.put("proposalId", externalProductId =
-											rsp.getJSONObject("_entityItem").getString("_externalId").split("@")[0]
-													.replaceAll("^'|'$", ""));
+							genericResponse.put("proposalId", externalProductId = rsp.getJSONObject("_entityItem").getString("_externalId").split("@")[0].replaceAll("^'|'$", ""));
 							variantResponsesArray = new org.json.JSONArray();
 							EliminaImagenesDeVariantes eliminator = new EliminaImagenesDeVariantes();
 							int deleteBatchSize = ImageTrafficLimiter.getDeleteBatchSize();

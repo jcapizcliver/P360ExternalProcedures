@@ -63,8 +63,10 @@ public class RealExportProducts {
 
 	private static final String urlDeATG = PropertiesManager.get("p360.contingency.out.url_atg");// "http://172.16.203.46:7089/pimstepatg/service/";
 	private static final String urlDeOMS = PropertiesManager.get("p360.contingency.out.url_oms"); // "https://brokerqa.liverpool.com.mx:7053/oms/Int100/Items";
-	private static final java.nio.file.Path fileSystemPrefixOMS = java.nio.file.Paths.get("..", "stage", "ToOMS");
-	private static final java.nio.file.Path fileSystemPrefix = java.nio.file.Paths.get("/", "u01", "workshop", "stage","ToATG");
+	private static final java.nio.file.Path fileSystemPrefixOMS = java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.out.oms_pepele_directory"));
+	private static final java.nio.file.Path fileSystemPrefix = java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.out.ecomm_pepele_directory"));
+//	private static final java.nio.file.Path fileSystemPrefixOMS = java.nio.file.Paths.get("..", "stage", "ToOMS");
+//	private static final java.nio.file.Path fileSystemPrefix = java.nio.file.Paths.get("/", "u01", "workshop", "stage","ToATG");
 	private static final String baseUrlDEV = PropertiesManager.get("p360.contingency.base_url");
 	private static final RESTWrapper wrapper = new RESTWrapper();
 	private static final RESTWorkshop rw = wrapper.getRw();

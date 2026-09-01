@@ -192,67 +192,83 @@ public class ParseJanaAttributesFile implements Closeable {
 
                     try (SftpClient sftp = SftpClientFactory.instance().createSftpClient(session)) {
                         while (true) {
-                            Iterable<DirEntry> entries = sftp.readDir(REMOTE_DIR);
-                            for (DirEntry entry : entries) {
-                                String name = entry.getFilename();
-                                if (name.equals(".") || name.equals("..")) {
-        							continue;
-        						}
+                            try {
+                                Iterable<DirEntry> entries = sftp.readDir(REMOTE_DIR);
 
-                                long remoteModified = entry.getAttributes().getModifyTime().toMillis();
-                                String previousTimestamp = processedState.getProperty(name);
+                                for (DirEntry entry : entries) {
+                                    String name = entry.getFilename();
 
-                                if (USE_CACHE && previousTimestamp != null && Long.parseLong(previousTimestamp) == remoteModified) {
-                                    continue;
+                                    if (name.equals(".") || name.equals("..")) {
+                                        continue;
+                                    }
+
+                                    long remoteModified = entry.getAttributes().getModifyTime().toMillis();
+                                    String previousTimestamp = processedState.getProperty(name);
+
+                                    if (USE_CACHE
+                                            && previousTimestamp != null
+                                            && Long.parseLong(previousTimestamp) == remoteModified) {
+                                        continue;
+                                    }
+
+                                    String filePath = REMOTE_DIR + "/" + name;
+                                    log("Processing: " + name);
+
+                                    try (InputStream input = sftp.read(filePath);
+                                         ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+
+                                        copyStream(input, out);
+
+                                        Path localCopy = LOCAL_PROCESSED_DIR.resolve(name);
+                                        java.nio.file.Files.write(localCopy, out.toByteArray());
+
+                                        processedState.setProperty(name, String.valueOf(remoteModified));
+
+                                        if (USE_CACHE) {
+                                            try (java.io.OutputStream stateOut =
+                                                         java.nio.file.Files.newOutputStream(STATE_FILE)) {
+                                                processedState.store(stateOut, null);
+                                            }
+                                        }
+
+                                        if (!name.startsWith("GenericXMLattributes")) {
+                                            log("Skipping " + name);
+                                            continue;
+                                        }
+
+                                        try {
+                                            processFile(out);
+                                            sftp.remove(filePath);
+                                        } catch (ParserConfigurationException | SAXException | IOException e) {
+                                            logE(e);
+                                        }
+
+                                    } catch (IOException e) {
+                                        log("Problem reading file: " + filePath);
+                                        logE(e);
+
+                                        throw e;
+                                    }
                                 }
 
-                                String filePath = REMOTE_DIR + "/" + name;
-                                log("Processing: " + name);
-                                try (InputStream input = sftp.read(filePath);
-                                     ByteArrayOutputStream out = new ByteArrayOutputStream()) {
-                                    copyStream(input, out);
+                                Thread.sleep(10_000);
+                                sendData();
 
-                                    // Save locally
-                                    Path localCopy = LOCAL_PROCESSED_DIR.resolve(name);
-                                    java.nio.file.Files.write(localCopy, out.toByteArray());
+                            } catch (java.io.UncheckedIOException e) {
+                                log("SFTP directory iterator failed. Reconnecting...");
+                                logE(e);
+                                break;
 
-                                    // Update state
-                                    processedState.setProperty(name, String.valueOf(remoteModified));
-                                    if (USE_CACHE) {
-                                        try (java.io.OutputStream stateOut = java.nio.file.Files.newOutputStream(STATE_FILE)) {
-                                            processedState.store(stateOut, null);
-                                        }
-                                    }
-
-                                    if(!name.startsWith("GenericXMLattributes")) {
-                                		log("Skipping " + name);
-                                    	continue;
-                                    }
-                                    try {
-                                    	processFile(out);
-		                            	sftp.remove(filePath);
-                            		} catch (ParserConfigurationException | SAXException | IOException e) {
-                            			e.printStackTrace();
-                            		}
-                                }catch(java.io.IOException e) { 
-		                        	log("Problem reading file: " + filePath); 
-		                        	logE(e);
-
-		                            processedState.setProperty(name, String.valueOf(remoteModified));
-			                        if (USE_CACHE) {
-		                                try (java.io.OutputStream stateOut = java.nio.file.Files.newOutputStream(STATE_FILE)) {
-		                                    processedState.store(stateOut, null);
-		                                }
-		                            }
-//		                            if(!running)
-//		                            	break;
-		                        }
+                            } catch (IOException e) {
+                                log("SFTP connection failed. Reconnecting...");
+                                logE(e);
+                                break;
                             }
-                            Thread.sleep(10_000);
-                            sendData();
                         }
-                    }catch(InterruptedException e) {
-                    	logE(e);
+
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        logE(e);
                     }
                 }
         	}catch(IOException e) {
