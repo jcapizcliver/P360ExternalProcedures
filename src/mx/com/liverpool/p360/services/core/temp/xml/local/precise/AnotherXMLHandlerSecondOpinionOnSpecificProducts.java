@@ -1941,9 +1941,9 @@ public class AnotherXMLHandlerSecondOpinionOnSpecificProducts {
     	}
     }
     
-    private String[] webSites      = new String[60000];
-    private String[] eccItemGroups = new String[60000];
-    private String[] s4hItemGroups = new String[60000];
+    private String[] webSites      = new String[6000000];
+    private String[] eccItemGroups = new String[6000000];
+    private String[] s4hItemGroups = new String[6000000];
     private int eccItemGroupsCounter = 0;
     private int s4hItemGroupsCounter = 0;
     private int webSitesCounter      = 0;

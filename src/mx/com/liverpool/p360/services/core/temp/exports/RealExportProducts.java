@@ -112,6 +112,14 @@ public class RealExportProducts {
 	private static final boolean ECOMM_REQUIRED_FIELDS_VALIDATION_ENABLED =
 			Boolean.parseBoolean(PropertiesManager.get(
 					"p360.contingency.ecomm.required_fields_validation.enabled", "true"));
+	private static final java.util.Set<String> ECOMM_FORCE_EXPORT_ATTRIBUTES =
+			java.util.Set.of(
+					"BaseUnitOfMeasure",
+					"TypeMainBarCode",
+					"SupplierPartNumber",
+					"clothingSize",
+					"SizeVaD",
+					"variantSequence");
 	private static final long MAX_BATCH_BYTES =
 			positiveLongProperty("p360.contingency.export.max_batch_mb", 1L * 1024L) * 1024L;
 	private static final int MAX_BATCH_PRODUCT_TAGS =
@@ -924,6 +932,12 @@ public class RealExportProducts {
 							templateStructureGroupAttributeValues.put(template,
 									dastub.getTemplateStructureGroupAttributeValues(template, 10));
 						}
+						/*
+						 * Son obligatorios para ECOMM. RelevantForATG sigue controlando el resto de
+						 * atributos, pero éstos no deben desaparecer del payload por una omisión de
+						 * metadata global o de plantilla.
+						 */
+						atributosGeneralesQueSi.addAll(ECOMM_FORCE_EXPORT_ATTRIBUTES);
 											Element product = null;
 		
 						product = doc.createElement("Product"); // <Product></Product>
@@ -1127,10 +1141,16 @@ public class RealExportProducts {
 							characteristic = characteristicArray.getJSONObject(i);
 							charId = characteristic.getJSONObject("_qualification").getJSONObject("characteristic")
 									.getString("_code");
-							if("clothingSize".equals(charId)) {
+							if ("clothingSize".equals(charId)) {
 								clothingSize = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-							}else if("sizeVaD".equals(charId)) {
+								appendPlainElementValueIfMissing(clothingSize, null, "clothingSize", attributeValues,
+										attributes, doc, propiedadesCaracteristicas, atgGroups);
+								continue;
+							} else if ("SizeVaD".equals(charId) || "sizeVaD".equals(charId)) {
 								sizeVaD = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+								appendPlainElementValueIfMissing(sizeVaD, null, "SizeVaD", attributeValues,
+										attributes, doc, propiedadesCaracteristicas, atgGroups);
+								continue;
 							}
 							if ("Business".equals(charId)) {
 								if (business == null || "".equals(business)) {
@@ -1452,14 +1472,12 @@ public class RealExportProducts {
 								!"SBB".equals(business) ? itemGroup : itemGroupS4H,
 								!"SBB".equals(business) ? "ItemGroup" : "ItemGroupS4H", attributeValues, attributes, doc,
 								propiedadesCaracteristicas, atgGroups);
-						appendPlainElementValue(!"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel,
+						appendPlainElementValue( trimLabel( !"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel ),
 								!"SBB".equals(business) ? brandName : brandIdS4H,
 								!"SBB".equals(business) ? "BrandName" : "BRAND_ID_S4H", attributeValues, attributes, doc,
 								propiedadesCaracteristicas, atgGroups);
-						appendPlainElementValue(!"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel, null,
-								"BrandNameATG", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
-						appendPlainElementValue(!"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel, null, "BrandIDATG",
-								attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+						appendPlainElementValue( trimLabel( !"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel ), null, "BrandNameATG", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+						appendPlainElementValue( trimLabel( !"SBB".equals(business) ? brandNameLabel : brandIdS4HLabel ), null, "BrandIDATG", attributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
 		
 						if (productName != null && !"".equals(productName)) {
 							name.setTextContent(productName);
@@ -1536,7 +1554,7 @@ public class RealExportProducts {
 									new org.json.JSONObject().put("_datatype", "TEXT")
 											.put("_qualification",
 													new org.json.JSONObject().put("characteristic",
-															new org.json.JSONObject().put("_code", "ProductType")))
+															new org.json.JSONObject().put("_code", "SupplierPartNumber")))
 											.put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject()
 													.put("values", new org.json.JSONArray().put(supplierPartNumber)))));
 						}
@@ -1555,6 +1573,7 @@ public class RealExportProducts {
 							Element varName = null;
 							String childSAPObjectType = null;
 							String childSAPObjectTypeLabel = null;
+							String childSupplierPartNumber = null;
 							java.util.LinkedList<java.util.LinkedList<String[]>> losdetalles = new java.util.LinkedList<>();
 							java.util.LinkedList<java.util.LinkedList<String[]>> losesmoshes = new java.util.LinkedList<>();
 							java.util.LinkedList<java.util.LinkedList<String[]>> lasilustraciones = new java.util.LinkedList<>();
@@ -1567,8 +1586,11 @@ public class RealExportProducts {
 								tamanoUnico = null;
 								color = null;
 								codigoColor = null;
+								clothingSize = null;
+								sizeVaD = null;
 								childSAPObjectType = null;
 								childSAPObjectTypeLabel = null;
+								childSupplierPartNumber = null;
 								try {
 									firstVariant = upperRows.getJSONObject(a).getJSONArray("values").getString(0);
 								} catch (org.json.JSONException e) {
@@ -1618,6 +1640,13 @@ public class RealExportProducts {
 													? resp.getJSONArray("articleExtraData").getJSONObject(0)
 															.getJSONObject("coloursLiverpoolAtt").getString("_label")
 													: null;
+									childSupplierPartNumber = resp.has("articleExtraData")
+											&& resp.getJSONArray("articleExtraData").getJSONObject(0).has("supplierPartNumber")
+													? resp.getJSONArray("articleExtraData").getJSONObject(0)
+															.optString("supplierPartNumber", null)
+													: null;
+									appendPlainElementValueIfMissing(childSupplierPartNumber, null, "SupplierPartNumber",
+											subAttributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
 									tamanoUnico = resp.has("articleExtraData")
 											&& resp.getJSONArray("articleExtraData").getJSONObject(0).has("tamanoUnico")
 													? resp.getJSONArray("articleExtraData").getJSONObject(0)
@@ -1630,10 +1659,27 @@ public class RealExportProducts {
 										charId = characteristicObject.getJSONObject("_qualification")
 												.getJSONObject("characteristic").getString("_code");
 										misaidis.add(charId);
-										if("clothingSize".equals(charId)) {
+										if ("variantSequence".equals(charId) || "variantOrder".equals(charId)) {
+											appendPlainElementValueIfMissing(firstCharacteristicValue(characteristicObject), null,
+													"variantSequence", subAttributeValues, attributes, doc,
+													propiedadesCaracteristicas, atgGroups);
+											continue;
+										} else if ("clothingSize".equals(charId)) {
 											clothingSize = characteristicObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
-										}else if("sizeVaD".equals(charId)) {
+											appendPlainElementValueIfMissing(clothingSize, null, "clothingSize",
+													subAttributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+											continue;
+										} else if ("SizeVaD".equals(charId) || "sizeVaD".equals(charId)) {
 											sizeVaD = characteristicObject.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getString(0);
+											appendPlainElementValueIfMissing(sizeVaD, null, "SizeVaD",
+													subAttributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+											continue;
+										} else if ("SupplierPartNumber".equals(charId)) {
+											childSupplierPartNumber = characteristicObject.getJSONArray("_recordLang")
+													.getJSONObject(0).getJSONArray("values").optString(0, null);
+											appendPlainElementValueIfMissing(childSupplierPartNumber, null, "SupplierPartNumber",
+													subAttributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
+											continue;
 										}
 										if ("MainBarCode".equals(charId) || "MainBarCodeS4H".equals(charId)) {
 											ean0 = ean0 == null || "".equals(ean0)
@@ -1843,7 +1889,12 @@ public class RealExportProducts {
 									product.appendChild(subProduct);
 									varName.setTextContent(name.getTextContent() + ", " + tamanoUnico + ", " + color);
 									for (java.util.Map.Entry<String, org.json.JSONObject> entr : heredables.entrySet()) {
-										if (!misaidis.contains(entr.getKey())) {
+										/*
+										 * La mera existencia del characteristic en el Article no significa que haya
+										 * producido un Value útil. Si el hijo no materializó un valor propio, aplica
+										 * el heredable del padre.
+										 */
+										if (!hasPayloadValue(subProduct, entr.getKey())) {
 											charId = entr.getKey();
 											characteristic = entr.getValue();
 											if ("LOOKUP".equals(characteristic.getString("_datatype"))) {
@@ -1914,6 +1965,8 @@ public class RealExportProducts {
 										talla(clothingSize == null ? sizeVaD : clothingSize, tamanoUnico, business, itemGroup == null || "".equals(itemGroup) ? itemGroupS4H : itemGroup, template, direccion, brandCode,
 												subAttributeValues, attributes, doc, propiedadesCaracteristicas, atgGroups);
 									}
+									appendVariantSequenceIfMissing(template, subAttributeValues, attributes, doc,
+											propiedadesCaracteristicas, atgGroups, tamanoUnico, clothingSize, sizeVaD);
 									if (tallaNormalizada != null && !"".equals(tallaNormalizada)) {
 										appendPlainElementValue(tallaNormalizada, null, "TC-NormalizedSize", subAttributeValues,
 												attributes, doc, propiedadesCaracteristicas, atgGroups);
@@ -2058,7 +2111,11 @@ public class RealExportProducts {
 									imageObject = characteristicRecords.getJSONObject(b);
 									charId = imageObject.getJSONObject("_qualification").getJSONObject("characteristic")
 											.getString("_code");
-									if (("ProductImage" + (frozenImagesExists ? "2" : "")).equals(charId)) {
+									if ("variantSequence".equals(charId) || "variantOrder".equals(charId)) {
+										appendPlainElementValueIfMissing(firstCharacteristicValue(imageObject), null,
+												"variantSequence", attributeValues, attributes, doc,
+												propiedadesCaracteristicas, atgGroups);
+									} else if (("ProductImage" + (frozenImagesExists ? "2" : "")).equals(charId)) {
 									} else if (("ProductImageDetail" + (frozenImagesExists ? "2" : "")).equals(charId)) {
 									} else if (("ProductImageSmosh" + (frozenImagesExists ? "2" : "")).equals(charId)) {
 									} else if (("Illustration" + (frozenImagesExists ? "2" : "")).equals(charId)) {
@@ -2153,6 +2210,10 @@ public class RealExportProducts {
 							}
 		
 						}
+						if ("SalesItem".equals(productType)) {
+							appendVariantSequenceIfMissing(template, attributeValues, attributes, doc,
+									propiedadesCaracteristicas, atgGroups, tamanoUnico, clothingSize, sizeVaD);
+						}
 						boolean eligibleForPayload =
 								rw.getXmm().listImmediateChildElements(product).get("Product") != null
 								|| ("SalesItem".equals(productType) && procede);
@@ -2235,6 +2296,12 @@ public class RealExportProducts {
 		return null;
 	}
 	
+	private String trimLabel(String input) {
+		String res = input;
+		if(input.matches(".+\\([A-Za-z0-9_-]+\\)$"))
+			log("Trimmed! " + input + " --> " + (res = input.replaceFirst("\\([A-Za-z0-9_-]+\\)$", "")));
+		return res;
+	}
 
 	private static final class ExportContext {
 		private Document doc;
@@ -3298,10 +3365,13 @@ public class RealExportProducts {
 		elcampoLatalla = getAtributoSapLatalla(itemGroup, business);
 		if (elcampoLatalla == null) {
 			log("Bad combination to determine laTalla, itemGroup: " + itemGroup + ", business: " + business);
-			appendPlainElementValue(latalla, null, "clothingSize", attributeValues, attributes, doc,
-					propiedadesCaracteristicas, atgGroups);
-			appendPlainElementValue(latalla, null, "SizeVaD", attributeValues, attributes, doc,
-					propiedadesCaracteristicas, atgGroups);
+			String fallbackSize = latallaFromCharacteristic == null || latallaFromCharacteristic.isBlank()
+					? latalla
+					: latallaFromCharacteristic;
+			appendPlainElementValueIfMissing(fallbackSize, null, "clothingSize", attributeValues, attributes,
+					doc, propiedadesCaracteristicas, atgGroups);
+			appendPlainElementValueIfMissing(fallbackSize, null, "SizeVaD", attributeValues, attributes,
+					doc, propiedadesCaracteristicas, atgGroups);
 			System.out.println("Bad combination to determine laTalla, itemGroup: " + itemGroup + ", business: " + business);
 			return;
 		}
@@ -3326,21 +3396,84 @@ public class RealExportProducts {
 		}
 		log("INNNN FORM ***** : " + tallaWeb + ", " + latallaFromCharacteristic + " || " + lanuevatalla);
 		System.out.println("INNNN FORM ***** : " + tallaWeb + ", " + latallaFromCharacteristic + " || " + lanuevatalla);
-		if (tallaWeb != null && (latallaFromCharacteristic == null || "".equals(latallaFromCharacteristic))) {
+		if (tallaWeb != null && !tallaWeb.isBlank()) {
 			System.out.println("STAR***** came here " + tallaWeb + ", " + latallaFromCharacteristic + " || " + lanuevatalla);
-			appendPlainElementValue(lanuevatalla, null, tallaWeb, attributeValues, attributes, doc,
+			appendPlainElementValueIfMissing(lanuevatalla, null, tallaWeb, attributeValues, attributes, doc,
 					propiedadesCaracteristicas, atgGroups);
 		}
-		if(tallaWeb == null || "".equals(tallaWeb) ) {
-			appendPlainElementValue(latallaFromCharacteristic, null, "clothingSize", attributeValues, attributes, doc,
-					propiedadesCaracteristicas, atgGroups);
-			appendPlainElementValue(latallaFromCharacteristic, null, "SizeVaD", attributeValues, attributes, doc,
-					propiedadesCaracteristicas, atgGroups);
+		if (tallaWeb == null || tallaWeb.isBlank()) {
+			String fallbackSize = latallaFromCharacteristic == null || latallaFromCharacteristic.isBlank()
+					? lanuevatalla
+					: latallaFromCharacteristic;
+			appendPlainElementValueIfMissing(fallbackSize, null, "clothingSize", attributeValues, attributes,
+					doc, propiedadesCaracteristicas, atgGroups);
+			appendPlainElementValueIfMissing(fallbackSize, null, "SizeVaD", attributeValues, attributes,
+					doc, propiedadesCaracteristicas, atgGroups);
 		}
-		String sequence = getTheVariantSequence(latalla, template);
-		if (sequence != null && !"".equals(sequence))
-			appendPlainElementValue(sequence, null, "variantOrder", attributeValues, attributes, doc,
-					propiedadesCaracteristicas, atgGroups);
+	}
+
+	private void appendVariantSequenceIfMissing(String template, Element attributeValues, Element attributes,
+			Document doc, java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas,
+			java.util.Map<String, String> atgGroups, String... sizeCandidates)
+			throws ServiceUnavailableException {
+		if (hasPayloadValueInValues(attributeValues, "variantSequence")) {
+			return;
+		}
+		String sequence = getTheVariantSequence(template, sizeCandidates);
+		if (sequence == null || sequence.trim().isEmpty()) {
+			Node owner = attributeValues == null ? null : attributeValues.getParentNode();
+			String ownerId = owner instanceof Element ? ((Element) owner).getAttribute("ID") : "";
+			log("No se pudo materializar variantSequence para " + ownerId
+					+ ". Sin coincidencia en VariantOrder de la plantilla " + template
+					+ " usando tallas candidatas " + java.util.Arrays.toString(sizeCandidates) + ".");
+			return;
+		}
+		appendPlainElementValueIfMissing(sequence, null, "variantSequence", attributeValues, attributes, doc,
+				propiedadesCaracteristicas, atgGroups);
+	}
+
+	private static String firstCharacteristicValue(org.json.JSONObject characteristic) {
+		if (characteristic == null) {
+			return null;
+		}
+		org.json.JSONArray recordLang = characteristic.optJSONArray("_recordLang");
+		if (recordLang == null || recordLang.length() == 0) {
+			return null;
+		}
+		org.json.JSONArray values = recordLang.optJSONObject(0) == null
+				? null
+				: recordLang.optJSONObject(0).optJSONArray("values");
+		if (values == null || values.length() == 0) {
+			return null;
+		}
+		Object value = values.opt(0);
+		if (value instanceof org.json.JSONObject) {
+			org.json.JSONObject lookupValue = (org.json.JSONObject) value;
+			String code = lookupValue.optString("_code", "").trim();
+			if (!code.isEmpty()) {
+				return code;
+			}
+			String label = lookupValue.optString("_label", "").trim();
+			return label.isEmpty() ? null : label;
+		}
+		if (value == null) {
+			return null;
+		}
+		String text = String.valueOf(value).trim();
+		return text.isEmpty() || "null".equalsIgnoreCase(text) ? null : text;
+	}
+
+	private void appendPlainElementValueIfMissing(String textValue, String code, String attributeId,
+			Element attributeValues, Element attributes, Document doc,
+			java.util.Map<String, org.json.JSONObject> propiedadesCaracteristicas,
+			java.util.Map<String, String> atgGroups) throws ServiceUnavailableException {
+		boolean hasText = textValue != null && !textValue.trim().isEmpty();
+		boolean hasCode = code != null && !code.trim().isEmpty();
+		if ((!hasText && !hasCode) || hasPayloadValueInValues(attributeValues, attributeId)) {
+			return;
+		}
+		appendPlainElementValue(textValue, code, attributeId, attributeValues, attributes, doc,
+				propiedadesCaracteristicas, atgGroups);
 	}
 
 	private String getAtributoSapLatalla(String itemGroup, String business) {
@@ -3543,7 +3676,6 @@ public class RealExportProducts {
 
 		// Campos comunes del Product raíz.
 		requirePayloadValue(rootProduct, rootMissing, "SKU");
-		requirePayloadValue(rootProduct, rootMissing, "SAPObjectType");
 		requirePayloadValue(rootProduct, rootMissing, "Status");
 		requirePayloadValue(rootProduct, rootMissing, "ProductName");
 		requirePayloadValue(rootProduct, rootMissing, "ProductType");
@@ -3554,7 +3686,6 @@ public class RealExportProducts {
 		requirePayloadValue(rootProduct, rootMissing, "BaseUnitOfMeasure");
 		requirePayloadValue(rootProduct, rootMissing, "TypeMainBarCode");
 		requirePayloadValue(rootProduct, rootMissing, "SupplierID");
-		requirePayloadValue(rootProduct, rootMissing, "ParentSKU");
 		requirePayloadValue(rootProduct, rootMissing, "SupplierPartNumber");
 
 		// Negocio: Suburbia usa el grupo externo S4H; el resto conserva Negocio.
@@ -3582,7 +3713,7 @@ public class RealExportProducts {
 			// SalesItem sin variantes: color/talla/imagen viven en el propio root.
 			requirePayloadValue(rootProduct, rootMissing, "ColoursLiverpoolAtt");
 			requireAnyPayloadValue(rootProduct, rootMissing,
-					"SizeVaD|clothingSize", "SizeVaD", "clothingSize", "TamanoUnico");
+					"SizeVaD|clothingSize", "SizeVaD", "clothingSize");
 		}
 
 		if (!rootMissing.isEmpty()) {
@@ -3592,13 +3723,12 @@ public class RealExportProducts {
 		for (Element child : children) {
 			java.util.List<String> childMissing = new java.util.ArrayList<>();
 			requirePayloadValue(child, childMissing, "SKU");
-			requirePayloadValue(child, childMissing, "SAPObjectType");
 			requirePayloadValue(child, childMissing, "Status");
 			requirePayloadValue(child, childMissing, "ProductName");
 			requirePayloadValue(child, childMissing, "ItemGroup2");
 			requirePayloadValue(child, childMissing, "ColoursLiverpoolAtt");
 			requireAnyPayloadValue(child, childMissing,
-					"SizeVaD|clothingSize", "SizeVaD", "clothingSize", "TamanoUnico");
+					"SizeVaD|clothingSize", "SizeVaD", "clothingSize");
 			requirePayloadValue(child, childMissing, "ParentSKU");
 			requirePayloadValue(child, childMissing, "SupplierPartNumber");
 			requireAnyPayloadValue(child, childMissing,
@@ -3643,7 +3773,11 @@ public class RealExportProducts {
 
 	private static boolean hasPayloadValue(Element product, String attributeId) {
 		Element values = directChild(product, "Values");
-		if (values == null) {
+		return hasPayloadValueInValues(values, attributeId);
+	}
+
+	private static boolean hasPayloadValueInValues(Element values, String attributeId) {
+		if (values == null || attributeId == null) {
 			return false;
 		}
 		for (Node node = values.getFirstChild(); node != null; node = node.getNextSibling()) {
@@ -3652,8 +3786,9 @@ public class RealExportProducts {
 			}
 			Element element = (Element) node;
 			if ("Value".equals(element.getTagName())
-					&& attributeId.equals(element.getAttribute("AttributeID"))) {
-				return hasTextOrId(element);
+					&& attributeId.equals(element.getAttribute("AttributeID"))
+					&& hasTextOrId(element)) {
+				return true;
 			}
 			if ("MultiValue".equals(element.getTagName())
 					&& attributeId.equals(element.getAttribute("AttributeID"))) {
@@ -3943,15 +4078,28 @@ public class RealExportProducts {
 		return null;
 	}
 
-	private String getTheVariantSequence(String latalla, String template) {
+	private String getTheVariantSequence(String template, String... sizeCandidates) {
 		String rawMap = queryVariantOrder(template);
-		if (rawMap != null) {
-			String[] pieces = rawMap.split(",");
-			String[] smallPieces = null;
-			for (int i = 0; i < pieces.length; i++) {
-				smallPieces = pieces[i].split("\\=");
-				if (smallPieces[0].equals(latalla)) {
-					return smallPieces[1];
+		if (rawMap == null || rawMap.trim().isEmpty() || sizeCandidates == null) {
+			return null;
+		}
+		String[] pieces = rawMap.split(",");
+		for (String sizeCandidate : sizeCandidates) {
+			if (sizeCandidate == null || sizeCandidate.trim().isEmpty()) {
+				continue;
+			}
+			String requestedSize = sizeCandidate.trim();
+			for (String piece : pieces) {
+				String[] mapping = piece.split("=", 2);
+				if (mapping.length != 2) {
+					continue;
+				}
+				String configuredSize = mapping[0].trim();
+				String sequence = mapping[1].trim();
+				if (!sequence.isEmpty()
+						&& (configuredSize.equals(requestedSize)
+								|| configuredSize.equalsIgnoreCase(requestedSize))) {
+					return sequence;
 				}
 			}
 		}
@@ -3968,7 +4116,12 @@ public class RealExportProducts {
 		try {
 			LOGGER.setUseParentHandlers(false);
 
-			FileHandler fileHandler = new FileHandler("../logs/real_export_products_atg-%g.log", 5 * 1024 * 1024, 5,
+			Path logDirectory = Paths.get("..", "logs").toAbsolutePath().normalize();
+			Files.createDirectories(logDirectory);
+			FileHandler fileHandler = new FileHandler(
+					logDirectory.resolve("real_export_products_atg-%g.log").toString(),
+					5 * 1024 * 1024,
+					5,
 					true);
 			fileHandler.setEncoding(StandardCharsets.UTF_8.name());
 			fileHandler.setLevel(Level.ALL);
@@ -3990,8 +4143,16 @@ public class RealExportProducts {
 			LOGGER.addHandler(fileHandler);
 			LOGGER.setLevel(Level.ALL);
 
-		} catch (IOException e) {
-			throw new RuntimeException("No se pudo inicializar el logger", e);
+		} catch (IOException | SecurityException e) {
+			/*
+			 * El archivo de log es auxiliar: una ruta inexistente o sin permisos no debe
+			 * impedir que cargue el exportador ni derribar el diálogo de reenvío.
+			 */
+			LOGGER.setUseParentHandlers(true);
+			LOGGER.setLevel(Level.ALL);
+			LOGGER.log(Level.WARNING,
+					"No se pudo inicializar el archivo de log de RealExportProducts; se usará el logger del servidor.",
+					e);
 		}
 	}
 
