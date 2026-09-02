@@ -43,16 +43,19 @@ import org.apache.sshd.sftp.common.SftpException;
 import mx.com.liverpool.p360.services.core.PropertiesManager;
 
 /**
- * Dispatches every pepele&lt;batch&gt;_&lt;timestamp&gt;.xml file in ToATG to the
- * DWH and Pricing SFTP servers. It scans files already present at startup and
- * then watches the directory for new files.
+ * Dispatches current pepele&lt;batch&gt;_&lt;timestamp&gt;.xml files and legacy
+ * pepele&lt;timestamp&gt;.xml / pépele&lt;timestamp&gt;.xml files in ToATG to the DWH
+ * and Pricing SFTP servers. It scans files already present at startup and then
+ * watches the directory for new files.
  */
 public class ToAtgSftpDispatcher {
 
 	private static final Logger LOGGER = Logger.getLogger(ToAtgSftpDispatcher.class.getName());
 	private static final String DISPATCHER_PREFIX = "p360.contingency.toatg.dispatcher.";
 	private static final String PRICING_PREFIX = "p360.contingency.pricing.sftp.";
-	private static final Pattern SOURCE_FILE_PATTERN = Pattern.compile("^pepele\\d+_(\\d{13})\\.xml$");
+	private static final Pattern SOURCE_FILE_PATTERN = Pattern.compile(
+			"^(?:pepele\\d+_|p[eé]pele)(\\d{13})\\.xml$",
+			Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
 
 	private final Path sourceDirectory;
 	private final Path processedDirectory;
