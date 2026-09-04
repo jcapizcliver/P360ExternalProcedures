@@ -205,7 +205,7 @@ public class ToAtgSftpDispatcher {
 	}
 
 	static String dwhFileName(long timestamp) {
-		return "eilstep_" + new SimpleDateFormat("yyyyMMdd_HHmmss_SSS").format(new Date(timestamp)) + ".xml";
+		return "eilstep_" + new SimpleDateFormat("yyyyMMdd_HHmmss").format(new Date(timestamp)) + ".xml";
 	}
 
 	static String pricingFileName(long timestamp) {
