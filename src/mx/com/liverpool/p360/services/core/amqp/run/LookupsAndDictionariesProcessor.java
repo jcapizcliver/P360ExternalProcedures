@@ -39,7 +39,7 @@ import mx.com.liverpool.p360.services.xmlutils.XMLMisc;
 
 public class LookupsAndDictionariesProcessor implements Closeable {
 
-	private boolean running = true;
+	private volatile boolean running = true;
 
 	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
 		
@@ -91,6 +91,11 @@ public class LookupsAndDictionariesProcessor implements Closeable {
 	}
 
 	private void messageProcessor(String message) throws org.json.JSONException, ParserConfigurationException, SAXException, java.io.IOException {
+        try { processLegacyMessage(message); }
+        catch (Exception failure) { logE(failure); }
+    }
+
+    private void processLegacyMessage(String message) throws org.json.JSONException, ParserConfigurationException, SAXException, java.io.IOException {
 
 
 		String entity = null;
@@ -814,9 +819,9 @@ public class LookupsAndDictionariesProcessor implements Closeable {
 				);
 			connection = (ActiveMQConnection) connectionFactory.createConnection();
 			connection.start();
-			session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+			session = connection.createSession(false, (mx.com.liverpool.p360.services.core.completeness.MandatoryCompletenessIntake.enabled() ? Session.CLIENT_ACKNOWLEDGE : Session.AUTO_ACKNOWLEDGE));
 	        responseQueue = session.createQueue(qName);
-	        consumer = session.createConsumer(responseQueue);
+	        consumer = mx.com.liverpool.p360.services.core.completeness.MandatoryCompletenessIntake.wrap(session.createConsumer(responseQueue), true, () -> running);
 	        this.host = host;
 	        this.port = port;
 	        this.qName = qName;
@@ -859,6 +864,7 @@ public class LookupsAndDictionariesProcessor implements Closeable {
 	}
 
 	private void disconnect() {
+        if (consumer != null) try { consumer.close(); } catch (JMSException ignored) {}
 		if(connection != null){
 			try{
 				connection.close();

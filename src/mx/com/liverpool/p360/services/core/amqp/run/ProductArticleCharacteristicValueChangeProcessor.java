@@ -57,7 +57,7 @@ public class ProductArticleCharacteristicValueChangeProcessor implements Closeab
 	
 	private final DataRequestor dr = new DataRequestor(dastub);
 	
-	private boolean running = true;
+	private volatile boolean running = true;
 	
 	private final RESTWrapper rw;
 	private final RESTWorkshop workshop;
@@ -93,6 +93,11 @@ public class ProductArticleCharacteristicValueChangeProcessor implements Closeab
 	}
 
 	private void messageProcessor(String message) throws org.json.JSONException, ParserConfigurationException, SAXException, java.io.IOException, ServiceUnavailableException {
+        try { processLegacyMessage(message); }
+        catch (Exception failure) { logE(failure); }
+    }
+
+    private void processLegacyMessage(String message) throws org.json.JSONException, ParserConfigurationException, SAXException, java.io.IOException, ServiceUnavailableException {
 
 //		java.util.Map<String, java.util.LinkedList< org.json.JSONObject >> characteristicRecordsMap = new java.util.TreeMap<>();
 
@@ -1097,9 +1102,9 @@ public class ProductArticleCharacteristicValueChangeProcessor implements Closeab
 			connectionFactory = new ActiveMQConnectionFactory("tcp://" + host + ":" + port + "?wireFormat.maxInactivityDuration=60000&keepAlive=true");
 			connection = connectionFactory.createConnection();
 			connection.start();
-			session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+			session = connection.createSession(false, (mx.com.liverpool.p360.services.core.completeness.MandatoryCompletenessIntake.enabled() ? Session.CLIENT_ACKNOWLEDGE : Session.AUTO_ACKNOWLEDGE));
 	        responseQueue = session.createQueue(qName);
-	        consumer = session.createConsumer(responseQueue);
+	        consumer = mx.com.liverpool.p360.services.core.completeness.MandatoryCompletenessIntake.wrap(session.createConsumer(responseQueue), true, () -> running);
 		}catch(JMSException e){
 			e.printStackTrace();
 		}
@@ -1135,6 +1140,7 @@ public class ProductArticleCharacteristicValueChangeProcessor implements Closeab
 	}
 
 	private void disconnect() {
+        if (consumer != null) try { consumer.close(); } catch (JMSException ignored) {}
 		if(connection != null){
 			try{
 				connection.close();

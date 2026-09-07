@@ -78,6 +78,19 @@ public final class MandatoryCompletenessService implements ProductCompletenessSe
         return result;
     }
 
+    /** Uses the same template/CreateProposal/IsMandatory and Business CTEs as calculation. */
+    public java.util.Map<String, java.util.Set<String>> applicableCharacteristics(String runId) throws SQLException {
+        java.util.Map<String, java.util.Set<String>> result = new java.util.HashMap<>();
+        try (PreparedStatement ps = connection.prepareStatement(CONFIG_SQL
+                + " select \"InputIdentifier\",\"Characteristic\" from mandatory_applicable")) {
+            ps.setString(1, runId);
+            ps.setQueryTimeout(120);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) result.computeIfAbsent(rs.getString(1), k -> new java.util.HashSet<>()).add(rs.getString(2));
+            }
+        }
+        return result;
+    }
     private CompletenessResult fromRow(ResultSet rs) throws SQLException {
         String identifier = rs.getString("Identifier");
         long rawRevisionId = rs.getLong("ArticleRevisionID");
@@ -191,7 +204,7 @@ public final class MandatoryCompletenessService implements ProductCompletenessSe
      * La única diferencia estructural relevante es que la fuente es la tabla de
      * trabajo por RUN_ID, de forma que puede procesar 10k+ IDs sin un IN gigante.
      */
-    private static final String BATCH_SQL = """
+    private static final String CONFIG_SQL = """
         with input_ids as (
             select /*+ materialize */
                    w.PRODUCT_ID as "InputIdentifier"
@@ -378,8 +391,10 @@ public final class MandatoryCompletenessService implements ProductCompletenessSe
                      and p."BusinessName" is not null
                      and instr(lower(bc."AllowedBusiness"), lower(p."BusinessName")) > 0
                )
-        ),
-        mandatory_evaluation as (
+        )
+        """;
+    private static final String BATCH_SQL = CONFIG_SQL + """
+        , mandatory_evaluation as (
             select /*+
                        materialize
                        leading(ma acv lvr lvl)

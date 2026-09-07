@@ -32,7 +32,7 @@ import mx.com.liverpool.p360.services.xmlutils.XMLMisc;
 
 public class StructureGroupChangeProcessor {
 
-	private boolean running = true;
+	private volatile boolean running = true;
 	
 	private final RESTWrapper rw;
 
@@ -48,6 +48,11 @@ public class StructureGroupChangeProcessor {
 	}
 
 	private void messageProcessor(String message) throws org.json.JSONException, ParserConfigurationException, SAXException, java.io.IOException {
+        try { processLegacyMessage(message); }
+        catch (Exception failure) { logE(failure); }
+    }
+
+    private void processLegacyMessage(String message) throws org.json.JSONException, ParserConfigurationException, SAXException, java.io.IOException {
 		String entity = null;
 		String changeSummary = null;
 		org.json.JSONArray changedField = null;
@@ -124,9 +129,9 @@ public class StructureGroupChangeProcessor {
 			connectionFactory = new ActiveMQConnectionFactory("tcp://" + host + ":" + port + "?wireFormat.maxInactivityDuration=60000&keepAlive=true");
 			connection = connectionFactory.createConnection();
 			connection.start();
-			session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+			session = connection.createSession(false, (mx.com.liverpool.p360.services.core.completeness.MandatoryCompletenessIntake.enabled() ? Session.CLIENT_ACKNOWLEDGE : Session.AUTO_ACKNOWLEDGE));
 	        responseQueue = session.createQueue(qName);
-	        consumer = session.createConsumer(responseQueue);
+	        consumer = mx.com.liverpool.p360.services.core.completeness.MandatoryCompletenessIntake.wrap(session.createConsumer(responseQueue), true, () -> running);
 		}catch(JMSException e){
 			e.printStackTrace();
 		}
@@ -162,6 +167,7 @@ public class StructureGroupChangeProcessor {
 	}
 
 	private void disconnect() {
+        if (consumer != null) try { consumer.close(); } catch (JMSException ignored) {}
 		if(connection != null){
 			try{
 				connection.close();

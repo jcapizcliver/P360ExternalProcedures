@@ -75,13 +75,14 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 	private Thread pacvcpT;
 	private Thread pacpT;
 	private Thread ladpT;
+	private final mx.com.liverpool.p360.services.core.amqp.run.MandatoryCompletenessChangeProcessor mandatoryProcessor = new mx.com.liverpool.p360.services.core.amqp.run.MandatoryCompletenessChangeProcessor();
 	private Thread ccpT;
 	private Thread sgcpT;
 	
 	private boolean connected = false;
 	private boolean failed = false;
 	
-	private boolean running = true;
+	private volatile boolean running = true;
 	
 	private final int bs = 2000;
 	private DBAccessDataStub dastub = new DBAccessDataStub( (ELog) new ELog() {
@@ -184,7 +185,7 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 //			String elmensaje = queue.poll(100, java.util.concurrent.TimeUnit.MICROSECONDS);
 //			queue.put(elmensaje);
 	        responseQueue = session.createQueue(qName);
-	        consumer = session.createConsumer(responseQueue);
+	        consumer = mx.com.liverpool.p360.services.core.completeness.MandatoryCompletenessIntake.wrap(session.createConsumer(responseQueue), false, () -> running);
 			connected = true;
 		}catch(JMSException e){
 			e.printStackTrace();
@@ -449,6 +450,7 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 
 	
 	private void process(String host, String port, String qName) throws ServiceUnavailableException {
+        mandatoryProcessor.start();
 		if(!failed){
 			if(!connected){
 				connect(host, port, qName);
@@ -2224,6 +2226,8 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 	}
 
 	private void disconnect() {
+        mandatoryProcessor.setRunning(false);
+        if (consumer != null) try { consumer.close(); } catch (JMSException ignored) {}
 		if(connection != null){
 			try{
 				connection.close();
@@ -2340,6 +2344,7 @@ public class P360ActiveMQBPMStage extends Thread implements Closeable {
 
 	@Override
 	public void close() throws IOException {
+        mandatoryProcessor.close();
 		dastub.close();
 		this.ccp.close();
 		this.ladp.close();
