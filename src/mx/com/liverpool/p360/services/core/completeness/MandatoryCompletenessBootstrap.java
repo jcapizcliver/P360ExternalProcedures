@@ -140,7 +140,7 @@ public final class MandatoryCompletenessBootstrap {
             int batchSize) throws SQLException {
 
         String sql = """
-            select ar.ID, ar."Identifier"
+            select /*+ first_rows(1000) index_asc(ar "XIF3_ArticleRevision") */ ar.ID, ar."Identifier"
               from PIM_MASTER."ArticleRevision" ar
              where ar.ID > ?
                and ar."EntityID" = 1100

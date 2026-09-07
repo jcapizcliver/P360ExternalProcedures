@@ -36,6 +36,17 @@ public final class MandatoryCompletenessP360Writer {
         this.snapshotDao = snapshotDao;
         this.restBatchSize = restBatchSize;
         this.rw = new RESTWrapper();
+        String apiHost = System.getenv("P360_COMPLETENESS_API_HOST");
+        if (apiHost != null && !apiHost.isBlank()) {
+            try {
+                java.net.URI configured = java.net.URI.create(rw.getRw().getBaseUrl());
+                rw.getRw().setBaseUrl(new java.net.URI(configured.getScheme(), null,
+                        apiHost, configured.getPort(), configured.getPath(), null, null).toString());
+                System.out.println("Completeness List API node: " + apiHost);
+            } catch (java.net.URISyntaxException e) {
+                throw new IllegalArgumentException("Invalid P360_COMPLETENESS_API_HOST", e);
+            }
+        }
     }
 
     public boolean write(Collection<CompletenessResult> results) throws SQLException {
@@ -46,6 +57,7 @@ public final class MandatoryCompletenessP360Writer {
         Map<String, String> query = new HashMap<>();
         query.put("fields", FIELD);
         query.put("pageSize", "1");
+        query.put("query", "Product2G.ProductNo equals \"__mandatory_preflight__\"");
         org.json.JSONObject response = rw.getRw().makeRequest(
                 "GET", "/list/Product2G/bySearch", query, null);
         if (response == null || !response.has("totalSize")

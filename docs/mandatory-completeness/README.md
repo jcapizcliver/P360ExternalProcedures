@@ -113,3 +113,10 @@ el snapshot es estado actual y el RUN_ID no es un bloqueo de concurrencia.
 La consulta y las reglas de Mandatory del ZIP se conservan sin modificaciones.
 
 La comprobación del campo por List API es obligatoria sólo en modo real. El dry-run permite validar el cálculo y el snapshot mientras el campo aún no está activo en P360.
+
+En PROD se verificó el índice XIF3_ArticleRevision (EntityID, ID). La paginación
+solicita ese índice para evitar el timeout de la consulta original.
+P360_COMPLETENESS_API_HOST permite seleccionar otro nodo del mismo entorno;
+conserva protocolo, puerto, ruta y credenciales de la configuración real.
+Para esta ejecución: bootstrap en gcpcatpap06, API en gcpcatpap02, donde el
+Repository actualizado ya está activo. No requiere reiniciar gcpcatpap06.
