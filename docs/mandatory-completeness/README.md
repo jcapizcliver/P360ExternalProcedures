@@ -111,3 +111,5 @@ el lote interrumpido. Evitar bootstraps simultáneos sobre los mismos productos:
 el snapshot es estado actual y el RUN_ID no es un bloqueo de concurrencia.
 
 La consulta y las reglas de Mandatory del ZIP se conservan sin modificaciones.
+
+La comprobación del campo por List API es obligatoria sólo en modo real. El dry-run permite validar el cálculo y el snapshot mientras el campo aún no está activo en P360.

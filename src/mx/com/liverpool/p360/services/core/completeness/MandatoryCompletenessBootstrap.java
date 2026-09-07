@@ -55,7 +55,8 @@ public final class MandatoryCompletenessBootstrap {
                             workConnection,
                             snapshotDao,
                             config.restBatchSize);
-            writer.preflight();
+            if (!config.dryRun) writer.preflight();
+            else System.out.println("Preflight: List API field check deferred; dry-run only writes snapshot");
 
             long lastRevisionId = config.startAfterRevisionId;
             long processed = 0;
