@@ -120,3 +120,5 @@ P360_COMPLETENESS_API_HOST permite seleccionar otro nodo del mismo entorno;
 conserva protocolo, puerto, ruta y credenciales de la configuración real.
 Para esta ejecución: bootstrap en gcpcatpap06, API en gcpcatpap02, donde el
 Repository actualizado ya está activo. No requiere reiniciar gcpcatpap06.
+
+Se ajustó también el orden de acceso de metadata para resolver primero las plantillas y CreateProposal y aprovechar IX_LVREV_METADATA_EXT_01. Se verificó que, quitando los hints del optimizador, MandatoryCompletenessService es idéntico al ZIP original.

@@ -267,9 +267,11 @@ public final class MandatoryCompletenessService implements ProductCompletenessSe
         metadata_rows as (
             select /*+
                        materialize
-                       leading(dict meta tpl tpl_lookup rt ct ct_lookup cr prop)
-                       use_nl(meta tpl tpl_lookup rt ct ct_lookup cr prop)
+                       leading(dict tpl_lookup ct_lookup ct rt tpl meta cr prop)
+                       use_nl(tpl_lookup ct_lookup ct rt tpl meta cr prop)
                        index(dict XAK2_LookupRevision)
+                       index(tpl XAK2_LookupValueRevision)
+                       index(ct XAK2_LookupValueRevision)
                        index(meta IX_LVREV_METADATA_EXT_01)
                    */
                    tpl."Code" as "Template",
