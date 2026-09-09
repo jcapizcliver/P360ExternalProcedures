@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
-set -eo pipefail
 umask 077
 BASE=/u01/workshop/java
 cd "$BASE"
 source "$HOME/.bash_profile"
 source "$HOME/.config/p360/entrada-sync.env"
-set -u
+set -euo pipefail
 : "${P360_ENTRADA_MONGO_URI:?Falta configurar P360_ENTRADA_MONGO_URI}"
 OUT="${1:?Indica un directorio NUEVO para la corrida}"
 shift
