@@ -13,8 +13,10 @@ exec 9>"$BASE/.entrada-unica-sync.lock"
 flock -n 9 || { echo "Ya hay una conciliacion en ejecucion"; exit 73; }
 JAVA="$BASE/jdk/jdk-17.0.12/bin/java"
 RELEASE="$BASE/releases/entrada-sync-20260908/final"
+EXTRA=()
+if [ -n "${P360_SYNC_RESUME_DIR:-}" ]; then EXTRA+=("-Dp360.sync.resumeDir=$P360_SYNC_RESUME_DIR"); fi
 set +e
-"$JAVA" -Xms128m -Xmx768m -Dfile.encoding=UTF-8 \
+"$JAVA" "${EXTRA[@]}" -Xms128m -Xmx768m -Dfile.encoding=UTF-8 \
   -Dlogback.configurationFile="$RELEASE/logback-sync.xml" \
   -Dp360.pubsub.publish.timeout.seconds=30 \
   -cp "$RELEASE/classes:$BASE/bin:$BASE/lib/*:$BASE/lib/mongodb/*:$BASE/libPubSub/*" \

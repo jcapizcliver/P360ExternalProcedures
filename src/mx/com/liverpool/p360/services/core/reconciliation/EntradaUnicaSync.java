@@ -30,7 +30,7 @@ public final class EntradaUnicaSync implements AutoCloseable {
  final boolean send;
  final long maxRows;
  final Map<Long,String> characteristicIds=new LinkedHashMap<>();
- PubSubGCP pub,putPub;
+ SafePublisher pub,putPub;
  long processed,sent,changed;
  long taxonomy;
  record Row(long revision,String id,int entity,Map<String,String> values,Map<String,String> wire,Set<String> parents,Set<String> errors){}
@@ -205,15 +205,15 @@ public final class EntradaUnicaSync implements AutoCloseable {
    Files.writeString(dir.resolve(name+".json"),body.toString(),StandardCharsets.UTF_8,StandardOpenOption.CREATE_NEW);
    Files.writeString(dir.resolve(name+"-planned.jsonl"),expected.stream().map(Document::toJson).collect(java.util.stream.Collectors.joining("\n","", "\n")),StandardCharsets.UTF_8,StandardOpenOption.CREATE_NEW);
    String message="";
-   if(send&&batch.length()>0){if(pub==null)pub=new PubSubGCP(PropertiesManager.get("p360.contingency.gcp.service_account_back"),PropertiesManager.get("p360.contingency.gcp.project_back"),PropertiesManager.get("p360.contingency.gcp.post_products_topic"));
-    message=pub.publishMessage(body.toString());if(message==null||message.isBlank())throw new IOException("Unconfirmed PubSub delivery; inspect "+name+" before resuming");
+   if(send&&batch.length()>0){if(pub==null)pub=new SafePublisher(PropertiesManager.get("p360.contingency.gcp.service_account_back"),PropertiesManager.get("p360.contingency.gcp.project_back"),PropertiesManager.get("p360.contingency.gcp.post_products_topic"));
+    message=pub.publishMessage(body.toString());System.out.println("PUBSUB_ACK channel=POST batch="+name+" messageId="+message);Files.writeString(dir.resolve(name+"-post.ack"),str(message));if(message==null||message.isBlank())throw new IOException("Unconfirmed PubSub delivery; inspect "+name+" before resuming");
 
    }
    if(namesBatch.length()>0){
     JSONObject namesBody=new JSONObject().put("products",namesBatch);
     Files.writeString(dir.resolve(name+"-names.json"),namesBody.toString(),StandardCharsets.UTF_8,StandardOpenOption.CREATE_NEW);
-    if(send){if(putPub==null)putPub=new PubSubGCP(PropertiesManager.get("p360.contingency.gcp.service_account_back"),PropertiesManager.get("p360.contingency.gcp.project_back"),PropertiesManager.get("p360.contingency.gcp.idmc_put_products"));
-     String nameId=putPub.publishMessage(namesBody.toString());if(nameId==null||nameId.isBlank())throw new IOException("Unconfirmed names delivery: "+name);message+=(message.isEmpty()?"":";")+nameId;}
+    if(send){if(putPub==null)putPub=new SafePublisher(PropertiesManager.get("p360.contingency.gcp.service_account_back"),PropertiesManager.get("p360.contingency.gcp.project_back"),PropertiesManager.get("p360.contingency.gcp.idmc_put_products"));
+     String nameId=putPub.publishMessage(namesBody.toString());System.out.println("PUBSUB_ACK channel=PUT batch="+name+" messageId="+nameId);Files.writeString(dir.resolve(name+"-put.ack"),str(nameId));if(nameId==null||nameId.isBlank())throw new IOException("Unconfirmed names delivery: "+name);message+=(message.isEmpty()?"":";")+nameId;}
    }
    if(send)sent+=expected.size();
    for(Document e:expected){e.append("messageId",message).append("sentAt",Instant.now().toString());changes.write(e.toJson());changes.newLine();}changes.flush();
@@ -226,9 +226,12 @@ public final class EntradaUnicaSync implements AutoCloseable {
   try(var lock=java.nio.channels.FileChannel.open(dir.resolve("run.lock"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);var lease=lock.tryLock()){
    if(lease==null)throw new IOException("Already running");long high;
    try(PreparedStatement p=sql("select max(\"ID\") from \"ArticleRevision\"");ResultSet r=p.executeQuery()){r.next();high=r.getLong(1);}
-   Files.writeString(dir.resolve("run.json"),new Document("started",Instant.now().toString()).append("maxRevision",high).append("send",send).append("scope",Boolean.getBoolean("p360.sync.p360Scan")?"P360":"Mongo").toJson());
+   Files.writeString(dir.resolve("run.json"),new Document("started",Instant.now().toString()).append("maxRevision",high).append("send",send).append("resumeDir",System.getProperty("p360.sync.resumeDir","")).append("scope",Boolean.getBoolean("p360.sync.p360Scan")?"P360":"Mongo").toJson());
    try(BufferedWriter expected=Files.newBufferedWriter(dir.resolve("expected.jsonl"));BufferedWriter p=Files.newBufferedWriter(dir.resolve("products_initial.csv"));BufferedWriter a=Files.newBufferedWriter(dir.resolve("articles_initial.csv"))){
     csv(p,"ID","STATUS","REASON");csv(a,"ID","STATUS","REASON");
+    Path resume=System.getProperty("p360.sync.resumeDir")==null?null:Path.of(System.getProperty("p360.sync.resumeDir"));
+    if(resume!=null&&Files.exists(resume.resolve("expected.jsonl"))){try(BufferedReader prior=Files.newBufferedReader(resume.resolve("expected.jsonl"))){String line;while((line=prior.readLine())!=null){Document e=Document.parse(line);if(!str(e.get("messageId")).isEmpty()){expected.write(line);expected.newLine();sent++;}}}expected.flush();}
+
     if(Boolean.getBoolean("p360.sync.p360Scan")||Long.getLong("p360.sync.afterRevision",0L)>0){
 long cursor=Long.getLong("p360.sync.afterRevision",0L);
     while(processed<maxRows){List<Long> ids=new ArrayList<>();
@@ -241,6 +244,7 @@ long cursor=Long.getLong("p360.sync.afterRevision",0L);
       MongoCollection<Document> collection=mdb.getCollection(kind(entity));
       Document last=collection.find().sort(new Document("_id",-1)).projection(new Document("_id",1)).limit(1).maxTime(30,TimeUnit.SECONDS).first();
       if(last==null)continue;Object highId=last.get("_id"),cursor=null;
+      if(resume!=null&&Files.exists(resume.resolve("cursor-"+entity+".json")))cursor=Document.parse(Files.readString(resume.resolve("cursor-"+entity+".json"))).get("_id");
       while(processed<maxRows){
        Document range=new Document("$lte",highId);if(cursor!=null)range.append("$gt",cursor);
        List<Document> page=collection.find(new Document("_id",range)).sort(new Document("_id",1)).projection(new Document(key(entity),1)).limit((int)Math.min(PAGE,maxRows-processed)).maxTime(30,TimeUnit.SECONDS).into(new ArrayList<>());
@@ -286,6 +290,22 @@ long cursor=Long.getLong("p360.sync.afterRevision",0L);
     csv(entity==1100?p:a,id,state,reason);
    }
   }p.flush();a.flush();
+ }
+
+ /** Isolated publisher: no legacy logging/retry after an acknowledgement. */
+ static final class SafePublisher implements AutoCloseable {
+  final com.google.cloud.pubsub.v1.Publisher publisher;
+  SafePublisher(String credentialsFile,String project,String topic)throws Exception{
+   com.google.auth.oauth2.GoogleCredentials credentials;
+   try(InputStream in=Files.newInputStream(Path.of(credentialsFile))){credentials=com.google.auth.oauth2.GoogleCredentials.fromStream(in).createScoped("https://www.googleapis.com/auth/cloud-platform");}
+   publisher=com.google.cloud.pubsub.v1.Publisher.newBuilder(com.google.pubsub.v1.ProjectTopicName.of(project,topic))
+    .setCredentialsProvider(com.google.api.gax.core.FixedCredentialsProvider.create(credentials)).build();
+  }
+  String publishMessage(String body)throws Exception{
+   var future=publisher.publish(com.google.pubsub.v1.PubsubMessage.newBuilder().setData(com.google.protobuf.ByteString.copyFromUtf8(body)).build());
+   return future.get(30,TimeUnit.SECONDS);
+  }
+  public void close()throws Exception{publisher.shutdown();publisher.awaitTermination(15,TimeUnit.SECONDS);}
  }
  @Override public void close()throws Exception{if(pub!=null)pub.close();if(putPub!=null)putPub.close();mongo.close();db.close();}
  public static void main(String[] args)throws Exception{

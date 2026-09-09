@@ -87,3 +87,15 @@ Eclipse .classpath incluye las tres. Otro checkout puede ejecutar scripts/entrad
 
 tests/reconciliation/EntradaUnicaSyncTest.java verifica etiquetas/codigos, ceros de SKU/EAN, vacios, payload de variantes, estados parciales y CSV.
 Compilado con las bibliotecas reales de Eclipse. La auditoria contra las bases reales de 600 documentos termino sin errores.
+
+## Publicador y reanudacion
+La clase usa un publicador aislado del PubSubGCP instalado: se detecto que esa version del servidor publicaba mensajes menores de 100 caracteres y luego fallaba en substring al loguearlos, provocando reintentos incorrectos. No se modifico globalmente ese helper ni se reiniciaron otros procesos.
+Cada confirmacion POST/PUT queda inmediatamente en PUBSUB_ACK y archivos .ack.
+
+Para reanudar una corrida interrumpida:
+~~~bash
+P360_SYNC_RESUME_DIR=/u01/workshop/java/salidas/CORRIDA_ANTERIOR \
+nohup bash scripts/run_entrada_unica_sync.sh salidas/CORRIDA_NUEVA --send > salidas/CORRIDA_NUEVA.log 2>&1 &
+~~~
+Retoma despues de la ultima pagina COMPLETA registrada. Reconsulta Mongo y P360 para la pagina incompleta; no reproduce mensajes ciegamente. Conserva el expected.jsonl de envios previamente confirmados para verificarlos al final. Los contadores y CSV iniciales de la nueva ejecucion describen el tramo retomado; run.json conserva la referencia a la corrida anterior.
+Antes de retomar un timeout de publicacion, revisar los archivos .ack y el consumidor; la publicacion podria haberse aceptado sin devolver confirmacion.
