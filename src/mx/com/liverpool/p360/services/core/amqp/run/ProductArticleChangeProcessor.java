@@ -26,6 +26,9 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.xml.sax.SAXException;
 
+import mx.com.liverpool.p360.services.core.DBAccessDataStub;
+import mx.com.liverpool.p360.services.core.PropertiesManager;
+import mx.com.liverpool.p360.services.core.PubSubGCP;
 import mx.com.liverpool.p360.services.core.RESTWrapper;
 import mx.com.liverpool.p360.services.xmlutils.XMLMisc;
 
@@ -40,7 +43,17 @@ public class ProductArticleChangeProcessor {
 	private MessageConsumer consumer;
 	private Message responseMessage;
 	
-	public ProductArticleChangeProcessor() {
+	private final DBAccessDataStub dastub;
+	
+	private final PubSubGCP pubIdmcPostProducts = new PubSubGCP(
+//			private final PubSubGCP pubPostProducts = new PubSubGCP(
+		    PropertiesManager.get("p360.contingency.gcp.service_account_back"),
+		    PropertiesManager.get("p360.contingency.gcp.project_back"),
+		    PropertiesManager.get("p360.contingency.gcp.post_products_topic")
+		);
+	
+	public ProductArticleChangeProcessor(DBAccessDataStub dastub) {
+		this.dastub = dastub;
 	}
 	
 	private void messageProcessor(String message) throws org.json.JSONException, ParserConfigurationException, SAXException, java.io.IOException {
@@ -83,6 +96,62 @@ public class ProductArticleChangeProcessor {
 									rw0.getRw().removeHeader("Authorization");
 									rw0.getRw().removeHeader("Accept");
 									log("Resp from del method (dropping ean: " + _oldGTINNode.getTextContent() + ", from PID: " + externalId + "): " + rw0.getRw().makeRequest("DELETE", "/upc-eans", qp, new org.json.JSONObject().put("upcEans", new org.json.JSONArray().put(_oldGTINNode.getTextContent())).toString()));
+								}else if(_currentGTINNode != null) {
+									org.json.JSONObject jsonResponse = null;
+									if("Product2G".equals(entity)) {
+										jsonResponse = new org.json.JSONObject()
+												.put("products", new org.json.JSONArray()
+														.put(new org.json.JSONObject()
+																.put("proposalId", externalId)
+																.put("header", new org.json.JSONObject().put("MainBarCode", _currentGTINNode.getTextContent()))
+														)
+													)
+											;
+									}else {
+										String pid = dastub.getProductByVariant(externalId);
+										if(pid != null) {
+											jsonResponse = new org.json.JSONObject()
+													.put("products", new org.json.JSONArray()
+															.put(new org.json.JSONObject()
+																	.put("proposalId", pid)
+																	.put("variants", new org.json.JSONArray().put(new org.json.JSONObject().put("variantId", externalId).put("MainBarCode", _currentGTINNode.getTextContent())))
+																	)
+															)
+												;
+										}
+									}
+									log("JSONResponse (from product status change) " + (jsonResponse != null ? pubIdmcPostProducts.publishMessage(jsonResponse.toString()) : "No request") + ": " + jsonResponse);
+								}
+							}
+							Node _nSKU = xmm.byName( _n1, "sku");
+							if(_nSKU != null) {
+								Node _currentSKUNode = xmm.byName( _nSKU, "_current");
+								if(_currentSKUNode != null ) {
+									org.json.JSONObject jsonResponse = null;
+									if("Product2G".equals(entity)) {
+										jsonResponse = new org.json.JSONObject()
+												.put("products", new org.json.JSONArray()
+														.put(new org.json.JSONObject()
+																.put("proposalId", externalId)
+																.put("header", new org.json.JSONObject().put("SKU", _currentSKUNode.getTextContent()))
+														)
+													)
+											;
+									}else {
+										String pid = dastub.getProductByVariant(externalId);
+										if(pid != null) {
+											jsonResponse = new org.json.JSONObject()
+													.put("products", new org.json.JSONArray()
+															.put(new org.json.JSONObject()
+																	.put("proposalId", pid)
+																	.put("variants", new org.json.JSONArray().put(new org.json.JSONObject().put("variantId", externalId).put("SKU", _currentSKUNode.getTextContent())))
+																	)
+															)
+												;
+											
+										}
+									}
+									log("JSONResponse (from product status change) " + (jsonResponse != null ? pubIdmcPostProducts.publishMessage(jsonResponse.toString()) : "No request") + ": " + jsonResponse);
 								}
 							}
 						}
