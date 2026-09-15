@@ -123,7 +123,7 @@ public class CreateProposal implements Closeable {
 
 	private boolean ex = false;
 	
-	private java.util.Map<String, String[]> templateMetaData = new java.util.TreeMap<>();
+//	private java.util.Map<String, String[]> templateMetaData = new java.util.TreeMap<>();
 	
 	private final long myId;
 	
@@ -870,6 +870,7 @@ public class CreateProposal implements Closeable {
 		log("Template: " + template + " (" + status + ")");
 		if(template != null && ( "1020".equals(status) || "1003".equals(status) || "10031".equals(status) || unMasiosare)) {
 			addElement("ParentSKU", template, characteristics);
+			if (mx.com.liverpool.p360.services.core.dq.TitleText.mayCalculate(status)) {
 			String[] templateMD = null;
 			if(templateMD == null) {
 				try { 
@@ -926,11 +927,12 @@ public class CreateProposal implements Closeable {
 				}
 				nameAndProductName.setProductImageURL(productImageURL);
 				nameAndProductName.processData( dataMap , newCharacteristicRecords );
-				TituloSinMarca tituloSinMarca = new TituloSinMarca( getCharacteristicValue( characteristicsMap.get("Name") ) );
-				tituloSinMarca.processData(characteristicsMap, newCharacteristicRecords);
+				TituloSinMarca tituloSinMarca = new TituloSinMarca( getCharacteristicValue( dataMap.get("ProductName") ) );
+				tituloSinMarca.processData(dataMap, newCharacteristicRecords);
 			}else {
 				log("No pude encontrar datos para la plantilla: " + template);
 			}
+			} // Calculate titles only at Revision Compras / Creacion de SKU.
 			if(proposalId != null) {
 				NumberOfVariants nov = new NumberOfVariants(proposalId);
 				nov.processData(null, characteristicRecords);
@@ -1668,11 +1670,7 @@ public class CreateProposal implements Closeable {
 			}
 		}
 
-		String[] direccionSeccion = getDireccionSeccion(itemGroup, negocio);
-		if(direccionSeccion != null) {
-			newCharacteristicRecords.put( createCharacteristicValueObject("Direction", new org.json.JSONObject().put("_code", direccionSeccion[0]) ) );
-			newCharacteristicRecords.put( createCharacteristicValueObject("Section", new org.json.JSONObject().put("_code", direccionSeccion[1] )) );
-		}
+
 
 //		if(newCharacteristicRecords.length() > 0) {
 //			log("************* RECATALOGACIÓN *************");
@@ -1823,7 +1821,7 @@ public class CreateProposal implements Closeable {
         int checksum = (10 - (sum % 10)) % 10;
         return checksum == Character.getNumericValue(ean.charAt(12));
     }
-
+/*
 	private void checkVariantMainBarCode(org.json.JSONObject variant, String negocio, String supplier, int varNumber, String[] typeMainBarCodeA) throws ServiceUnavailableException {
 		
 		log("\n\t---> Got called for variant main bar code: " + (variant.has("variantId") ? variant.getString("variantId") : "new variant" ));
@@ -2030,7 +2028,277 @@ public class CreateProposal implements Closeable {
 		}
 
 	}
+*/
+	
+private void checkVariantMainBarCode(org.json.JSONObject variant, String negocio, String supplier, int varNumber, String[] typeMainBarCodeA) throws ServiceUnavailableException {
+		
+		log("\n\t---> Got called for variant main bar code: " + (variant.has("variantId") ? variant.getString("variantId") : "new variant" ));
+		
+		String mainBarCode = null;
 
+		int lmbc = 0;
+		if(variant.has("MainBarCode") || variant.has("MainBarCodeS4H")) {
+			mainBarCode = variant.has("MainBarCodeS4H") ? variant.getString("MainBarCodeS4H") : variant.getString("MainBarCode");
+			mainBarCode = mainBarCode == null ? "" : mainBarCode.replaceFirst("^0+", "").replaceAll("\s{2,}", " ").trim();
+			lmbc = mainBarCode == null ? 0 : mainBarCode.length();
+//			lmbc = lmbc - 1;
+			String typeMainBarCode = null; 
+			try{
+				log("Came here (ean computations)");
+//				typeMainBarCode = (mainBarCode == null || "".equals(mainBarCode)) ? ("Liverpool".equals(negocio) || "Marketplace".equals(negocio) ? "IE" : "IS") : ( lmbc == 8 ? "HK" : lmbc >= 6 && lmbc <= 12 ? getTypeMainBarCode(mainBarCode, negocio) : lmbc == 13 ? Long.parseLong(mainBarCode) < 3000_000_000_000l ? "EE" : "HE" : lmbc == 14 ? "IC" : "IE" );
+//				typeMainBarCode = (mainBarCode == null || "".equals(mainBarCode)) ? ("Liverpool".equals(negocio) || "Marketplace".equals(negocio) ? "IE" : "IS") : ( lmbc == 8 ? "HK" : lmbc >= 10 && lmbc <= 12 ? "UC" : lmbc == 13 ? getTypeMainBarCode(mainBarCode.substring(0, lmbc - 1), negocio) : lmbc == 14 ? "IC" : lmbc == 16 ? "I6" : "IE" );
+				typeMainBarCode = getTypeMainBarCode(mainBarCode, negocio);
+			}catch(NumberFormatException e) {
+				variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "El código EAN no corresponde con un número válido.").put("fields", new org.json.JSONArray().put( "MainBarCode" )));
+			}
+			log("EAN: " + typeMainBarCode + " (ean computations)");
+			if("".equals(typeMainBarCode) && lmbc > 0) {
+				variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "El código EAN no corresponde con una categoría o rango EAN configurado. EAN: " + mainBarCode).put("fields", new org.json.JSONArray().put( "MainBarCode" )));
+			}else {
+
+				if(!"".equals(typeMainBarCode)) {
+					if(!"Suburbia".equals(negocio)) {
+						variant.put("TypeMainBarCode", typeMainBarCode);
+					}else {
+						log("\n\t----------------------->" + negocio + ", " + typeMainBarCode + ", " + mainBarCode);
+						variant.put("NUMTP_S4H", typeMainBarCode);
+						if(!variant.has("MainBarCodeS4H")) {
+							variant.put("MainBarCodeS4H", mainBarCode);
+							log("Setting MainBarCodeS4H from MainBarCode");
+						}
+					}
+				}
+
+			}
+			typeMainBarCodeA[0] = typeMainBarCode;
+			boolean dup = false;
+			log("Now for dup on: " + mainBarCode);
+			String res = dr.supplierAIDByEAN(new org.json.JSONArray().put(mainBarCode));
+			if(res != null) {
+				try {
+					org.json.JSONObject jr = new org.json.JSONObject(res);
+					org.json.JSONArray items = jr.getJSONArray("items");
+					log("i) Got: " + jr);
+					if(!"".equals(items.getString(0))) {
+						log("Within checking variants EAN, got business for a coincidence: " + items.getString(0) + " vs " + negocio + " of currentEvaluating id (" + (variant.has("variantId") ? variant.getString("variantId") : "NoVaID" ) + ")");
+						if(!variant.has("variantId") || !items.getString(0).equals(variant.getString("variantId"))) {
+							res = dr.getProductByVariant(new org.json.JSONArray().put(items.getString(0)));
+							if(res != null) {
+								try {
+									jr = new org.json.JSONObject(res);
+									org.json.JSONArray items0 = jr.getJSONArray("items");
+									log("Got product: " + items0.getString(0));
+									res = dr.getProductData(new org.json.JSONArray().put(items0.getString(0)));
+									if(res != null) {
+										java.util.Set<String> vars = dr.getVariants(items.getString(0));
+										if(!variant.has("variantId") || !vars.contains(variant.getString("variantId"))) {
+											try {
+												jr = new org.json.JSONObject(res);
+												org.json.JSONArray items1 = jr.getJSONArray("items");
+												String business = items1.getJSONObject(0).getString("Business");
+												business = "MKP".equals(business) ? "Marketplace" : "LVP".equals(business) ? "Liverpool" : "SBB".equals(business) ? "Suburbia" : business;
+												log("Got business: " + business);
+												if(business.equals(negocio) && "Marketplace".equals(negocio)) {
+													variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence").put("message", "El código EAN ya existe en catalogación para este negocio, se tiene que hacer una multioferta.").put("values", new org.json.JSONArray().put( variant.has("MainBarCode") ? variant.getString("MainBarCode") : variant.has("MainBarCodeS4H") ? variant.getString("MainBarCodeS4H") : "" )).put("fields", new org.json.JSONArray().put( "MainBarCode" )));
+												}else if(business.equals(negocio) && !"Marketplace".equals(negocio)) {
+													variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence").put("message", "El código EAN ya existe en catalogación para este negocio.").put("values", new org.json.JSONArray().put( variant.has("MainBarCode") ? variant.getString("MainBarCode") : variant.has("MainBarCodeS4H") ? variant.getString("MainBarCodeS4H") : "" )).put("fields", new org.json.JSONArray().put( "MainBarCode" )));
+												}else {
+													if("Marketplace".equals(negocio) && "Liverpool".equals(business)) {
+														variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence").put("message", "El código EAN ya existe para Liverpool, se tiene que realizar Stockout.").put("values", new org.json.JSONArray().put( variant.has("MainBarCode") ? variant.getString("MainBarCode") : variant.has("MainBarCodeS4H") ? variant.getString("MainBarCodeS4H") : "" )).put("fields", new org.json.JSONArray().put( "MainBarCode" )));
+													}else if("Liverpool".equals(negocio) && "Marketplace".equals(business)) {
+														variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence").put("message", "El código EAN ya existe para Marketplace, se tiene que liberar el EAN.").put("values", new org.json.JSONArray().put( variant.has("MainBarCode") ? variant.getString("MainBarCode") : variant.has("MainBarCodeS4H") ? variant.getString("MainBarCodeS4H") : "" )).put("fields", new org.json.JSONArray().put( "MainBarCode" )));
+													}
+												}
+												log("! " + variantFieldErrors + " !");
+												dup = true;
+											}catch(org.json.JSONException e) {
+												logE(e);
+											}
+										}
+									}
+								}catch(org.json.JSONException e) {
+									logE(e);
+								}
+							}
+						}
+					}
+				}catch(org.json.JSONException e) {
+					logE(e);
+				}
+			}
+			if(!dup) {
+				res = dr.productNoByEAN(new org.json.JSONArray().put(mainBarCode));
+				if(res != null) {
+					try {
+						org.json.JSONObject jr = new org.json.JSONObject(res);
+						org.json.JSONArray items = jr.getJSONArray("items");
+						if(!"".equals(items.getString(0))) {
+							java.util.Set<String> vars = dr.getVariants(items.getString(0));
+							if(!variant.has("variantId") || !vars.contains(variant.getString("variantId"))) {
+								log("Within checking variants EAN, got business for a coincidence: " + items.getString(0) + " vs " + negocio + " of currentEvaluating id (" + (variant.has("variantId") ? variant.getString("variantId") : "NoVaID" ) + ")");
+								try {
+									res = dr.getProductData(new org.json.JSONArray().put(items.getString(0)));
+									if(res != null) {
+										try {
+											jr = new org.json.JSONObject(res);
+											org.json.JSONArray items1 = jr.getJSONArray("items");
+											String business = items1.getJSONObject(0).getString("Business");
+											business = "MKP".equals(business) ? "Marketplace" : "LVP".equals(business) ? "Liverpool" : "SBB".equals(business) ? "Suburbia" : business;
+											if(business.equals(negocio) && "Marketplace".equals(negocio)) {
+												variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence").put("message", "El código EAN ya existe en catalogación para este negocio, se tiene que hacer una multioferta.").put("values", new org.json.JSONArray().put( variant.has("MainBarCode") ? variant.getString("MainBarCode") : variant.has("MainBarCodeS4H") ? variant.getString("MainBarCodeS4H") : "" )).put("fields", new org.json.JSONArray().put( "MainBarCode" )));
+											}else if(business.equals(negocio) && !"Marketplace".equals(negocio)) {
+												variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence").put("message", "El código EAN ya existe en catalogación para este negocio.").put("values", new org.json.JSONArray().put( variant.has("MainBarCode") ? variant.getString("MainBarCode") : variant.has("MainBarCodeS4H") ? variant.getString("MainBarCodeS4H") : "" )).put("fields", new org.json.JSONArray().put( "MainBarCode" )));
+											}else {
+												if("Marketplace".equals(negocio) && "Liverpool".equals(business)) {
+													variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence").put("message", "El código EAN ya existe para Liverpool, se tiene que realizar Stockout.").put("values", new org.json.JSONArray().put( variant.has("MainBarCode") ? variant.getString("MainBarCode") : variant.has("MainBarCodeS4H") ? variant.getString("MainBarCodeS4H") : "" )).put("fields", new org.json.JSONArray().put( "MainBarCode" )));
+												}else if("Liverpool".equals(negocio) && "Marketplace".equals(business)) {
+													variantFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Coherence").put("message", "El código EAN ya existe para Marketplace, se tiene que liberar el EAN.").put("values", new org.json.JSONArray().put( variant.has("MainBarCode") ? variant.getString("MainBarCode") : variant.has("MainBarCodeS4H") ? variant.getString("MainBarCodeS4H") : "" )).put("fields", new org.json.JSONArray().put( "MainBarCode" )));
+												}
+											}
+											dup = true;
+										}catch(org.json.JSONException e) {
+											logE(e);
+										}
+									}
+								}catch(org.json.JSONException e) {
+									logE(e);
+								}
+							}
+						}
+					}catch(org.json.JSONException e) {
+						logE(e);
+					}
+				}
+			}
+			if(mainBarCode != null) {
+				if(mainBarCode.length() == 13 && !isValidEan13(mainBarCode)) {
+					genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "El código EAN es inconsistente con el dígito verificador.").put("fields", new org.json.JSONArray().put( "MainBarCode" )));
+				}else if(mainBarCode.length() == 8) {
+					if(!isValidEan8(mainBarCode)) {
+						genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "El código EAN es inconsistente con el dígito verificador.").put("fields", new org.json.JSONArray().put( "MainBarCode" )));
+					}
+				}else if(mainBarCode.length() == 12) {
+					if(!isValidUPCA(mainBarCode)) {
+						genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "El código EAN (" + mainBarCode + ") es inconsistente con el dígito verificador. Variante en el arreglo: #" + varNumber ).put("fields", new org.json.JSONArray().put( "MainBarCode" )));
+					}
+				}
+			}
+			if(!dup) {
+				if(variant.has("variantId")) {
+					res = dr.getArticleData(new org.json.JSONArray().put(variant.getString("variantId")));
+					if(res != null) {
+						try {
+							org.json.JSONObject jr = new org.json.JSONObject(res);
+							org.json.JSONArray items1 = jr.getJSONArray("items");
+							org.json.JSONObject item = items1.getJSONObject(0);
+							if("".equals(item.getString("SKU"))) {
+								try(ReferenceFileCheck rfc = new ReferenceFileCheck()){
+									applyReferenceEanBusinessRule(
+											variant,
+											negocio,
+											mainBarCode,
+											rfc.businesses(mainBarCode, dastub));
+								}catch(java.io.IOException e) {
+									log("Couldn't validate EAN against EAN_NEGOCIO: " + e.getMessage());
+								}
+							}
+						}catch(org.json.JSONException e) {
+							logE(e);
+						}
+					}
+				}else {
+					try(ReferenceFileCheck rfc = new ReferenceFileCheck()){
+						applyReferenceEanBusinessRule(
+								variant,
+								negocio,
+								mainBarCode,
+								rfc.businesses(mainBarCode, dastub));
+					}catch(java.io.IOException e) {
+						log("Couldn't validate EAN against EAN_NEGOCIO: " + e.getMessage());
+					}
+				}
+			}
+		}else {
+			log("No variant mainBarCode.");
+			if(!"Suburbia".equals(negocio)) {
+				if("Marketplace".equals(negocio)) {
+					java.util.Map<String, String> miraklExcepProvEAN = getLkpValues("MarketplaceExcepProvEAN");
+					if( miraklExcepProvEAN.containsKey(supplier) ) {
+						variant.put("TypeMainBarCode", "IE");
+						typeMainBarCodeA[0] = "IE";
+					}else {
+						genericFieldErrors.put(new org.json.JSONObject().put("QualityDimension", "Validity").put("message", "Seller debe especificar un EAN.").put("fields", new org.json.JSONArray().put( "MainBarCode" )));
+					}
+				}else {
+					variant.put("TypeMainBarCode", "IE");
+					typeMainBarCodeA[0] = "IE";
+				}
+			}else {
+				variant.put("NUMTP_S4H", "IS");
+				typeMainBarCodeA[0] = "IS";
+			}
+		}
+
+	}
+
+	private void applyReferenceEanBusinessRule(
+			org.json.JSONObject variant,
+			String negocio,
+			String mainBarCode,
+			java.util.Set<String> existingBusinesses) {
+
+		if(existingBusinesses == null || existingBusinesses.isEmpty()) {
+			return;
+		}
+
+		log("EAN " + mainBarCode + " found in TC_EAN_NEGOCIO for businesses: " + existingBusinesses + ", current business: " + negocio);
+
+		String reportedValue =
+				variant.has("MainBarCode")
+						? variant.getString("MainBarCode")
+						: variant.has("MainBarCodeS4H")
+								? variant.getString("MainBarCodeS4H")
+								: "";
+
+		if(existingBusinesses.contains(negocio)) {
+			if("Marketplace".equals(negocio)) {
+				variantFieldErrors.put(
+						new org.json.JSONObject()
+								.put("QualityDimension", "Coherence")
+								.put("message", "El código EAN ya existe en catalogación para este negocio, se tiene que hacer una multioferta.")
+								.put("values", new org.json.JSONArray().put(reportedValue))
+								.put("fields", new org.json.JSONArray().put("MainBarCode")));
+			}else {
+				variantFieldErrors.put(
+						new org.json.JSONObject()
+								.put("QualityDimension", "Coherence")
+								.put("message", "El código EAN ya existe en catalogación para este negocio.")
+								.put("values", new org.json.JSONArray().put(reportedValue))
+								.put("fields", new org.json.JSONArray().put("MainBarCode")));
+			}
+			return;
+		}
+
+		if("Marketplace".equals(negocio) && existingBusinesses.contains("Liverpool")) {
+			variantFieldErrors.put(
+					new org.json.JSONObject()
+							.put("QualityDimension", "Coherence")
+							.put("message", "El código EAN ya existe para Liverpool, se tiene que realizar Stockout.")
+							.put("values", new org.json.JSONArray().put(reportedValue))
+							.put("fields", new org.json.JSONArray().put("MainBarCode")));
+			return;
+		}
+
+		if("Liverpool".equals(negocio) && existingBusinesses.contains("Marketplace")) {
+			variantFieldErrors.put(
+					new org.json.JSONObject()
+							.put("QualityDimension", "Coherence")
+							.put("message", "El código EAN ya existe para Marketplace, se tiene que liberar el EAN.")
+							.put("values", new org.json.JSONArray().put(reportedValue))
+							.put("fields", new org.json.JSONArray().put("MainBarCode")));
+		}
+	}
+	
 	private String getTypeMainBarCode(String mainBarCode, String business) {
 	    if(mainBarCode == null || mainBarCode.isEmpty()) {
 	        return "Suburbia".equals(business) ? "IS" : "IE";
@@ -2355,7 +2623,6 @@ public class CreateProposal implements Closeable {
 			String brandIdS4H = null;
 			String supplierPartNumber = null;
 			String sapObjectTypeLabel = null;
-			String[] direccionSeccion = null;
 			org.json.JSONArray structureProblems = new org.json.JSONArray();
 			org.json.JSONArray photosArray = null;
 			String characteristicLookup = null;
@@ -2386,6 +2653,8 @@ public class CreateProposal implements Closeable {
 					resp = null;
 					basicData = null;
 					attributes = null;
+					direction = null;
+					section = null;
 					logisticData = null;
 					datosVenta = null;
 					variantes = null;
@@ -2409,7 +2678,6 @@ public class CreateProposal implements Closeable {
 					business = null;
 					sapObjectType = null;
 					sapObjectTypeLabel = null;
-					direccionSeccion = null;
 					structureProblems = new org.json.JSONArray();
 					characteristicLookup = null;
 					targetRole = "";
@@ -3653,6 +3921,7 @@ public class CreateProposal implements Closeable {
 								previousStatus = statusData.optString("PreviousStatus", "");
 								externalStatus = statusData.optString("ExternalStatus", "");
 							}
+							final String enrichmentStatusBefore = internalStatus;
 							// { "userAction":"Finish|InProgress|Cancelada|Rescue|UndoRescue", "targetRol":"Compras|SKU|QA" }
 							log((externalProductId == null ? "---" : externalProductId) +  " User Action: " + userAction + ", Target Role: " + product.optString("targetRole", "---"));
 							if(!"InProgress".equals(userAction)) {
@@ -3709,6 +3978,9 @@ public class CreateProposal implements Closeable {
 	//						}
 							if(!sections.isEmpty() || unMasiosare) {
 	/*************************/ computeGeneric(externalProductId, characteristicArray, templateId, internalStatus, business, itemGroup == null || "".equals(itemGroup) ? itemGroupS4H : itemGroup, sections, variantes, unMasiosare, userAction); /*****************************************/
+								if (mx.com.liverpool.p360.services.core.dq.TitleText.mayCalculate(internalStatus)) {
+									productName = mx.com.liverpool.p360.services.core.dq.TitleText.productNameForNative(characteristicArray, productName);
+								}
 								boolean fnd = false;
 								if("00".equals( sapObjectType ) ){
 									for(int p=0; p<characteristicArray.length(); p++) {
@@ -3749,6 +4021,13 @@ public class CreateProposal implements Closeable {
 							}
 						if(genericFieldErrors.length() == 0 && !errorInVariant() && variantFieldErrors.length() == 0 ) {
 							JSONObject reqObj = new org.json.JSONObject();
+							// Persist the supplied Name in the Spanish short description as well.
+							if (basicData != null && basicData.has("Name") && !basicData.isNull("Name")) {
+								reqObj.put("lang", new org.json.JSONArray().put(new org.json.JSONObject()
+										.put("_qualification", new org.json.JSONObject().put("language",
+												new org.json.JSONObject().put("_code", "es")))
+										.put("descriptionShort", basicData.getString("Name"))));
+							}
 							if(characteristicArray != null && characteristicArray.length() > 0) {
 								if(writeDataFails != null && writeDataFails.length() > 0) {
 									for(int k=0; k<writeDataFails.length(); k++) {
@@ -3917,17 +4196,7 @@ public class CreateProposal implements Closeable {
 								extraData.put("supplierPartNumber", supplierPartNumber);
 							}
 							
-							if(extraData.length() > 0) {
-								extraData.put("_qualification", new org.json.JSONObject().put("targetMarket", new org.json.JSONObject().put("_code", "MX")));
-								reqObj.put("productExtraData", extraData);
-							}
-							
-							if(direction != null) {
-								extraData.put("direction", new org.json.JSONObject().put("_code", direction));
-							}
-							if(section != null) {
-								extraData.put("section", new org.json.JSONObject().put("_code", section));
-							}
+							attachProductExtraData(reqObj, extraData, direction, section);
 							
 							if(!sample) {
 	
@@ -3938,6 +4207,13 @@ public class CreateProposal implements Closeable {
 								}
 								reqObj.put("externalStatus", new org.json.JSONObject().put("_code", externalStatus));
 								
+                                Boolean foroValue = ForoEnrichmentPolicy.apply(reqObj, product,
+                                        externalProductId == null || externalProductId.isBlank(),
+                                        enrichmentStatusBefore, internalStatus);
+                                if (foroValue != null) log("FORO_CYCLE proposal=" + externalProductId
+                                        + " foroUser=" + product.optBoolean("foroUser", false)
+                                        + " old=" + enrichmentStatusBefore + " new=" + internalStatus
+                                        + " value=" + foroValue + " source=CreateProposal");
 								log("External Product Id 2: " + (externalProductId) + "||" + internalStatus + "||" + previousStatus + "||" + externalStatus);
 								if(externalProductId != null && !"".equals(externalProductId)) {
 									log("GOING WITH PUT <:>" + reqObj + "<:>");
@@ -4017,20 +4293,14 @@ public class CreateProposal implements Closeable {
 										? itemGroupS4H.matches("\\d+ ?- ?.+?") ? itemGroupS4H.replaceAll(" ?- ?.+", "")
 												: itemGroupS4H
 										: null;
-								direccionSeccion = !"Marketplace".equals(business)
-										? getDireccionSeccion(itemGroup != null ? itemGroup : itemGroupS4H, business)
-										: null;
-								log("Item Group is: " + itemGroup);
-								if(direccionSeccion != null) {
-									log(java.util.Arrays.asList(direccionSeccion).toString());
-								} 
 								JSONObject rsp = rawResp == null ? null : new JSONObject(rawResp);
 								genericResponse = new JSONObject();
-								genericResponse.put("direccion", direccionSeccion != null ? direccionSeccion[0] : null)
-										.put("seccion",
-												direccionSeccion != null && direccionSeccion.length > 1 ? direccionSeccion[1]
-														: null)
-										.put("SAPObjectType", sapObjectTypeLabel)
+								String[] direccionSeccion = getDireccionSeccion(itemGroup != null ? itemGroup : itemGroupS4H, business);
+								if (direccionSeccion != null) {
+									genericResponse.put("direccion", direccionSeccion[0]);
+									if (direccionSeccion.length > 1) genericResponse.put("seccion", direccionSeccion[1]);
+								}
+								genericResponse.put("SAPObjectType", sapObjectTypeLabel)
 										.put("creationDate",
 												creationDate == null
 														? new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").format(
@@ -5856,7 +6126,29 @@ public class CreateProposal implements Closeable {
 		return false;
 	}
 
+
+
+	static void attachProductExtraData(org.json.JSONObject request, org.json.JSONObject extra,
+            String direction, String section) {
+        if (direction != null && !direction.trim().isEmpty())
+            extra.put("direction", new org.json.JSONObject().put("_code", direction));
+        if (section != null && !section.trim().isEmpty())
+            extra.put("section", new org.json.JSONObject().put("_code", section));
+        if (extra.length() > 0) {
+            extra.put("_qualification", new org.json.JSONObject().put("targetMarket",
+                    new org.json.JSONObject().put("_code", "MX")));
+            request.put("productExtraData", extra);
+        }
+    }
+
+	static boolean legacyDirectionSectionEnabled(String setting) {
+		return setting == null || !"false".equalsIgnoreCase(setting.trim());
+	}
+
 	private String[] getDireccionSeccion(String groupOfArticle, String business) {
+		// Temporary compatibility switch: false in Dev; true in production.
+		if (!legacyDirectionSectionEnabled(PropertiesManager.get("p360.createproposal.response.direction_section.enabled"))
+				|| groupOfArticle == null || groupOfArticle.trim().isEmpty()) return null;
 		String[] values = null;
 		String rawResponse = null;
 		org.json.JSONObject response = null;
@@ -5870,9 +6162,7 @@ public class CreateProposal implements Closeable {
 						+ "&query=" + java.net.URLEncoder
 								.encode("StructureGroup.Identifier wildcard \"" + groupOfArticle + "-L4%\"", "UTF-8")
 						+ "&fields=StructureGroup.ParentIdentifier,StructureGroupLang.Name(es)", null);
-				log("------->" + rawResponse);
 				response = new org.json.JSONObject(rawResponse);
-				log("#############" + response.getJSONArray("rows"));
 				if (response.getJSONArray("rows") != null && !org.json.JSONObject.NULL.equals(response.getJSONArray("rows"))
 						&& response.getJSONArray("rows").length() > 0) {
 					section = response.getJSONArray("rows").getJSONObject(0).getJSONArray("values").getString(0);

@@ -7,6 +7,45 @@ public class DBAccessDataStub implements AutoCloseable {
 	private final ELog log;
 	
 	private java.sql.Connection con = null;
+
+	/*
+	 * Owner del catálogo maestro de EAN.
+	 *
+	 * DEV:
+	 *   p360.contingency.ean_catalog.schema=PIM_MASTER
+	 *
+	 * QA/PROD (ejemplo):
+	 *   p360.contingency.ean_catalog.schema=P360_EXPLOIT
+	 *
+	 * Si la propiedad no existe o está vacía, la tabla queda sin calificar y
+	 * Oracle la resuelve en el schema actual, preservando el comportamiento
+	 * anterior.
+	 */
+	private static final String EAN_CATALOG_SCHEMA =
+			normalizeOracleSchema(
+					PropertiesManager.get("p360.contingency.ean_catalog.schema"));
+
+	private static final String EAN_CATALOG_TABLE =
+			(EAN_CATALOG_SCHEMA.isEmpty()
+					? ""
+					: EAN_CATALOG_SCHEMA + ".")
+			+ "TC_EAN_NEGOCIO";
+
+	private static String normalizeOracleSchema(String value) {
+		if(value == null || value.isBlank()) {
+			return "";
+		}
+
+		String schema = value.trim().toUpperCase(java.util.Locale.ROOT);
+
+		if(!schema.matches("[A-Z][A-Z0-9_$#]*")) {
+			throw new IllegalArgumentException(
+					"Valor inválido para p360.contingency.ean_catalog.schema: "
+					+ value);
+		}
+
+		return schema;
+	}
 	
 	public DBAccessDataStub(ELog log) {
 		this.log = log;
@@ -2165,6 +2204,39 @@ public class DBAccessDataStub implements AutoCloseable {
 		return result;
 	}
 
+
+    /** Export relation projection: checked failures must never look like no variants. */
+    public java.util.Map<String,org.json.JSONArray> getExportArticleRows(
+            java.util.Collection<String> identifiers) throws java.sql.SQLException {
+        java.util.Map<String,org.json.JSONArray> result=new java.util.LinkedHashMap<>();
+        for(java.util.List<String> chunk:identifierChunks(identifiers)) {
+            for(String id:chunk) result.put(id,new org.json.JSONArray());
+            String sql="select /*+ leading(p r a d) use_nl(r a d) index(p IX_AR_TUNE_01) "
+                + "index(r XAK1_ArticleReference) */ p.\"Identifier\",a.\"Identifier\",d.\"Res_Int_02\" "
+                + "from \"ArticleRevision\" p join \"ArticleReference\" r "
+                + "on r.\"RefIntArtID\"=p.\"ArticleID\" and r.\"RefExtArtIdentifier\"=p.\"Identifier\" "
+                + "and r.\"DeletionTimestamp\"=timestamp '9999-12-31 00:00:00' "
+                + "join \"ArticleRevision\" a on a.\"ID\"=r.\"ArticleRevisionID\" "
+                + "and a.\"EntityID\"=1000 and a.\"RevisionID\"=1 and a.\"CatalogID\"=1 "
+                + "and a.\"DeletionTimestamp\"=timestamp '9999-12-31 00:00:00' "
+                + "left join \"ArticleDetail\" d on d.\"ArticleRevisionID\"=a.\"ID\" "
+                + "and d.\"DeletionTimestamp\"=timestamp '9999-12-31 00:00:00' "
+                + "where p.\"Identifier\" in ("+placeholders(chunk.size())+") "
+                + "and p.\"EntityID\"=1100 and p.\"RevisionID\"=1 and p.\"CatalogID\"=1 "
+                + "and p.\"DeletionTimestamp\"=timestamp '9999-12-31 00:00:00' "
+                + "order by p.\"Identifier\",a.\"Identifier\"";
+            try(java.sql.PreparedStatement st=connection().prepareStatement(sql)) {
+                bindNStrings(st,1,chunk);st.setFetchSize(1000);
+                try(java.sql.ResultSet rs=st.executeQuery()) {
+                    while(rs.next()) result.get(rs.getString(1)).put(new org.json.JSONObject()
+                        .put("values",new org.json.JSONArray().put(rs.getString(2))
+                            .put(rs.getString(1)).put(rs.getString(3)==null?"":rs.getString(3))));
+                }
+            }
+        }
+        return result;
+    }
+
 	public java.util.Map<String, java.util.Set<String>> getProductVariants(
 			java.util.Collection<String> identifiers) {
 
@@ -4129,6 +4201,471 @@ public class DBAccessDataStub implements AutoCloseable {
 		return null;
 	}
 	
+	public boolean applyEanNegocioChanges(
+	        java.util.List<String[]> rows) {
+
+	    if (rows == null || rows.isEmpty()) {
+	        return true;
+	    }
+
+	    /*
+	     * ITEMGROUP puede ser NULL para EAN_delta.csv.
+	     * La comparación del MERGE por tanto debe ser null-safe.
+	     */
+	    String createSql =
+	          " merge into " + EAN_CATALOG_TABLE + " t "
+	        + " using ( "
+	        + "     select "
+	        + "         ? SKU, "
+	        + "         ? EAN, "
+	        + "         ? NEGOCIO, "
+	        + "         ? ITEMGROUP "
+	        + "     from dual "
+	        + " ) s "
+	        + " on ( "
+	        + "        t.EAN     = s.EAN "
+	        + "    and t.NEGOCIO = s.NEGOCIO "
+	        + "    and ( "
+	        + "           t.ITEMGROUP = s.ITEMGROUP "
+	        + "        or (t.ITEMGROUP is null and s.ITEMGROUP is null) "
+	        + "    ) "
+	        + "    and t.SKU = s.SKU "
+	        + " ) "
+	        + " when not matched then "
+	        + " insert ( "
+	        + "     SKU, "
+	        + "     EAN, "
+	        + "     NEGOCIO, "
+	        + "     ITEMGROUP "
+	        + " ) "
+	        + " values ( "
+	        + "     s.SKU, "
+	        + "     s.EAN, "
+	        + "     s.NEGOCIO, "
+	        + "     s.ITEMGROUP "
+	        + " )";
+
+	    /*
+	     * EAN_GPOART_<ItemGroup>.csv:
+	     *   DELETE exacto por EAN + NEGOCIO + ITEMGROUP + SKU.
+	     */
+	    String deleteExactSql =
+	          " delete from " + EAN_CATALOG_TABLE + " "
+	        + " where EAN = ? "
+	        + "   and NEGOCIO = ? "
+	        + "   and ITEMGROUP = ? "
+	        + "   and SKU = ?";
+
+	    /*
+	     * EAN_delta.csv con Negocio:
+	     *   no existe ItemGroup en el feed, por lo que la baja aplica a todos
+	     *   los grupos de esa relación SKU/EAN/NEGOCIO.
+	     */
+	    String deleteDeltaBusinessSql =
+	          " delete from " + EAN_CATALOG_TABLE + " "
+	        + " where EAN = ? "
+	        + "   and NEGOCIO = ? "
+	        + "   and SKU = ?";
+
+	    /*
+	     * EAN_delta.csv sin Negocio:
+	     *   tampoco se puede acotar por negocio. Se elimina la relación SKU/EAN
+	     *   en cualquier negocio y grupo.
+	     */
+	    String deleteDeltaGlobalSql =
+	          " delete from " + EAN_CATALOG_TABLE + " "
+	        + " where EAN = ? "
+	        + "   and SKU = ?";
+
+	    try (
+	        java.sql.PreparedStatement create =
+	                connection().prepareStatement(createSql);
+
+	        java.sql.PreparedStatement deleteExact =
+	                connection().prepareStatement(deleteExactSql);
+
+	        java.sql.PreparedStatement deleteDeltaBusiness =
+	                connection().prepareStatement(deleteDeltaBusinessSql);
+
+	        java.sql.PreparedStatement deleteDeltaGlobal =
+	                connection().prepareStatement(deleteDeltaGlobalSql)
+	    ) {
+
+	        create.setQueryTimeout(30);
+	        deleteExact.setQueryTimeout(30);
+	        deleteDeltaBusiness.setQueryTimeout(30);
+	        deleteDeltaGlobal.setQueryTimeout(30);
+
+	        int creates = 0;
+	        int deletesExact = 0;
+	        int deletesDeltaBusiness = 0;
+	        int deletesDeltaGlobal = 0;
+
+	        for (String[] row : rows) {
+
+	            if (row == null || row.length < 5) {
+	                continue;
+	            }
+
+	            String sku       = row[0];
+	            String ean       = row[1];
+	            String negocio   = row[2];
+	            String itemGroup = row[3];
+	            String action    = row[4];
+
+	            if (sku == null || sku.isBlank()
+	                    || ean == null || ean.isBlank()) {
+	                continue;
+	            }
+
+	            long numericSku;
+
+	            try {
+	                numericSku = Long.parseLong(sku);
+	            } catch (NumberFormatException e) {
+	                logE(new IllegalArgumentException(
+	                        "SKU no numérico para TC_EAN_NEGOCIO: " + sku,
+	                        e));
+	                continue;
+	            }
+
+	            if ("1".equals(action)) {
+
+	                /*
+	                 * Para altas el negocio sí es obligatorio.
+	                 * ITEMGROUP puede ser NULL para EAN_delta.csv.
+	                 */
+	                if (negocio == null || negocio.isBlank()) {
+	                    logE(new IllegalArgumentException(
+	                            "Action=1 sin Negocio para TC_EAN_NEGOCIO."
+	                            + " SKU=" + sku
+	                            + ", EAN=" + ean));
+	                    continue;
+	                }
+
+	                create.setLong(1, numericSku);
+	                create.setString(2, ean);
+	                create.setString(3, negocio);
+
+	                if (itemGroup == null || itemGroup.isBlank()) {
+	                    create.setNull(4, java.sql.Types.VARCHAR);
+	                } else {
+	                    create.setString(4, itemGroup);
+	                }
+
+	                create.addBatch();
+	                creates++;
+
+	            } else if ("2".equals(action)) {
+
+	                if (itemGroup != null && !itemGroup.isBlank()) {
+
+	                    /*
+	                     * Archivo EAN_GPOART: baja exacta.
+	                     */
+	                    if (negocio == null || negocio.isBlank()) {
+	                        logE(new IllegalArgumentException(
+	                                "Action=2 EAN_GPOART sin Negocio."
+	                                + " SKU=" + sku
+	                                + ", EAN=" + ean
+	                                + ", ItemGroup=" + itemGroup));
+	                        continue;
+	                    }
+
+	                    deleteExact.setString(1, ean);
+	                    deleteExact.setString(2, negocio);
+	                    deleteExact.setString(3, itemGroup);
+	                    deleteExact.setLong(4, numericSku);
+	                    deleteExact.addBatch();
+	                    deletesExact++;
+
+	                } else if (negocio != null && !negocio.isBlank()) {
+
+	                    /*
+	                     * EAN_delta con negocio: todos los ItemGroup.
+	                     */
+	                    deleteDeltaBusiness.setString(1, ean);
+	                    deleteDeltaBusiness.setString(2, negocio);
+	                    deleteDeltaBusiness.setLong(3, numericSku);
+	                    deleteDeltaBusiness.addBatch();
+	                    deletesDeltaBusiness++;
+
+	                } else {
+
+	                    /*
+	                     * EAN_delta sin negocio: todos los negocios/ItemGroup.
+	                     */
+	                    deleteDeltaGlobal.setString(1, ean);
+	                    deleteDeltaGlobal.setLong(2, numericSku);
+	                    deleteDeltaGlobal.addBatch();
+	                    deletesDeltaGlobal++;
+	                }
+
+	            } else {
+
+	                logE(new IllegalArgumentException(
+	                        "Acción desconocida en TC_EAN_NEGOCIO: "
+	                        + action
+	                        + ", SKU=" + sku
+	                        + ", EAN=" + ean
+	                        + ", Negocio=" + negocio
+	                        + ", ItemGroup=" + itemGroup));
+	            }
+	        }
+
+	        if (creates > 0) {
+	            create.executeBatch();
+	        }
+
+	        if (deletesExact > 0) {
+	            deleteExact.executeBatch();
+	        }
+
+	        if (deletesDeltaBusiness > 0) {
+	            deleteDeltaBusiness.executeBatch();
+	        }
+
+	        if (deletesDeltaGlobal > 0) {
+	            deleteDeltaGlobal.executeBatch();
+	        }
+
+	        log("TC_EAN_NEGOCIO batch applied."
+	                + " creates=" + creates
+	                + ", deletesExact=" + deletesExact
+	                + ", deletesDeltaBusiness=" + deletesDeltaBusiness
+	                + ", deletesDeltaGlobal=" + deletesDeltaGlobal);
+
+	        return true;
+
+	    } catch (java.sql.SQLException e) {
+	        logE(e);
+	        return false;
+	    }
+	}
+
+	/*
+	 * Agregar dentro de DBAccessDataStub.
+	 *
+	 * Devuelve por SKU:
+	 *   [0] ArticleIdentifier
+	 *   [1] ProductIdentifier
+	 *   [2] ArticleEAN
+	 *   [3] ProductEAN
+	 *
+	 * Usa los helpers identifierChunks(...) y placeholders(...) que ya existen
+	 * en tu DBAccessDataStub actual.
+	 */
+	public java.util.Map<String, String[]> getEanCleanupTargetsBySKUs(
+	        java.util.Collection<String> skus) {
+
+	    java.util.Map<String, String[]> result =
+	            new java.util.LinkedHashMap<>();
+
+	    java.util.List<java.util.List<String>> chunks =
+	            identifierChunks(skus);
+
+	    if (chunks.isEmpty()) {
+	        return result;
+	    }
+
+	    handleRefreshConnection();
+
+	    for (java.util.List<String> chunk : chunks) {
+
+	        java.util.List<Long> numericSKUs =
+	                new java.util.ArrayList<>();
+
+	        java.util.Map<Long, java.util.List<String>> originalSKUsByNumber =
+	                new java.util.LinkedHashMap<>();
+
+	        for (String sku : chunk) {
+	            try {
+	                long numericSku = Long.parseLong(sku);
+	                numericSKUs.add(numericSku);
+	                originalSKUsByNumber
+	                        .computeIfAbsent(
+	                                numericSku,
+	                                k -> new java.util.ArrayList<>())
+	                        .add(sku);
+	            } catch (NumberFormatException e) {
+	                log("Invalid SKU for EAN cleanup: " + sku);
+	            }
+	        }
+
+	        if (numericSKUs.isEmpty()) {
+	            continue;
+	        }
+
+	        String sql =
+	                  " select /*+ leading(ad ar ref par pad) "
+	                + "            use_nl(ar ref par pad) "
+	                + "            index(ad IX_AD_TUNE_01) "
+	                + "            index(ref XIE3_ArticleReference) */ "
+	                + "        ad.\"Res_Int_02\" \"SKU\" "
+	                + "       ,ar.\"Identifier\" \"ArticleIdentifier\" "
+	                + "       ,par.\"Identifier\" \"ProductIdentifier\" "
+	                + "       ,ad.\"EAN\" \"ArticleEAN\" "
+	                + "       ,pad.\"EAN\" \"ProductEAN\" "
+	                + " from \"ArticleDetail\" ad "
+	                + " inner join \"ArticleRevision\" ar "
+	                + "    on ar.\"ID\" = ad.\"ArticleRevisionID\" "
+	                + "   and ar.\"EntityID\" = 1000 "
+	                + "   and ar.\"RevisionID\" = 1 "
+	                + "   and ar.\"DeletionTimestamp\" = "
+	                + "       timestamp '9999-12-31 00:00:00.0' "
+	                + " inner join \"ArticleReference\" ref "
+	                + "    on ref.\"ArticleRevisionID\" = ar.\"ID\" "
+	                + "   and ref.\"DeletionTimestamp\" = "
+	                + "       timestamp '9999-12-31 00:00:00.0' "
+	                + " inner join \"ArticleRevision\" par "
+	                + "    on par.\"ArticleID\" = ref.\"RefIntArtID\" "
+	                + "   and par.\"Identifier\" = ref.\"RefExtArtIdentifier\" "
+	                + "   and par.\"EntityID\" = 1100 "
+	                + "   and par.\"RevisionID\" = 1 "
+	                + "   and par.\"DeletionTimestamp\" = "
+	                + "       timestamp '9999-12-31 00:00:00.0' "
+	                + " left join \"ArticleDetail\" pad "
+	                + "    on pad.\"ArticleRevisionID\" = par.\"ID\" "
+	                + "   and pad.\"DeletionTimestamp\" = "
+	                + "       timestamp '9999-12-31 00:00:00.0' "
+	                + " where ad.\"Res_Int_02\" in ("
+	                + placeholders(numericSKUs.size())
+	                + ") "
+	                + "   and ad.\"DeletionTimestamp\" = "
+	                + "       timestamp '9999-12-31 00:00:00.0'";
+
+	        try (java.sql.PreparedStatement pstmnt =
+	                     connection().prepareStatement(sql)) {
+
+	            pstmnt.setQueryTimeout(30);
+
+	            for (int i = 0; i < numericSKUs.size(); i++) {
+	                pstmnt.setLong(i + 1, numericSKUs.get(i));
+	            }
+
+	            try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+
+	                while (rs.next()) {
+
+	                    java.util.List<String> originalSKUs =
+	                            originalSKUsByNumber.get(rs.getLong("SKU"));
+
+	                    if (originalSKUs == null) {
+	                        continue;
+	                    }
+
+	                    String[] data = new String[] {
+	                            rs.getString("ArticleIdentifier"),
+	                            rs.getString("ProductIdentifier"),
+	                            rs.getString("ArticleEAN"),
+	                            rs.getString("ProductEAN")
+	                    };
+
+	                    for (String originalSKU : originalSKUs) {
+	                        result.putIfAbsent(originalSKU, data);
+	                    }
+	                }
+	            }
+
+	        } catch (java.sql.SQLException e) {
+	            logE(e);
+	            throw new IllegalStateException(
+	                    "Error resolving EAN cleanup targets by SKU.",
+	                    e);
+	        }
+	    }
+
+	    return result;
+	}
+
+	/*
+	 * Agregar dentro de DBAccessDataStub.
+	 * Devuelve todas las relaciones activas del catalogo maestro para un EAN.
+	 */
+	public java.util.List<org.json.JSONObject> getEanCatalogEntries(String ean) {
+	    java.util.List<org.json.JSONObject> rows = new java.util.ArrayList<>();
+
+	    if (ean == null || ean.isBlank()) {
+	        return rows;
+	    }
+
+	    String sql =
+	          " select aa.SKU, aa.EAN, aa.NEGOCIO, aa.ITEMGROUP "
+	        + " from " + EAN_CATALOG_TABLE + " aa "
+	        + " where aa.EAN = ? "
+	        + " order by aa.NEGOCIO, aa.ITEMGROUP, aa.SKU ";
+
+	    try (java.sql.PreparedStatement pstmnt = connection().prepareStatement(sql)) {
+	        pstmnt.setString(1, ean.trim());
+	        pstmnt.setQueryTimeout(30);
+
+	        try (java.sql.ResultSet rs = pstmnt.executeQuery()) {
+	            while (rs.next()) {
+	                rows.add(
+	                    new org.json.JSONObject()
+	                        .put("SKU", rs.getString("SKU"))
+	                        .put("EAN", rs.getString("EAN"))
+	                        .put("NEGOCIO", rs.getString("NEGOCIO"))
+	                        .put("ITEMGROUP", rs.getString("ITEMGROUP"))
+	                );
+	            }
+	        }
+	    } catch (java.sql.SQLException e) {
+	        logE(e);
+	    }
+
+	    return rows;
+	}
+	
+	/**
+	 * Devuelve los negocios vigentes para un EAN de acuerdo con
+	 * La tabla configurada mediante p360.contingency.ean_catalog.schema.
+	 *
+	 * La consulta NO filtra por ItemGroup: la validación de duplicidad del EAN
+	 * es por negocio, independientemente del grupo de artículos en el que
+	 * haya quedado registrado.
+	 */
+	public java.util.Set<String> getEanNegocios(String ean) {
+
+		java.util.Set<String> negocios =
+				new java.util.LinkedHashSet<>();
+
+		if(ean == null || ean.isBlank()) {
+			return negocios;
+		}
+
+		String sql =
+				  " select "
+				+ "        distinct aa.NEGOCIO "
+				+ " from " + EAN_CATALOG_TABLE + " aa "
+				+ " where aa.EAN = ? "
+				+ " order by aa.NEGOCIO";
+
+		try (java.sql.PreparedStatement pstmnt =
+				connection().prepareStatement(sql)) {
+
+			pstmnt.setString(1, ean.trim());
+			pstmnt.setQueryTimeout(30);
+			pstmnt.setFetchSize(20);
+
+			try (java.sql.ResultSet rs =
+					pstmnt.executeQuery()) {
+
+				while(rs.next()) {
+					String negocio = rs.getString("NEGOCIO");
+					if(negocio != null && !negocio.isBlank()) {
+						negocios.add(negocio.trim());
+					}
+				}
+			}
+
+		} catch (java.sql.SQLException e) {
+			logE(e);
+		}
+
+		return negocios;
+	}
+	
 	public Integer getProductCurrentStatusByArticleIdentifier(String articleIdentifier) {
 		handleRefreshConnection();
 
@@ -5724,7 +6261,7 @@ public class DBAccessDataStub implements AutoCloseable {
 				&& !secondaryIdentifier.isBlank();
 
 		String sql =
-				  " select bb.\"StructureGroupID\", bb.\"Identifier\" "
+				  " select aa.\"StructureGroupID\", aa.\"Identifier\" "
 				+ " from PIM_MAIN.\"StructureGroupDetail\" bb "
 				+ " inner join PIM_MAIN.\"StructureGroupRevision\" aa "
 				+ "    on aa.ID = bb.\"StructureGroupRevisionID\" "
@@ -5737,8 +6274,8 @@ public class DBAccessDataStub implements AutoCloseable {
 						? "   and bb.\"ParentIdentifier\" = ? "
 						: "")
 				+ (hasSecondary
-						? "   and bb.\"Identifier\" in (?, ?) "
-						: "   and bb.\"Identifier\" = ? ");
+						? "   and aa.\"Identifier\" in (?, ?) "
+						: "   and aa.\"Identifier\" = ? ");
 
 		try (java.sql.PreparedStatement pstmnt =
 				connection().prepareStatement(sql)) {
@@ -5985,6 +6522,14 @@ public class DBAccessDataStub implements AutoCloseable {
 	public java.util.Map<String, String> getObjectInternalIds(
 			int entityID,
 			java.util.Collection<String> identifiers) {
+		return getObjectInternalIds(entityID, identifiers, false);
+	}
+
+	/** When failOnError is true, never return a partial existence result. */
+	public java.util.Map<String, String> getObjectInternalIds(
+			int entityID,
+			java.util.Collection<String> identifiers,
+			boolean failOnError) {
 
 		java.util.Map<String, String> result = new java.util.LinkedHashMap<>();
 
@@ -6029,6 +6574,9 @@ public class DBAccessDataStub implements AutoCloseable {
 				}
 			} catch (java.sql.SQLException e) {
 				logE(e);
+				if (failOnError) {
+					throw new IllegalStateException("Cannot determine P360 existence for entity " + entityID, e);
+				}
 			}
 		}
 
@@ -7065,4 +7613,101 @@ public class DBAccessDataStub implements AutoCloseable {
 	private void logE(Exception e) {
 		log.logE(e);
 	}
+
+    /** Bulk read used by Repopulate; errors propagate instead of per-item REST fallback. */
+    public java.util.Map<String, java.util.Map<String,String>> getRepopulationProductInfo(
+            java.util.Collection<String> identifiers) throws java.sql.SQLException {
+        return RepopulationProductInfoReader.read(connection(), identifiers);
+    }
+/** Read-only recovery lookup; SKU batches, native MX size, no ACV scan. */
+    public java.util.Map<String, java.util.List<org.json.JSONObject>> getEccSizeRecoveryRows(
+            java.util.Collection<String> skus) throws java.sql.SQLException {
+        var out = new java.util.LinkedHashMap<String, java.util.List<org.json.JSONObject>>();
+        for (var chunk : identifierChunks(skus)) {
+            String sql = "SELECT /*+ leading(ad ar dom lv) use_nl(ar dom lv) index(ad IX_AD_TUNE_01) index(dom XAK1_ArticleDomain) index(lv XAK1_LookupValueRevision) */ "
+                + "ad.\"Res_Int_02\" SKU, ar.\"Identifier\" IDENTITY, dom.\"Res_Int_01\" SIZE_ID, lv.\"Code\" SIZE_CODE "
+                + "FROM PIM_MASTER.\"ArticleDetail\" ad JOIN PIM_MASTER.\"ArticleRevision\" ar "
+                + "ON ar.\"ID\"=ad.\"ArticleRevisionID\" AND ar.\"EntityID\"=1000 AND ar.\"RevisionID\"=1 "
+                + "AND ar.\"DeletionTimestamp\"=TIMESTAMP '9999-12-31 00:00:00' "
+                + "LEFT JOIN PIM_MASTER.\"ArticleDomain\" dom ON dom.\"ArticleRevisionID\"=ar.\"ID\" "
+                + "AND dom.\"TargetMarket\"='MX' AND dom.\"DeletionTimestamp\"=TIMESTAMP '9999-12-31 00:00:00' "
+                + "LEFT JOIN PIM_MAIN.\"LookupValueRevision\" lv ON lv.\"LookupValueID\"=dom.\"Res_Int_01\" "
+                + "AND lv.\"RevisionID\"=1 AND lv.\"DeletionTimestamp\"=TIMESTAMP '9999-12-31 00:00:00' "
+                + "WHERE ad.\"Res_Int_02\" IN (" + placeholders(chunk.size()) + ") "
+                + "AND ad.\"DeletionTimestamp\"=TIMESTAMP '9999-12-31 00:00:00' "
+                + "AND EXISTS (SELECT /*+ leading(ref par) use_nl(par) index(ref XAK1_ArticleReference) */ 1 "
+                + "FROM PIM_MASTER.\"ArticleReference\" ref JOIN PIM_MASTER.\"ArticleRevision\" par "
+                + "ON par.\"ArticleID\"=ref.\"RefIntArtID\" AND par.\"Identifier\"=ref.\"RefExtArtIdentifier\" "
+                + "AND par.\"EntityID\"=1100 AND par.\"RevisionID\"=1 AND par.\"DeletionTimestamp\"=TIMESTAMP '9999-12-31 00:00:00' "
+                + "WHERE ref.\"ArticleRevisionID\"=ar.\"ID\" AND ref.\"DeletionTimestamp\"=TIMESTAMP '9999-12-31 00:00:00')";
+            try (var s=connection().prepareStatement(sql)) {
+                s.setQueryTimeout(30); s.setFetchSize(900);
+                for(int i=0;i<chunk.size();i++) s.setLong(i+1,Long.parseLong(chunk.get(i)));
+                try(var r=s.executeQuery()) { while(r.next()) {
+                    String sku=r.getString("SKU");
+                    out.computeIfAbsent(sku,k->new java.util.ArrayList<>()).add(new org.json.JSONObject()
+                        .put("id",r.getString("IDENTITY")).put("value",java.util.Objects.toString(r.getString("SIZE_CODE"),""))
+                        .put("unresolved",r.getObject("SIZE_ID")!=null && r.getString("SIZE_CODE")==null));
+                }}
+            }
+        }
+        return out;
+    }
+
+
+    /** Exists in the current template -> item group -> commercial section relationship. */
+    public boolean existsTemplateSection(String template, String section, String business) throws java.sql.SQLException {
+        boolean s4h = "Suburbia".equalsIgnoreCase(business);
+        if (!s4h && !"Liverpool".equalsIgnoreCase(business) && !"Marketplace".equalsIgnoreCase(business))
+            throw new IllegalArgumentException("Unsupported business");
+        String sql = """
+SELECT /*+ first_rows(1) */ 1
+FROM PIM_MAIN."LookupRevision" l
+JOIN PIM_MAIN."LookupValueRevision" v ON v."LookupID"=l."LookupID" AND v."RevisionID"=1 AND v."DeletionTimestamp"=TIMESTAMP '9999-12-31 00:00:00'
+JOIN PIM_MAIN."LookupValueReference" r ON r."LookupValueRevisionID"=v."ID" AND r."DeletionTimestamp"=TIMESTAMP '9999-12-31 00:00:00'
+JOIN PIM_MAIN."LookupRevision" tl ON tl."LookupID"=r."RefLookupID" AND tl."Identifier"=? AND tl."RevisionID"=1 AND tl."DeletionTimestamp"=TIMESTAMP '9999-12-31 00:00:00'
+JOIN PIM_MAIN."LookupValueRevision" tv ON tv."LookupValueID"=r."RefLookupValueID" AND tv."LookupID"=r."RefLookupID" AND tv."RevisionID"=1 AND tv."DeletionTimestamp"=TIMESTAMP '9999-12-31 00:00:00'
+JOIN PIM_MAIN."StructureRevision" s ON s."Identifier"=? AND s."RevisionID"=1 AND s."DeletionTimestamp"=TIMESTAMP '9999-12-31 00:00:00'
+JOIN PIM_MAIN."StructureGroupRevision" g ON g."StructureID"=s."StructureID" AND g."Identifier"=tv."Code"||? AND g."RevisionID"=1 AND g."DeletionTimestamp"=TIMESTAMP '9999-12-31 00:00:00'
+JOIN PIM_MAIN."StructureGroupDetail" d ON d."StructureGroupRevisionID"=g."ID" AND d."DeletionTimestamp"=TIMESTAMP '9999-12-31 00:00:00'
+WHERE l."Identifier"='PPH_L4_Templates' AND l."RevisionID"=1 AND l."DeletionTimestamp"=TIMESTAMP '9999-12-31 00:00:00'
+AND v."Code"=? AND d."ParentIdentifier"=? AND ROWNUM=1
+            """;
+        try (java.sql.PreparedStatement ps = connection().prepareStatement(sql)) {
+            ps.setQueryTimeout(15);
+            ps.setFetchSize(1);
+            ps.setString(1, s4h ? "MATKLLOV_S4H" : "MATKLLOV");
+            ps.setString(2, s4h ? "CommercialS4H" : "CommercialECC");
+            ps.setString(3, s4h ? "-L4SH" : "-L4ECC");
+            ps.setString(4, template);
+            ps.setString(5, section + (s4h ? "-L3SH" : "-L3ECC"));
+            try (java.sql.ResultSet rs = ps.executeQuery()) { return rs.next(); }
+        }
+    }
+
+
+ public java.util.Map<String,java.util.Map<String,String>> getPublicationAuditMessages(java.util.Collection<String> identifiers) throws java.sql.SQLException {
+  java.util.Map<String,java.util.Map<String,String>> out=new java.util.LinkedHashMap<>();
+  java.util.List<String> ids=normalizeIdentifiers(identifiers);if(ids.isEmpty())return out;
+  handleRefreshConnection();
+  for(int start=0;start<ids.size();start+=500){
+   java.util.List<String> chunk=ids.subList(start,Math.min(start+500,ids.size()));
+   String sql="select /*+ leading(ar cr acv acvl) use_nl(cr acv acvl) index(ar IX_AR_TUNE_01) index(acv IX_ACV_TUNE_02) index(acvl XIF1_ArticleCharactValueLang) */ ar.\"Identifier\",cr.\"Identifier\",coalesce(acvl.\"Value\",acv.\"Value\") "
+    +"from \"ArticleRevision\" ar cross join PIM_MAIN.\"CharacteristicRevision\" cr "
+    +"left join \"ArticleCharactValue\" acv on acv.\"ArticleRevisionID\"=ar.\"ID\" and acv.\"CharacteristicID\"=cr.\"CharacteristicID\" and acv.\"RootCharacteristicID\"=cr.\"CharacteristicID\" and acv.\"ParentRecordKey\"='root' and acv.\"RecordKey\"='0000.0000.RK' and acv.\"DeletionTimestamp\"=timestamp '9999-12-31 00:00:00.0' "
+    +"left join \"ArticleCharactValueLang\" acvl on acvl.\"ArticleCharactValueID\"=acv.\"ID\" and acvl.\"LanguageID\"=-1 and acvl.\"DeletionTimestamp\"=timestamp '9999-12-31 00:00:00.0' "
+    +"where ar.\"Identifier\" in ("+placeholders(chunk.size())+") and ar.\"EntityID\"=1100 and ar.\"RevisionID\"=1 and ar.\"DeletionTimestamp\"=timestamp '9999-12-31 00:00:00.0' "
+    +"and cr.\"Identifier\" in ('PublishMessage','PublishMktMessage') and cr.\"RevisionID\"=1 and cr.\"DeletionTimestamp\"=timestamp '9999-12-31 00:00:00.0'";
+   try(java.sql.PreparedStatement q=connection().prepareStatement(sql)){
+    bindNStrings(q,1,chunk);q.setQueryTimeout(30);q.setFetchSize(1000);
+    try(java.sql.ResultSet rs=q.executeQuery()){while(rs.next()){
+     String id=rs.getString(1),key=rs.getString(2);java.util.Map<String,String> row=out.get(id);
+     if(row==null){row=new java.util.LinkedHashMap<>();out.put(id,row);}
+     if(row.containsKey(key))throw new java.sql.SQLException("Ambiguous publication message "+id+"/"+key);
+     row.put(key,java.util.Objects.toString(rs.getNString(3),""));
+    }}
+   }
+  }
+  return out;
+ }
 }

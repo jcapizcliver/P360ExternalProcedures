@@ -96,7 +96,7 @@ public class CheckDataSetsBigQuery {
         
         //////////////////////////////////////////
         
-
+/*
         projectId = "crp-pro-dwh-semanticagold";
         try(java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "BQ", "SAanaliticaDatasetsContent2.csv").toFile())))) {
             // List datasets in the project
@@ -161,7 +161,7 @@ public class CheckDataSetsBigQuery {
             System.exit(2);
         }
         System.exit(0);
-        
+        */
         /////////////////////////////////////////
         
         /*
@@ -247,9 +247,9 @@ public class CheckDataSetsBigQuery {
         	try
         	{
 		        String query = 
-//		        		"select * from `crp-pro-dwh-semanticagold.EIL_DP_VMASTER.VFAC_GOB_PROD_PRODUCTO_ATRIB_DET`"
+		        		"select * from `crp-pro-dwh-semanticagold.EIL_DP_VMASTER.VFAC_GOB_PROD_PRODUCTO_ATRIB_DET`"
 //		        		"create view `crp-pro-cx-semantica.mus_pro_gob_producto_prd_views.CIFRAS_ATRIBUTOS_GRUPOS_DE_ARTICULO` as select * from `crp-pro-cx-analitica.mus_pro_gob_producto_prd_tbls.CIFRAS_ATRIBUTOS_GRUPOS_DE_ARTICULO`"
-		        		"select * from `crp-pro-cx-semantica.mus_pro_gob_producto_prd_views.VW_EU_COB_ATR_ITEMGROUP` where pct_cobertura <> 100.0 limit 50"
+//		        		"select * from `crp-pro-cx-semantica.mus_pro_gob_producto_prd_views.VW_EU_COB_ATR_ITEMGROUP` where pct_cobertura <> 100.0 limit 50"
 //		        		"select * from `crp-pro-cx-semantica.mus_pro_gob_producto_prd_views.VW_EU_COB_ATR_PTSAP` limit 50"
 	        		;
 		

@@ -1,0 +1,52 @@
+package mx.com.liverpool.p360.services.core;
+import java.util.*;
+import java.util.function.Function;
+
+/** Resolve P360 AltProductNo chains before loading the product graph. No writes. */
+public final class ProductAliasResolver {
+ private ProductAliasResolver() {}
+ public static Map<String,String> resolve(Collection<String> requested,Function<Collection<String>,Map<String,String>> read){
+  Map<String,String> links=new LinkedHashMap<>();Set<String> pending=new LinkedHashSet<>(requested);
+  while(!pending.isEmpty()){
+   Map<String,String> batch=read.apply(pending);Set<String> next=new LinkedHashSet<>();
+   for(String id:pending){if(!batch.containsKey(id))throw new IllegalStateException("Alias target does not exist: "+id);String target=batch.get(id);target=target==null?"":target.trim();links.put(id,target);}
+   for(String id:pending){String target=links.get(id);if(!target.isEmpty()&&!links.containsKey(target))next.add(target);}pending=next;
+  }
+  Map<String,String> result=new LinkedHashMap<>();
+  for(String original:requested){Set<String> seen=new HashSet<>();String id=original;
+   while(true){if(!seen.add(id))throw new IllegalStateException("Product alias cycle: "+original);String next=links.get(id);if(next==null||next.isEmpty())break;id=next;}result.put(original,id);
+  }return result;
+ }
+
+    /** Native alternative product number, not CharacteristicIdentifier.AlternativeIdentifier. */
+    private static java.util.Map<String,String> getProductAlternativeIdentifiers(java.sql.Connection connection,java.util.Collection<String> identifiers) {
+        java.util.Map<String,String> result=new java.util.LinkedHashMap<>();
+        java.util.List<String> all=new java.util.ArrayList<>(identifiers);
+        for(int off=0;off<all.size();off+=900) {
+            java.util.List<String> chunk=all.subList(off,Math.min(off+900,all.size()));
+            if(chunk.isEmpty())continue;
+
+            String sql="SELECT /*+ LEADING(ar ad) USE_NL(ad) INDEX(ar IX_AR_TUNE_01) INDEX(ad XAK1_ArticleDetail) */ ar.\"Identifier\",CASE WHEN ad.\"Res_Int_02\" IS NULL THEN ad.\"SupplierAltAID\" ELSE NULL END FROM PIM_MASTER.\"ArticleRevision\" ar LEFT JOIN PIM_MASTER.\"ArticleDetail\" ad ON ad.\"ArticleRevisionID\"=ar.\"ID\" AND ad.\"DeletionTimestamp\"=TIMESTAMP '9999-12-31 00:00:00' WHERE ar.\"Identifier\" IN ("+String.join(",",java.util.Collections.nCopies(chunk.size(),"?"))+") AND ar.\"EntityID\"=1100 AND ar.\"CatalogID\"=1 AND ar.\"RevisionID\"=1 AND ar.\"DeletionTimestamp\"=TIMESTAMP '9999-12-31 00:00:00'";
+            try(java.sql.PreparedStatement p=connection.prepareStatement(sql)) {
+                for(int i=0;i<chunk.size();i++)p.setNString(i+1,chunk.get(i));p.setQueryTimeout(120);
+                try(java.sql.ResultSet r=p.executeQuery()) {
+                    while(r.next()) {
+                        String id=r.getString(1),alias=r.getString(2);
+                        if(result.containsKey(id)&&!java.util.Objects.equals(result.get(id),alias))throw new IllegalStateException("Ambiguous product alias: "+id);
+                        result.put(id,alias);
+                    }
+                }
+            } catch(java.sql.SQLException e) {throw new IllegalStateException("Could not read product alternative identifiers",e);}
+        }
+        return result;
+    }
+
+
+ public static Map<String,String> resolveDatabase(Collection<String> identifiers) {
+  if(identifiers.isEmpty())return new LinkedHashMap<>();
+  try(java.sql.Connection c=new QuickJdbcConnectionManager().openConnection(true)) {
+   c.setReadOnly(true);
+   return resolve(identifiers,ids -> getProductAlternativeIdentifiers(c,ids));
+  }catch(java.sql.SQLException e){throw new IllegalStateException("Could not resolve product alias",e);}
+ }
+}

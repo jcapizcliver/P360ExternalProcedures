@@ -1,0 +1,33 @@
+package mx.com.liverpool.p360.services.core.temp.xml.local;
+
+/** Business from source fields, never from SKU. Missing fields preserve existing data. */
+public final class StepBusinessResolver {
+    private StepBusinessResolver() {}
+    private static String normalize(String value) {
+        return value == null ? "" : value.trim().toUpperCase(java.util.Locale.ROOT).replaceAll("\\s+", " ");
+    }
+    private static boolean suburbia(String value) {
+        String s = normalize(value);
+        return s.equals("SBB SUBURBIA") || s.equals("SUBURBIA") || s.equals("SBB CATMEX") || s.equals("CATMEX");
+    }
+    private static boolean marketplace(String value) {
+        String s = normalize(value);
+        return s.equals("MARKETPLACE") || s.equals("ART. MARKETPLACE");
+    }
+    public static String resolve(String negocioCode, String negocioText, String extwgCode, String extwgText) {
+        if (suburbia(extwgCode) || suburbia(extwgText)) return "SBB";
+        if (marketplace(negocioCode) || marketplace(negocioText)) return "MKP";
+        if (normalize(negocioCode).isEmpty() && normalize(negocioText).isEmpty()
+                && normalize(extwgCode).isEmpty() && normalize(extwgText).isEmpty()) return null;
+        return "LVP";
+    }
+    public static String label(String code) {
+        if (code == null) return null;
+        switch (code) {
+            case "SBB": return "Suburbia";
+            case "MKP": return "Marketplace";
+            case "LVP": return "Liverpool";
+            default: throw new IllegalArgumentException("Unknown business: " + code);
+        }
+    }
+}

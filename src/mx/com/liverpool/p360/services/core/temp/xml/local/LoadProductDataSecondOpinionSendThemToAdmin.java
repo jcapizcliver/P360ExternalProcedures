@@ -704,7 +704,7 @@ public class LoadProductDataSecondOpinionSendThemToAdmin implements Closeable {
     		  */
     		Value extwgS4h = valMap.get("EXTWG_S4H");
     		Value negocio = valMap.get("Negocio");
-    		business = determineBusiness(negocio == null || negocio.getText() == null ? "" : negocio.getText(), extwgS4h == null || extwgS4h.getText() == null ? "" : extwgS4h.getText());
+    		business = determineBusiness(negocio == null || negocio.getText() == null ? "" : negocio.getText(), extwgS4h == null || extwgS4h.getText() == null ? "" : extwgS4h.getText(), valMap.get("Negocio") == null ? null : valMap.get("Negocio").getId(), valMap.get("EXTWG_S4H") == null ? null : valMap.get("EXTWG_S4H").getId());
     		bundle = !"".equals(calculatedWFAtt) ? computeStatus(calculatedWFAtt, !"".equals(firstDateApprove) && firstDateApprove != null ? "Aprobado" : "", fotoTomadaLiverpool) : new String[] { null, null, null };
     		currentStatus = bundle[0];
     		prevStatus = bundle[1];
@@ -943,11 +943,10 @@ public class LoadProductDataSecondOpinionSendThemToAdmin implements Closeable {
 		return url;
 	}
     
-	private String determineBusiness(String negocio, String extwgS4h) {
-		return     "".equals(negocio) 
-				&& "".equals(extwgS4h) ? null : 
-					("".equals(negocio) && !"".equals(extwgS4h) ? "SBB": "ART. MARKETPLACE".equals(negocio) ? "MKP" : "LVP" );
-	}
+	private String determineBusiness(String negocio, String extwgS4h, String negocioCode, String extwgCode) {
+        String code = mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.resolve(negocioCode, negocio, extwgCode, extwgS4h);
+        return code;
+    }
 
 	private void log(String message) {
         try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(

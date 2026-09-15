@@ -1,0 +1,521 @@
+package mx.com.liverpool.p360.services.core.amqp.run.mongo;
+
+import java.util.ArrayList;
+import java.util.List;
+
+import org.bson.Document;
+import org.bson.conversions.Bson;
+
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.model.UpdateOptions;
+
+import mx.com.liverpool.p360.services.core.amqp.run.mongo.MongoMetadataResolver.TemplateMetadata;
+import mx.com.liverpool.p360.services.core.amqp.run.mongo.P360SemanticEvent.AttributeChange;
+import mx.com.liverpool.p360.services.core.amqp.run.mongo.P360SemanticEvent.ChangeAction;
+import mx.com.liverpool.p360.services.core.amqp.run.mongo.P360SemanticEvent.EntityType;
+import mx.com.liverpool.p360.services.core.amqp.run.mongo.P360SemanticEvent.EventType;
+import mx.com.liverpool.p360.services.core.amqp.run.mongo.P360SemanticEvent.ImageChange;
+import mx.com.liverpool.p360.services.core.amqp.run.mongo.P360SemanticEvent.ParentRelationAction;
+
+import static com.mongodb.client.model.Filters.and;
+import static com.mongodb.client.model.Filters.eq;
+import static com.mongodb.client.model.Filters.ne;
+import static com.mongodb.client.model.Updates.combine;
+import static com.mongodb.client.model.Updates.pull;
+import static com.mongodb.client.model.Updates.push;
+import static com.mongodb.client.model.Updates.set;
+import static com.mongodb.client.model.Updates.setOnInsert;
+
+public class P360MongoRepository {
+
+    public enum ApplyResult {
+        APPLIED,
+        DEFERRED,
+        IGNORED
+    }
+
+    private final MongoCollection<Document> products;
+    private final MongoMetadataResolver metadata;
+    private final P360SyncStateRepository state;
+
+    public P360MongoRepository(
+            MongoCollection<Document> products,
+            MongoMetadataResolver metadata,
+            P360SyncStateRepository state) {
+        this.products = products;
+        this.metadata = metadata;
+        this.state = state;
+    }
+
+    public ApplyResult apply(P360SemanticEvent event) {
+        if (event == null || event.getEntityType() == null || event.getIdentifier() == null) {
+            return ApplyResult.IGNORED;
+        }
+
+        if (event.getEventType() == EventType.DELETED) {
+            deleteEntity(event.getEntityType(), event.getIdentifier());
+            return ApplyResult.APPLIED;
+        }
+
+        if (!event.hasSemanticChanges()) {
+            return ApplyResult.IGNORED;
+        }
+
+        if (event.getEntityType() == EntityType.PRODUCT2G) {
+            return applyProduct(event);
+        }
+        return applyArticle(event);
+    }
+
+    public void deleteEntity(EntityType entityType, String identifier) {
+        if (entityType == EntityType.PRODUCT2G) {
+            products.deleteOne(eq("pim_prod_id", identifier));
+            state.deleteEntityState(EntityType.PRODUCT2G, identifier);
+            return;
+        }
+
+        products.updateMany(
+                eq("variantes.pim_prod_id", identifier),
+                pull("variantes", new Document("pim_prod_id", identifier)));
+        state.deleteEntityState(EntityType.ARTICLE, identifier);
+    }
+
+    private ApplyResult applyProduct(P360SemanticEvent event) {
+        if (!event.hasProductPayloadChanges()) {
+            return ApplyResult.IGNORED;
+        }
+
+        ensureProduct(event.getIdentifier());
+        applyProductScalars(event);
+
+        for (AttributeChange attribute : event.getAttributes()) {
+            applyProductAttribute(event.getIdentifier(), attribute);
+        }
+
+        for (ImageChange image : event.getImages()) {
+            applyProductImage(event.getIdentifier(), image);
+        }
+
+        return ApplyResult.APPLIED;
+    }
+
+    private ApplyResult applyArticle(P360SemanticEvent event) {
+        if (event.getParentRelationAction() == ParentRelationAction.DELETE) {
+            detachArticle(event.getIdentifier(), event.getParentId());
+            return ApplyResult.APPLIED;
+        }
+
+        String parentId = resolveArticleParent(event);
+        if (parentId == null) {
+            return event.hasArticlePayloadChanges()
+                    ? ApplyResult.DEFERRED
+                    : ApplyResult.IGNORED;
+        }
+
+        Document parent = products.find(eq("pim_prod_id", parentId)).first();
+        if (parent == null) {
+            return ApplyResult.DEFERRED;
+        }
+
+        if (event.getParentRelationAction() == ParentRelationAction.UPSERT) {
+            // Si se movió a otro Product2G, no dejamos la misma variante duplicada en dos padres.
+            products.updateMany(
+                    and(eq("variantes.pim_prod_id", event.getIdentifier()), ne("pim_prod_id", parentId)),
+                    pull("variantes", new Document("pim_prod_id", event.getIdentifier())));
+        }
+
+        ensureVariant(parentId, event, parent);
+        updateVariantParentData(parentId, event.getIdentifier(), parent);
+
+        if (event.getProductName() != null) {
+            products.updateOne(
+                    and(eq("pim_prod_id", parentId), eq("variantes.pim_prod_id", event.getIdentifier())),
+                    set("variantes.$.pim_prod_nom", event.getProductName()));
+        }
+
+        for (AttributeChange attribute : event.getAttributes()) {
+            applyVariantAttribute(parentId, event.getIdentifier(), attribute);
+        }
+
+        for (ImageChange image : event.getImages()) {
+            applyVariantImage(parentId, event.getIdentifier(), image);
+        }
+
+        state.updateOwner(EntityType.ARTICLE, event.getIdentifier(), parentId);
+        return ApplyResult.APPLIED;
+    }
+
+    private void applyProductScalars(P360SemanticEvent event) {
+        List<Bson> updates = new ArrayList<>();
+
+        if (event.getProductName() != null) {
+            updates.add(set("pim_prod_nom", event.getProductName()));
+        }
+        if (event.getDescriptionLong() != null) {
+            updates.add(set("description_long", event.getDescriptionLong()));
+        }
+        if (event.getTemplateId() != null) {
+            updates.add(set("pim_plantilla_id", event.getTemplateId()));
+
+            TemplateMetadata tm = metadata.templateMetadata(event.getTemplateId());
+            updates.add(set("pim_nivel_id",
+                    tm.getLevelId() == null ? event.getTemplateId() : tm.getLevelId()));
+
+            if (tm.getTemplateName() != null) {
+                updates.add(set("pim_prod_plantilla", tm.getTemplateName()));
+            }
+            if (tm.getHierarchy() != null) {
+                updates.add(set("jerarquia", tm.getHierarchy()));
+            }
+        }
+
+        if (!updates.isEmpty()) {
+            products.updateOne(eq("pim_prod_id", event.getIdentifier()), combine(updates));
+        }
+    }
+
+    private void applyProductAttribute(String productId, AttributeChange change) {
+        applyRootFieldFromAttribute(productId, change);
+
+        Document previous = state.getAttributeSnapshot(
+                EntityType.PRODUCT2G,
+                productId,
+                change.getCharacteristic(),
+                change.getRecordKey(),
+                change.getLanguage());
+
+        Document pullCriteria = previous != null
+                ? previous
+                : fallbackAttributeCriteria(change);
+
+        if (pullCriteria != null && !pullCriteria.isEmpty()) {
+            products.updateOne(eq("pim_prod_id", productId), pull("atributos", pullCriteria));
+        }
+
+        if (change.getAction() == ChangeAction.DELETE) {
+            state.deleteAttributeSnapshot(
+                    EntityType.PRODUCT2G,
+                    productId,
+                    change.getCharacteristic(),
+                    change.getRecordKey(),
+                    change.getLanguage());
+            return;
+        }
+
+        Document current = attributeDocument(change);
+        products.updateOne(eq("pim_prod_id", productId), push("atributos", current));
+
+        state.saveAttributeSnapshot(
+                EntityType.PRODUCT2G,
+                productId,
+                productId,
+                change.getCharacteristic(),
+                change.getRecordKey(),
+                change.getLanguage(),
+                current);
+    }
+
+    private void applyVariantAttribute(String parentId, String articleId, AttributeChange change) {
+        applyVariantRootFieldFromAttribute(parentId, articleId, change);
+
+        Document previous = state.getAttributeSnapshot(
+                EntityType.ARTICLE,
+                articleId,
+                change.getCharacteristic(),
+                change.getRecordKey(),
+                change.getLanguage());
+
+        Document pullCriteria = previous != null
+                ? previous
+                : fallbackAttributeCriteria(change);
+
+        Bson variantFilter = and(
+                eq("pim_prod_id", parentId),
+                eq("variantes.pim_prod_id", articleId));
+
+        if (pullCriteria != null && !pullCriteria.isEmpty()) {
+            products.updateOne(variantFilter, pull("variantes.$.atributos", pullCriteria));
+        }
+
+        if (change.getAction() == ChangeAction.DELETE) {
+            state.deleteAttributeSnapshot(
+                    EntityType.ARTICLE,
+                    articleId,
+                    change.getCharacteristic(),
+                    change.getRecordKey(),
+                    change.getLanguage());
+            return;
+        }
+
+        Document current = attributeDocument(change);
+        products.updateOne(variantFilter, push("variantes.$.atributos", current));
+
+        state.saveAttributeSnapshot(
+                EntityType.ARTICLE,
+                articleId,
+                parentId,
+                change.getCharacteristic(),
+                change.getRecordKey(),
+                change.getLanguage(),
+                current);
+    }
+
+    private void applyProductImage(String productId, ImageChange change) {
+        Document previous = state.getImageSnapshot(
+                EntityType.PRODUCT2G,
+                productId,
+                change.getSourceCharacteristic(),
+                change.getRecordKey());
+
+        Document pullCriteria = previous != null
+                ? previous
+                : fallbackImageCriteria(change);
+
+        if (pullCriteria != null && !pullCriteria.isEmpty()) {
+            products.updateOne(eq("pim_prod_id", productId), pull("imagenes", pullCriteria));
+        }
+
+        if (change.getAction() == ChangeAction.DELETE) {
+            state.deleteImageSnapshot(
+                    EntityType.PRODUCT2G,
+                    productId,
+                    change.getSourceCharacteristic(),
+                    change.getRecordKey());
+            return;
+        }
+
+        Document current = imageDocument(change);
+        products.updateOne(eq("pim_prod_id", productId), push("imagenes", current));
+        state.saveImageSnapshot(
+                EntityType.PRODUCT2G,
+                productId,
+                productId,
+                change.getSourceCharacteristic(),
+                change.getRecordKey(),
+                current);
+    }
+
+    private void applyVariantImage(String parentId, String articleId, ImageChange change) {
+        Document previous = state.getImageSnapshot(
+                EntityType.ARTICLE,
+                articleId,
+                change.getSourceCharacteristic(),
+                change.getRecordKey());
+
+        Document pullCriteria = previous != null
+                ? previous
+                : fallbackImageCriteria(change);
+
+        Bson variantFilter = and(
+                eq("pim_prod_id", parentId),
+                eq("variantes.pim_prod_id", articleId));
+
+        if (pullCriteria != null && !pullCriteria.isEmpty()) {
+            products.updateOne(variantFilter, pull("variantes.$.imagenes", pullCriteria));
+        }
+
+        if (change.getAction() == ChangeAction.DELETE) {
+            state.deleteImageSnapshot(
+                    EntityType.ARTICLE,
+                    articleId,
+                    change.getSourceCharacteristic(),
+                    change.getRecordKey());
+            return;
+        }
+
+        Document current = imageDocument(change);
+        products.updateOne(variantFilter, push("variantes.$.imagenes", current));
+        state.saveImageSnapshot(
+                EntityType.ARTICLE,
+                articleId,
+                parentId,
+                change.getSourceCharacteristic(),
+                change.getRecordKey(),
+                current);
+    }
+
+    private void applyRootFieldFromAttribute(String productId, AttributeChange change) {
+        Object value = change.getAction() == ChangeAction.DELETE ? null : change.getValue();
+
+        if ("SKU".equals(change.getCharacteristic())) {
+            products.updateOne(eq("pim_prod_id", productId), set("pim_sku_cve", value));
+        } else if ("ProductType".equals(change.getCharacteristic())) {
+            products.updateOne(eq("pim_prod_id", productId), set("pim_prod_tipo_nom", value));
+        }
+    }
+
+    private void applyVariantRootFieldFromAttribute(String parentId, String articleId, AttributeChange change) {
+        Object value = change.getAction() == ChangeAction.DELETE ? null : change.getValue();
+        if (!"SKU".equals(change.getCharacteristic())) {
+            return;
+        }
+
+        products.updateOne(
+                and(eq("pim_prod_id", parentId), eq("variantes.pim_prod_id", articleId)),
+                set("variantes.$.pim_sku_cve", value));
+    }
+
+    private void ensureProduct(String productId) {
+        products.updateOne(
+                eq("pim_prod_id", productId),
+                combine(
+                        setOnInsert("pim_prod_id", productId),
+                        setOnInsert("pim_prod_nom", ""),
+                        setOnInsert("pim_sku_cve", ""),
+                        setOnInsert("pim_prod_plantilla", ""),
+                        setOnInsert("atributos", new ArrayList<>()),
+                        setOnInsert("imagenes", new ArrayList<>()),
+                        setOnInsert("variantes", new ArrayList<>())),
+                new UpdateOptions().upsert(true));
+    }
+
+    private void ensureVariant(String parentId, P360SemanticEvent event, Document parent) {
+        Document existingParent = products.find(and(
+                eq("pim_prod_id", parentId),
+                eq("variantes.pim_prod_id", event.getIdentifier())))
+                .projection(new Document("_id", 1))
+                .first();
+
+        if (existingParent != null) {
+            return;
+        }
+
+        Object skuFromEvent = currentAttributeValue(event, "SKU");
+        String parentSku = parent.getString("pim_sku_cve");
+
+        Document variant = new Document("pim_prod_id", event.getIdentifier())
+                .append("pim_padre_sku", parentSku)
+                .append("pim_padre_id", parentId)
+                .append("pim_prod_nom", event.getProductName())
+                .append("pim_sku_cve", skuFromEvent)
+                .append("atributos", state.listSnapshots(EntityType.ARTICLE, event.getIdentifier(), "ATTRIBUTE"))
+                .append("imagenes", state.listSnapshots(EntityType.ARTICLE, event.getIdentifier(), "IMAGE"));
+
+        products.updateOne(
+                and(eq("pim_prod_id", parentId), ne("variantes.pim_prod_id", event.getIdentifier())),
+                push("variantes", variant));
+    }
+
+    private void updateVariantParentData(String parentId, String articleId, Document parent) {
+        products.updateOne(
+                and(eq("pim_prod_id", parentId), eq("variantes.pim_prod_id", articleId)),
+                combine(
+                        set("variantes.$.pim_padre_id", parentId),
+                        set("variantes.$.pim_padre_sku", parent.get("pim_sku_cve"))));
+    }
+
+    private void detachArticle(String articleId, String parentId) {
+        if (parentId != null && !parentId.isBlank()) {
+            products.updateOne(
+                    eq("pim_prod_id", parentId),
+                    pull("variantes", new Document("pim_prod_id", articleId)));
+        } else {
+            products.updateMany(
+                    eq("variantes.pim_prod_id", articleId),
+                    pull("variantes", new Document("pim_prod_id", articleId)));
+        }
+    }
+
+    private String resolveArticleParent(P360SemanticEvent event) {
+        if (event.getParentRelationAction() == ParentRelationAction.UPSERT
+                && event.getParentId() != null
+                && !event.getParentId().isBlank()) {
+            return event.getParentId();
+        }
+
+        Document parent = products.find(eq("variantes.pim_prod_id", event.getIdentifier()))
+                .projection(new Document("pim_prod_id", 1))
+                .first();
+
+        return parent == null ? null : parent.getString("pim_prod_id");
+    }
+
+    private Document attributeDocument(AttributeChange change) {
+        Object valueId = change.getAction() == ChangeAction.CLEAR ? null : change.getValueId();
+        Object value = change.getAction() == ChangeAction.CLEAR ? null : change.getValue();
+
+        return new Document("pim_atributo_id", change.getCharacteristic())
+                .append("pim_atributo_desc", metadata.attributeDescription(change.getCharacteristic()))
+                .append("pim_atributo_val_id", valueId)
+                .append("pim_atributo_val", value);
+    }
+
+    private Document fallbackAttributeCriteria(AttributeChange change) {
+        Document criteria = new Document("pim_atributo_id", change.getCharacteristic());
+
+        if (change.getOldValueId() != null) {
+            criteria.append("pim_atributo_val_id", change.getOldValueId());
+        } else if (change.getAction() == ChangeAction.UPSERT && change.getValueId() != null) {
+            criteria.append("pim_atributo_val_id", change.getValueId());
+        }
+
+        if (change.getOldValue() != null) {
+            criteria.append("pim_atributo_val", change.getOldValue());
+        } else if (change.getAction() == ChangeAction.UPSERT && change.getValue() != null) {
+            criteria.append("pim_atributo_val", change.getValue());
+        }
+        return criteria;
+    }
+
+    private Document imageDocument(ImageChange change) {
+        if ("MiraklImage".equals(change.getType())) {
+            return new Document("tipo", "MiraklImage")
+                    .append("orden", change.getOrder())
+                    .append("url", change.getUrl())
+                    .append("pim_atributo_id", change.getSourceCharacteristic());
+        }
+
+        Document image = new Document("tipo", change.getType())
+                .append("nombre", change.getName())
+                .append("url", change.getUrl())
+                .append("estatus_id", change.getStatusId())
+                .append("estatus", change.getStatus());
+
+        if (!change.getMetadata().isEmpty()) {
+            image.append("metadatos", new Document(change.getMetadata()));
+        }
+        return image;
+    }
+
+    private Document fallbackImageCriteria(ImageChange change) {
+        if ("MiraklImage".equals(change.getType())) {
+            Document criteria = new Document("tipo", "MiraklImage")
+                    .append("orden", change.getOrder())
+                    .append("pim_atributo_id", change.getSourceCharacteristic());
+            if (change.getOldUrl() != null) {
+                criteria.append("url", change.getOldUrl());
+            } else if (change.getUrl() != null) {
+                criteria.append("url", change.getUrl());
+            }
+            return criteria;
+        }
+
+        Document criteria = new Document("tipo", change.getType());
+        if (change.getOldUrl() != null) {
+            criteria.append("url", change.getOldUrl());
+        } else if (change.getUrl() != null) {
+            criteria.append("url", change.getUrl());
+        }
+        if (change.getOldName() != null) {
+            criteria.append("nombre", change.getOldName());
+        } else if (change.getName() != null) {
+            criteria.append("nombre", change.getName());
+        }
+        if (change.getOldStatusId() != null) {
+            criteria.append("estatus_id", change.getOldStatusId());
+        } else if (change.getStatusId() != null) {
+            criteria.append("estatus_id", change.getStatusId());
+        }
+        return criteria;
+    }
+
+    private Object currentAttributeValue(P360SemanticEvent event, String characteristic) {
+        for (AttributeChange change : event.getAttributes()) {
+            if (characteristic.equals(change.getCharacteristic())
+                    && change.getAction() != ChangeAction.DELETE) {
+                return change.getAction() == ChangeAction.CLEAR ? null : change.getValue();
+            }
+        }
+        return null;
+    }
+}

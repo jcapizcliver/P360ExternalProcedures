@@ -15,7 +15,7 @@ import mx.com.liverpool.p360.services.core.net.DataRequestor;
 
 public class GetAttributeValuesForo implements Closeable {
 
-	private static final RESTWrapper rw = new RESTWrapper();
+	private final RESTWrapper rw = new RESTWrapper();
 	private static final Logger LOGGER = Logger.getLogger(GetAttributeValuesForo.class.getName());
 	private static final Object ATTRIBUTE_GROUPS_LOCK = new Object();
 	private static volatile boolean attributeGroupsLoaded = false;
@@ -109,7 +109,7 @@ public class GetAttributeValuesForo implements Closeable {
 	}
 
 	public GetAttributeValuesForo() {
-		ensureAttributeGroups();
+		try { ensureAttributeGroups(); } catch (RuntimeException | Error e) { dastub.close(); throw e; }
 	}
 
 	private void ensureAttributeGroups() {
@@ -507,12 +507,7 @@ public class GetAttributeValuesForo implements Closeable {
 										variantEAN));
 				}
 
-				log(
-					"Elesecau: "
-					+ externalVariantId
-					+ " <::>"
-					+ losesos
-					+ "<::>");
+				// Per-variant payload logging removed: summaries are emitted per read batch.
 
 				if (losesos != null
 						&& losesos.contains(
@@ -631,11 +626,7 @@ public class GetAttributeValuesForo implements Closeable {
 							product,
 							"PrimaryProductTaxonomy"));
 
-			log(
-				"# "
-				+ id
-				+ " Preparing: "
-				+ response);
+			// Do not serialize the full response merely to write a log.
 
 			responses.add(response);
 		}
@@ -1284,6 +1275,9 @@ public class GetAttributeValuesForo implements Closeable {
 			case 1030: return "Rechazo Category";
 			case 1031: return "Repoblamiento";
 			case 1032: return "Excepción de Catalogación";
+			case 2001: return "Aceptado";
+			case 2002: return "Aceptado con ajustados";
+			case 2003: return "Placeholder en Revisión";
 			case 10031: return "Borrador";
 			default: return "Desconocido";
 		}
@@ -1423,7 +1417,7 @@ public class GetAttributeValuesForo implements Closeable {
 		org.json.JSONObject generalResponse = null;
 		org.json.JSONObject request;
 		try {
-			log("Parsing: " + rawRequest);
+			log("Request characters=" + rawRequest.length());
 			org.json.JSONObject hola = new org.json.JSONObject(rawRequest);
 			request = hola.has("root") ? hola.getJSONObject("root") : hola;
 		} catch (org.json.JSONException e) {
@@ -1475,50 +1469,30 @@ public class GetAttributeValuesForo implements Closeable {
 				}
 			}
 
-			/*
-			 * Phase 2: one bulk read for every product in this request, one bulk
-			 * relation read, and one bulk read for every variant. DBAccessDataStub
-			 * handles Oracle IN-list chunking internally, so query count grows by
-			 * chunks, never by product or variant.
-			 */
-			java.util.Set<String> productIdentifiers =
-					new java.util.LinkedHashSet<>(readyProducts.keySet());
-
-			log("Bulk loading " + productIdentifiers.size() + " Product2G entities from DB...");
-			java.util.Map<String, org.json.JSONObject> productsById =
-					dastub.getEntityData(1100, productIdentifiers);
-
-			java.util.Map<String, java.util.Set<String>> variantsByProduct =
-					dastub.getProductVariants(productIdentifiers);
-
-			java.util.Set<String> allVariantIdentifiers =
-					new java.util.LinkedHashSet<>();
-			for (java.util.Set<String> productVariants : variantsByProduct.values()) {
-				if (productVariants != null) {
-					allVariantIdentifiers.addAll(productVariants);
-				}
-			}
-
-			log("Bulk loading " + allVariantIdentifiers.size() + " Article entities from DB...");
-			java.util.Map<String, org.json.JSONObject> variantsById =
-					dastub.getEntityData(1000, allVariantIdentifiers);
-
-			java.util.concurrent.ArrayBlockingQueue<Object[]> tasks =
-					new java.util.concurrent.ArrayBlockingQueue<>(Math.max(1, readyProducts.size()));
-			for (java.util.Map.Entry<String, java.util.Set<String>> entry : readyProducts.entrySet()) {
-				tasks.add(new Object[] { entry.getKey(), entry.getValue() });
-			}
-
-			new Worker(
-					1,
-					tasks,
-					productsById,
-					variantsByProduct,
-					variantsById).run();
+            // Bound raw entity graphs to a batch; every requested family is processed.
+            java.util.List<String> identifiers = new java.util.ArrayList<>(readyProducts.keySet());
+            int batchSize = Math.max(1, Integer.getInteger("p360.foro.read.batch", 900));
+            for (int offset = 0; offset < identifiers.size(); offset += batchSize) {
+                java.util.Set<String> productIdentifiers = new java.util.LinkedHashSet<>(
+                        identifiers.subList(offset, Math.min(offset + batchSize, identifiers.size())));
+                java.util.Map<String, org.json.JSONObject> productsById = dastub.getEntityData(1100, productIdentifiers);
+                java.util.Map<String, java.util.Set<String>> variantsByProduct = dastub.getProductVariants(productIdentifiers);
+                java.util.Set<String> variantIdentifiers = new java.util.LinkedHashSet<>();
+                for (java.util.Set<String> variants : variantsByProduct.values())
+                    if (variants != null) variantIdentifiers.addAll(variants);
+                java.util.Map<String, org.json.JSONObject> variantsById = dastub.getEntityData(1000, variantIdentifiers);
+                java.util.concurrent.ArrayBlockingQueue<Object[]> tasks =
+                        new java.util.concurrent.ArrayBlockingQueue<>(Math.max(1, productIdentifiers.size()));
+                for (String identifier : productIdentifiers) tasks.add(new Object[] { identifier, readyProducts.get(identifier) });
+                new Worker(1, tasks, productsById, variantsByProduct, variantsById).run();
+                LOGGER.info("FORO_BATCH products=" + productIdentifiers.size() + " variants=" + variantIdentifiers.size()
+                        + " completed=" + Math.min(offset + batchSize, identifiers.size()) + "/" + identifiers.size());
+                productsById.clear(); variantsByProduct.clear(); variantsById.clear();
+            }
 
 			org.json.JSONArray result = new org.json.JSONArray();
-			for (org.json.JSONObject j : responses) result.put(j);
-			log("Done. " + rw.getRw().formatTime(System.currentTimeMillis() - init));
+			for (org.json.JSONObject j; (j = responses.poll()) != null;) result.put(j);
+			LOGGER.info("FORO_COMPLETE results=" + result.length() + " elapsedMs=" + (System.currentTimeMillis() - init));
 			return result;
 		} catch (Exception e) {
 			logE(e);
@@ -1529,7 +1503,7 @@ public class GetAttributeValuesForo implements Closeable {
 	}
 
 	private void log(Object message) {
-		LOGGER.info(String.valueOf(message));
+		if (Boolean.getBoolean("p360.foro.verbose")) LOGGER.info(String.valueOf(message));
 	}
 
 	private void logE(Exception ex) {
@@ -1544,5 +1518,6 @@ public class GetAttributeValuesForo implements Closeable {
 	@Override
 	public void close() throws IOException {
 		dastub.close();
+		responses.clear();
 	}
 }

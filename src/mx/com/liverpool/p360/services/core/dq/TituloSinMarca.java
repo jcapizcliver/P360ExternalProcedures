@@ -20,7 +20,8 @@ public class TituloSinMarca extends RESTDQRuleImpl{
 			brandName = getCharacteristicValue( sourceData.get("BRAND_ID_S4H") );
 		}
 		if(brandName != null && !"".equals(brandName) && productName != null && !productName.isEmpty()) {
-			String sinMarca = removeBrandIgnoreCaseAndAccents(productName, brandName); // productName.replaceFirst("(?iu)(?<![\\p{L}])" + java.util.regex.Pattern.quote(brandName) + "(?![\\p{L}])", "").replaceAll(" {2,}", " ").trim();
+			String sinMarca = TitleText.withoutBrand(productName, brandName);
+			if (sinMarca.isEmpty()) return; // productName.replaceFirst("(?iu)(?<![\\p{L}])" + java.util.regex.Pattern.quote(brandName) + "(?![\\p{L}])", "").replaceAll(" {2,}", " ").trim();
 			records.put(
 					createCharacteristicValueObject("TituloSinMarca", sinMarca)
 				);

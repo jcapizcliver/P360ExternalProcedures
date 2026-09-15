@@ -7,17 +7,19 @@ import org.json.*;
 
 /** Coalesces identical in-flight batches without rejecting independent requests. */
 public final class ForoRequestGate {
-    private static final ConcurrentHashMap<String,CompletableFuture<String>> RUNNING=new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String,CompletableFuture<Object>> RUNNING=new ConcurrentHashMap<>();
     private ForoRequestGate() { }
-    public static String execute(String input,Callable<String> action)throws Exception {
-        String key=Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-256").digest(canonical(new JSONObject(input)).getBytes(StandardCharsets.UTF_8)));
-        CompletableFuture<String> mine=new CompletableFuture<>(),existing=RUNNING.putIfAbsent(key,mine);
+    public static String execute(String input,Callable<String> action)throws Exception { return (String) executeValue("string:",input,action); }
+    public static Object executeJson(String input,Callable<Object> action)throws Exception { return executeValue("json:",input,action); }
+    private static Object executeValue(String prefix,String input,Callable<?> action)throws Exception {
+        String key=prefix+Base64.getEncoder().encodeToString(MessageDigest.getInstance("SHA-256").digest(canonical(new JSONObject(input)).getBytes(StandardCharsets.UTF_8)));
+        CompletableFuture<Object> mine=new CompletableFuture<>(),existing=RUNNING.putIfAbsent(key,mine);
         if(existing!=null) {
             try{return existing.get();}
             catch(ExecutionException e){throw new IllegalStateException("Shared request failed",e.getCause());}
         }
         try {
-            String result=action.call();mine.complete(result);return result;
+            Object result=action.call();mine.complete(result);return result;
         } catch(Exception e){mine.completeExceptionally(e);throw e;}
         catch(Error e){mine.completeExceptionally(e);throw e;}
         finally {RUNNING.remove(key,mine);}

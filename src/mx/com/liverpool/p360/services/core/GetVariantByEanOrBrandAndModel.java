@@ -11,6 +11,20 @@ public class GetVariantByEanOrBrandAndModel {
 	private final RestClient rc = new RestClient();
 	private String input;
 
+	private final ELog el = new ELog() {
+		@Override
+		public void logE(Exception e) {
+			GetVariantByEanOrBrandAndModel.logE(e);
+		}
+
+		@Override
+		public void log(String message) {
+			GetVariantByEanOrBrandAndModel.this.log(message);
+		}
+	};
+
+	private final DBAccessDataStub dastub = new DBAccessDataStub(el);
+
 	public GetVariantByEanOrBrandAndModel(String baseUrl) {
 		this.baseUrl = baseUrl;
 		listAPIArticlebySearchURL = baseUrl + "/list/Article/bySearch?query=";
@@ -48,11 +62,13 @@ public class GetVariantByEanOrBrandAndModel {
 		String descripcionArticuloEs = null;
 		String descripcionArticuloEn = null;
 		String ean = null;
+		String requestedEan = null;
 		String negocio = null;
 		String sku = null;
 		String urlImagenPrincipal = null;
 		String message = null;
 		String[] productData = null;
+		org.json.JSONObject catalogOnlyResult = null;
 		int successCode = 0;
 
 		org.json.JSONObject theFinalResponse = new org.json.JSONObject();
@@ -85,8 +101,21 @@ public class GetVariantByEanOrBrandAndModel {
 				message = "";
 				successCode = 0;
 				varianteId = null;
+				propuestaId = null;
+				plantilla = null;
+				nombrePlantilla = null;
+				nombreArticuloEs = null;
+				nombreArticuloEn = null;
+				descripcionArticuloEs = null;
+				descripcionArticuloEn = null;
+				negocio = null;
+				sku = null;
+				urlImagenPrincipal = null;
+				productData = null;
+				catalogOnlyResult = null;
 				json = rows.getJSONObject(i);
 				ean = json.has("ean") ? json.getString("ean") : null;
+				requestedEan = ean;
 				marca = json.has("brand") ? json.getString("brand") : null;
 				modelo = json.has("model") ? json.getString("model") : null;
 
@@ -130,12 +159,132 @@ public class GetVariantByEanOrBrandAndModel {
 							successCode = 1;
 						} else {
 							successCode = 0;
-							message = "Ninguna variante ha sido creada con el EAN: '" + ean + "'. ";
+
+							/*
+							 * El EAN puede existir en el catalogo maestro aun cuando ya no
+							 * este poblado en Article.EAN/Product2G.EAN. En ese caso usamos
+							 * TC_EAN_NEGOCIO para traducir EAN -> SKU y volvemos a buscar
+							 * el Article real por SKU, manteniendo el mismo contrato de salida.
+							 */
+							java.util.List<org.json.JSONObject> catalogEntries =
+									dastub.getEanCatalogEntries(ean);
+
+							if (!catalogEntries.isEmpty()) {
+								log("EAN " + ean + " found in TC_EAN_NEGOCIO with "
+										+ catalogEntries.size() + " active relation(s).");
+
+								boolean foundByCatalogSku = false;
+
+								for (org.json.JSONObject catalogEntry : catalogEntries) {
+									String catalogSku = catalogEntry.optString("SKU", "");
+									String catalogBusiness = catalogEntry.optString("NEGOCIO", "");
+									String catalogItemGroup = catalogEntry.optString("ITEMGROUP", "");
+
+									if (catalogSku.isBlank()) {
+										continue;
+									}
+
+									log("TC_EAN_NEGOCIO fallback: EAN=" + ean
+											+ ", SKU=" + catalogSku
+											+ ", NEGOCIO=" + catalogBusiness
+											+ ", ITEMGROUP=" + catalogItemGroup);
+
+									long numericCatalogSku;
+									try {
+										numericCatalogSku = Long.parseLong(catalogSku);
+									} catch (NumberFormatException invalidCatalogSku) {
+										log("TC_EAN_NEGOCIO fallback skipped invalid numeric SKU: " + catalogSku);
+										continue;
+									}
+
+									long catalogInit = System.currentTimeMillis();
+									rawResponse = this.rc.getRequest("GET", listAPIArticlebySearchURL
+											+ java.net.URLEncoder.encode(
+													"Article.SKU = " + numericCatalogSku,
+													"UTF-8")
+											+ "&fields="
+											+ java.net.URLEncoder.encode(articleCharacteristicsToFind, "UTF-8"),
+											null, headers);
+
+									log("By TC_EAN_NEGOCIO SKU search on article: "
+											+ rw.getRw().formatTime(System.currentTimeMillis() - catalogInit));
+
+									JSONObject catalogResponse = new JSONObject(rawResponse);
+
+									if (catalogResponse.getInt("rowCount") <= 0) {
+										continue;
+									}
+
+									org.json.JSONArray values = catalogResponse
+											.getJSONArray("rows")
+											.getJSONObject(0)
+											.getJSONArray("values");
+
+									varianteId = values.getString(0);
+									plantilla = values.getJSONArray(1).getString(0);
+									nombrePlantilla = values.getJSONArray(2).getString(0);
+									nombreArticuloEn = values.getString(3);
+									nombreArticuloEs = values.getString(4);
+									descripcionArticuloEn = values.getString(5);
+									descripcionArticuloEs = values.getString(6);
+
+									String articleEan = values.getString(7);
+									ean = articleEan == null || articleEan.isBlank()
+											? requestedEan
+											: articleEan;
+
+									String articleBusiness = values.getString(8);
+									negocio = articleBusiness == null || articleBusiness.isBlank()
+											? toP360Business(catalogBusiness)
+											: articleBusiness;
+
+									sku = values.getString(9);
+									urlImagenPrincipal = values.getString(10);
+									successCode = 1;
+									message = "";
+									foundByCatalogSku = true;
+									break;
+								}
+
+								if (!foundByCatalogSku) {
+									org.json.JSONObject firstCatalogEntry = catalogEntries.get(0);
+									String catalogSku = firstCatalogEntry.optString("SKU", "");
+									String catalogBusiness = firstCatalogEntry.optString("NEGOCIO", "");
+									String catalogItemGroup = firstCatalogEntry.optString("ITEMGROUP", "");
+
+									message = "El EAN '" + requestedEan
+											+ "' existe en TC_EAN_NEGOCIO, pero no existe una variante activa en P360 para sus SKU asociados.";
+
+									catalogOnlyResult = new org.json.JSONObject()
+											.put("urlImagenPrincipal", "")
+											.put("sku", catalogSku)
+											.put("negocio", java.util.Objects.toString(toP360Business(catalogBusiness), ""))
+											.put("ean", requestedEan)
+											.put("descripcionArticuloEn", "")
+											.put("descripcionArticuloEs", "")
+											.put("nombreArticuloEn", "")
+											.put("nombreArticuloEs", "")
+											.put("varianteId", org.json.JSONObject.NULL)
+											.put("propuestaId", org.json.JSONObject.NULL)
+											.put("nombrePlantilla", "")
+											.put("plantilla", "")
+											.put("itemGroup", catalogItemGroup)
+											.put("source", "TC_EAN_NEGOCIO")
+											.put("status", "EAN catalogado sin variante activa en P360")
+											.put("message", message);
+
+									log("Returning TC_EAN_NEGOCIO-only result: " + catalogOnlyResult.toString());
+								}
+							} else {
+								message = "Ninguna variante ha sido creada con el EAN: '" + ean + "'. ";
+							}
 						}
 					}
 
-					if (marca != null && !"".equals(marca) && modelo != null && !"".equals(modelo)
-							&& successCode != 1) {
+					if (marca != null && !"".equals(marca)
+							&& modelo != null && !"".equals(modelo)
+							&& successCode != 1
+							&& catalogOnlyResult == null) {
 						/*
 						log("busqueda por marca y modelo");
 						long init = System.currentTimeMillis();
@@ -166,7 +315,6 @@ public class GetVariantByEanOrBrandAndModel {
 							successCode = 1;
 						}
 						 */
-					} else {
 						successCode = 0;
 						message = java.net.URLEncoder.encode(message + "Ninguna variante ha sido creada con la marca: '"
 								+ marca + "' y modelo: '" + modelo + "'.", "UTF-8");
@@ -174,7 +322,14 @@ public class GetVariantByEanOrBrandAndModel {
 				}
 
 				if (varianteId == null && propuestaId == null) {
-					responses.put(new JSONObject().put("status", "Not found").put("message", message));
+					if (catalogOnlyResult != null) {
+						responses.put(catalogOnlyResult);
+					} else {
+						responses.put(
+								new JSONObject()
+										.put("status", "Not found")
+										.put("message", message));
+					}
 					log(responses.toString());
 				} else {
 					JSONObject jsonRes = new org.json.JSONObject();
@@ -198,6 +353,29 @@ public class GetVariantByEanOrBrandAndModel {
 		log(theFinalResponse.toString());
 		return theFinalResponse.toString();
 
+	}
+
+	private String toP360Business(String negocio) {
+		if (negocio == null) {
+			return null;
+		}
+
+		String normalized = negocio.trim();
+		if (normalized.isEmpty()) {
+			return null;
+		}
+
+		switch (normalized.toUpperCase(java.util.Locale.ROOT)) {
+		case "REGULAR":
+		case "DUTY FREE":
+			return "Liverpool";
+		case "MARKETPLACE":
+			return "Marketplace";
+		case "SUBURBIA":
+			return "Suburbia";
+		default:
+			return normalized;
+		}
 	}
 
 	private String[] micosito(String baseUrl, String ean, String brand, String model) {

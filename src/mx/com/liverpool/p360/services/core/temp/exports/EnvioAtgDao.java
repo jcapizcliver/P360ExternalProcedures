@@ -104,34 +104,19 @@ public final class EnvioAtgDao {
             String xml
     ) throws java.sql.SQLException {
 
+        // Keep the audit row and generated ID, without retaining the XML payload.
         String sql =
             "insert into P360_EXPLOIT.TB_ENVIO_ATG_XML(\"pépele\", \"EnvioATGExecID\", \"CreationTime\") " +
-            "values (XMLTYPE(?), ?, systimestamp)";
-
-        java.sql.Clob xmlClob = null;
+            "values (NULL, ?, systimestamp)";
 
         try (java.sql.PreparedStatement ps = con.prepareStatement(sql, new String[] {"ID"})) {
-            xmlClob = con.createClob();
-            xmlClob.setString(1, xml);
-
-            ps.setClob(1, xmlClob);
-            ps.setLong(2, envioAtgExecId);
-
+            ps.setLong(1, envioAtgExecId);
             ps.executeUpdate();
-
             try (java.sql.ResultSet rs = ps.getGeneratedKeys()) {
                 if (!rs.next()) {
                     throw new java.sql.SQLException("No se obtuvo ID generado para P360_EXPLOIT.TB_ENVIO_ATG_XML");
                 }
-
                 return rs.getLong(1);
-            }
-        } finally {
-            if (xmlClob != null) {
-                try {
-                    xmlClob.free();
-                } catch (Exception ignored) {
-                }
             }
         }
     }

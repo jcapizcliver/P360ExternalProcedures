@@ -143,7 +143,11 @@ public class ConsistenciaP360EUC {
 	
 	private String getStatusLabel(String key) {
 		return 
-			  "1001".equals(key) ? "Propuesta Generada"
+			  "2001".equals(key) ? "Aceptado"
+			: "2002".equals(key) ? "Aceptado con ajustados"
+			: "2003".equals(key) ? "Placeholder en Revisión"
+			: "10031".equals(key) ? "Borrador"
+			: "1001".equals(key) ? "Propuesta Generada"
 			: "1002".equals(key) ? "Pendiente Inicio Enriquecimiento"
 			: "1003".equals(key) ? "Revisi\u00f3n Compras"
 			: "1004".equals(key) ? "Carga de Imagen"

@@ -1,0 +1,33 @@
+package mx.com.liverpool.p360.services.core;
+
+import java.sql.*;
+import java.util.*;
+
+/** Coordinates only cooperating ingestion/consolidation writers, across JVMs and hosts. */
+public final class SkuCoordinationLock implements AutoCloseable {
+    private final Connection connection;
+    public SkuCoordinationLock(Connection connection, Collection<String> skus) throws SQLException {
+        this.connection=connection;
+        try {
+            SortedSet<String> ordered=new TreeSet<>();
+            for(String sku:skus) if(sku!=null&&!sku.isBlank()) ordered.add(normalize(sku));
+            connection.setAutoCommit(true);
+            // Seed committed lock keys before acquiring any locks; never leave a partial lock set on error.
+            try(PreparedStatement p=connection.prepareStatement("INSERT INTO P360_EXPLOIT.CONCILIACION_SKU_LOCK(SKU) SELECT ? FROM dual WHERE NOT EXISTS(SELECT 1 FROM P360_EXPLOIT.CONCILIACION_SKU_LOCK WHERE SKU=?)")) {
+                p.setQueryTimeout(900);
+                for(String sku:ordered) {p.setString(1,sku);p.setString(2,sku);try {p.executeUpdate();}catch(SQLException e){if(e.getErrorCode()!=1)throw e;}}
+            }
+            connection.setAutoCommit(false);
+            try(PreparedStatement p=connection.prepareStatement("SELECT SKU FROM P360_EXPLOIT.CONCILIACION_SKU_LOCK WHERE SKU=? FOR UPDATE WAIT 900")) {
+                p.setQueryTimeout(900);
+                for(String sku:ordered) {p.setString(1,sku);try(ResultSet r=p.executeQuery()){if(!r.next())throw new SQLException("Missing SKU coordination key");}}
+            }
+        } catch(SQLException|RuntimeException e) {try {connection.rollback();}catch(Exception ignored){}try {connection.close();}catch(Exception ignored){}throw e;}
+    }
+    public static String normalize(String sku) {
+        if(sku==null||sku.isBlank())return "";
+        String s=sku.trim();if(!s.matches("[0-9]+"))throw new IllegalArgumentException("Invalid numeric SKU: "+s);
+        return new java.math.BigInteger(s).toString();
+    }
+    public void close() throws SQLException {try {connection.rollback();}finally {connection.close();}}
+}

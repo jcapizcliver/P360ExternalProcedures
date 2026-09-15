@@ -553,12 +553,18 @@ public class AnotherXMLHandlerCalculateBusiness {
     	org.json.JSONArray rowValues = new org.json.JSONArray();
 		org.json.JSONObject row = new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + product.getId() + "'@1")).put("values", rowValues);
 		rowsP.put(row);
-		rowValues.put( determineBusiness(negocio, extwgS4h) );
+		String negocioCode = null, extwgCode = null;
+        if (product.getValues() != null) for (Value value : product.getValues()) {
+            if ("Negocio".equals(value.getAttributeId())) negocioCode = value.getId();
+            if ("EXTWG_S4H".equals(value.getAttributeId())) extwgCode = value.getId();
+        }
+        rowValues.put(determineBusiness(negocio, extwgS4h, negocioCode, extwgCode));
     }
 	
-	private Object determineBusiness(String negocio, String extwgS4h) {
-		return "".equals(negocio) && "".equals(extwgS4h) ? null : new org.json.JSONObject().put("id", "'" + ("".equals(negocio) && !"".equals(extwgS4h) ? "SBB": "MARKETPLACE".equals(negocio) ? "MKP" : "LVP") + "'@'BusinessQualified'" );
-	}
+	private Object determineBusiness(String negocio, String extwgS4h, String negocioCode, String extwgCode) {
+        String code = mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.resolve(negocioCode, negocio, extwgCode, extwgS4h);
+        return code == null ? null : new org.json.JSONObject().put("id", "'" + code + "'@'BusinessQualified'");
+    }
 	
 	private Object formatPlainValue(String characteristic, String value, String dataType) {
 		if("DATETIME".equals(dataType)) {

@@ -575,6 +575,9 @@ public class P360SplitMacroPlanBuilder {
             " WHEN 1024 THEN 'Rechazo Publicación'" +
             " WHEN 1025 THEN 'Eliminada'" +
             " WHEN 1026 THEN 'En Proceso Foro'" +
+            " WHEN 2001 THEN 'Aceptado'" +
+            " WHEN 2002 THEN 'Aceptado con ajustados'" +
+            " WHEN 2003 THEN 'Placeholder en Revisión'" +
             " WHEN 10031 THEN 'Borrador'" +
             " WHEN 1027 THEN 'Rechazo Compras'" +
             " WHEN 1028 THEN 'Rechazo QA'" +

@@ -1,0 +1,75 @@
+package mx.com.liverpool.p360.services.core.amqp.run.mongo;
+
+import org.bson.Document;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+
+public final class P360SyncFactory {
+
+    public static final String DEFAULT_ATTRIBUTES_COLLECTION = "atributos_canonicos";
+    public static final String DEFAULT_TEMPLATES_COLLECTION = "plantillas";
+    public static final String DEFAULT_PENDING_COLLECTION = "p360_sync_pending";
+    public static final String DEFAULT_STATE_COLLECTION = "p360_sync_state";
+
+    private P360SyncFactory() {
+    }
+
+    /**
+     * IMPORTANTE: este factory NO crea ni cierra MongoClient.
+     * El dueño del MongoClient debe ser el proceso de larga duración
+     * (P360ActiveMQBPMStage) y reutilizarlo para todos los mensajes.
+     */
+    public static P360SyncService create(
+            MongoClient mongoClient,
+            String databaseName,
+            String productsCollection) {
+
+        return create(
+                mongoClient,
+                databaseName,
+                productsCollection,
+                DEFAULT_ATTRIBUTES_COLLECTION,
+                DEFAULT_TEMPLATES_COLLECTION,
+                DEFAULT_PENDING_COLLECTION,
+                DEFAULT_STATE_COLLECTION);
+    }
+
+    public static P360SyncService create(
+            MongoClient mongoClient,
+            String databaseName,
+            String productsCollection,
+            String attributesCollection,
+            String templatesCollection,
+            String pendingCollection,
+            String stateCollection) {
+
+        if (mongoClient == null) {
+            throw new IllegalArgumentException("mongoClient es requerido");
+        }
+
+        MongoDatabase database = mongoClient.getDatabase(databaseName);
+
+        MongoCollection<Document> products = database.getCollection(productsCollection);
+        MongoCollection<Document> attributes = database.getCollection(attributesCollection);
+        MongoCollection<Document> templates = database.getCollection(templatesCollection);
+        MongoCollection<Document> pending = database.getCollection(pendingCollection);
+        MongoCollection<Document> state = database.getCollection(stateCollection);
+
+        MongoMetadataResolver metadataResolver = new MongoMetadataResolver(attributes, templates);
+        P360SyncStateRepository stateRepository = new P360SyncStateRepository(state);
+        P360PendingEventRepository pendingRepository = new P360PendingEventRepository(pending);
+        P360MongoRepository mongoRepository = new P360MongoRepository(
+                products,
+                metadataResolver,
+                stateRepository);
+
+        return new P360SyncService(
+                new ObjectMapper(),
+                new P360ChangeSummaryParser(),
+                mongoRepository,
+                pendingRepository);
+    }
+}

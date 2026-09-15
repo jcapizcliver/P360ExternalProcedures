@@ -113,7 +113,7 @@ public final class StepWriterPipeline {
         void accept(Product product) {
             if (!isRootProduct(product)) return;
             Map<String, Value> values = product.getValueMap();
-            String business = determineBusiness(text(values.get("Negocio")), text(values.get("EXTWG_S4H")));
+            String business = determineBusiness(text(values.get("Negocio")), text(values.get("EXTWG_S4H")), values.get("Negocio") == null ? null : values.get("Negocio").getId(), values.get("EXTWG_S4H") == null ? null : values.get("EXTWG_S4H").getId());
             String ean = text(values.get("MainBarCode"));
             if (ean.isEmpty()) ean = text(values.get("MainBarCodeS4H"));
             request.addRow(row(product.getId(), new JSONArray()
@@ -556,12 +556,9 @@ public final class StepWriterPipeline {
         return value == null ? "" : value.idOrText();
     }
 
-    private String determineBusiness(String negocio, String extwgS4h) {
-        return negocio.isEmpty() && extwgS4h.isEmpty()
-                ? null
-                : (negocio.isEmpty() && !extwgS4h.isEmpty()
-                        ? "SBB"
-                        : "ART. MARKETPLACE".equals(negocio) ? "MKP" : "LVP");
+    private String determineBusiness(String negocio, String extwgS4h, String negocioCode, String extwgCode) {
+        String code = mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.resolve(negocioCode, negocio, extwgCode, extwgS4h);
+        return code;
     }
 
     private void log(String message) {

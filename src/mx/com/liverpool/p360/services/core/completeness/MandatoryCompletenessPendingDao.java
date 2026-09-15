@@ -43,30 +43,54 @@ public final class MandatoryCompletenessPendingDao {
     }
 
     public void enqueue(MandatoryCompletenessChange change) throws SQLException {
-        long[] quota = lockQuota();
-        Pending previous = null;
-        try (var s = c.prepareStatement("select * from " + TABLE + " where ENTITY_TYPE=? and ENTITY_IDENTIFIER=?")) {
-            key(s, change, 1);
-            try (var r = s.executeQuery()) { if (r.next()) previous = read(r); }
-        }
-        if (previous != null) {
-            change = change.merge(previous.change());
-            try (var s = c.prepareStatement("update " + TABLE + " set CHANGE_VERSION=CHANGE_VERSION+1,"
-                    + "FORCE_RECALC=?,CHARACTERISTICS=?,PAGE_CURSOR=0,UPDATED_AT=SYSTIMESTAMP,"
-                    + "NEXT_ATTEMPT=least(NEXT_ATTEMPT,SYSTIMESTAMP),ATTEMPTS=0,LAST_ERROR=null "
-                    + "where ENTITY_TYPE=? and ENTITY_IDENTIFIER=?")) {
-                s.setInt(1, change.force() ? 1 : 0);
-                s.setString(2, new JSONArray(change.characteristics()).toString());
-                key(s, change, 3); s.executeUpdate();
+        // Existing invalidations do not alter capacity. Lock only this identifier and use a version predicate rather
+        // than serializing all consumers on the quota row. Caller commits before ACK.
+        for (int attempt=0; attempt<4; attempt++) {
+            Pending previous = find(change);
+            if (previous != null) {
+                if (mergeExisting(change, previous)) return;
+                continue; // A concurrent intake or worker changed/deleted this version.
             }
-        } else {
-            if (quota[0] >= quota[1]) throw new SQLException("Mandatory pending capacity reached; JMS message remains unacknowledged", "MCFULL");
-            try (var s = c.prepareStatement("insert into " + TABLE
+            long[] quota = lockQuota();
+            // Inserts/deletes share the quota lock. Recheck after acquiring it.
+            previous = find(change);
+            if (previous != null) {
+                if (mergeExisting(change, previous)) return;
+                continue;
+            }
+            if (quota[0] >= quota[1]) throw new SQLException(
+                    "Mandatory pending capacity reached; JMS message remains unacknowledged", "MCFULL");
+            try (var st = c.prepareStatement("insert into " + TABLE
                     + " (ENTITY_TYPE,ENTITY_IDENTIFIER,FORCE_RECALC,CHARACTERISTICS) values (?,?,?,?)")) {
-                key(s, change, 1); s.setInt(3, change.force() ? 1 : 0);
-                s.setString(4, new JSONArray(change.characteristics()).toString()); s.executeUpdate();
+                st.setQueryTimeout(15);
+                key(st, change, 1); st.setInt(3, change.force() ? 1 : 0);
+                st.setString(4, new JSONArray(change.characteristics()).toString()); st.executeUpdate();
             }
             count(1);
+            return;
+        }
+        throw new SQLException("Concurrent pending changes; retry before JMS acknowledgement", "40001");
+    }
+
+    private Pending find(MandatoryCompletenessChange change) throws SQLException {
+        try (var st = c.prepareStatement("select * from " + TABLE
+                + " where ENTITY_TYPE=? and ENTITY_IDENTIFIER=? for update wait 5")) {
+            st.setQueryTimeout(15); key(st, change, 1);
+            try (var r = st.executeQuery()) { return r.next() ? read(r) : null; }
+        }
+    }
+
+    private boolean mergeExisting(MandatoryCompletenessChange incoming, Pending previous) throws SQLException {
+        MandatoryCompletenessChange merged = incoming.merge(previous.change());
+        try (var st = c.prepareStatement("update " + TABLE + " set CHANGE_VERSION=CHANGE_VERSION+1,"
+                + "FORCE_RECALC=?,CHARACTERISTICS=?,PAGE_CURSOR=0,UPDATED_AT=SYSTIMESTAMP,"
+                + "NEXT_ATTEMPT=least(NEXT_ATTEMPT,SYSTIMESTAMP),ATTEMPTS=0,LAST_ERROR=null "
+                + "where ENTITY_TYPE=? and ENTITY_IDENTIFIER=? and CHANGE_VERSION=?")) {
+            st.setQueryTimeout(15);
+            st.setInt(1, merged.force() ? 1 : 0);
+            st.setString(2, new JSONArray(merged.characteristics()).toString());
+            key(st, incoming, 3); st.setLong(5, previous.version());
+            return st.executeUpdate() == 1;
         }
     }
 
@@ -84,6 +108,26 @@ public final class MandatoryCompletenessPendingDao {
         lockQuota();
         try (var s = c.prepareStatement("delete from " + TABLE + " where ENTITY_TYPE=? and ENTITY_IDENTIFIER=? and CHANGE_VERSION=?")) {
             key(s, p.change(), 1); s.setLong(3, p.version()); count(-s.executeUpdate());
+        }
+    }
+
+    /** Same version guard and quota transaction as complete(), one lock/counter update for the batch. */
+    public void completeBatch(List<Pending> rows) throws SQLException {
+        if (rows.isEmpty()) return;
+        lockQuota();
+        try (var s = c.prepareStatement("delete from " + TABLE + " where ENTITY_TYPE=? and ENTITY_IDENTIFIER=? and CHANGE_VERSION=?")) {
+            s.setQueryTimeout(30);
+            for (Pending p : rows) {
+                key(s, p.change(), 1); s.setLong(3, p.version()); s.addBatch();
+            }
+            int[] results=s.executeBatch();
+            if(results.length!=rows.size())throw new SQLException("Incomplete pending completion batch");
+            int removed=0;
+            for(int result:results){
+                if(result<0 || result>1)throw new SQLException("Unknown pending completion count; rollback required");
+                removed+=result;
+            }
+            count(-removed);
         }
     }
 

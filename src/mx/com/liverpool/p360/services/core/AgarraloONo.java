@@ -138,7 +138,7 @@ public class AgarraloONo {
 							? "NO TOMAR".equals(take) ? "false" : "true"   
 							: "false" : "false"));  
 			if("".equals(assignTakeNoTake)) {
-				response = rw.getRw().makeRequest("PUT", "/object/Product2G/'" + externalId + "'@'MASTER'", qp,   
+				response = TakeNoTakeWriter.makeRequest(rw.getRw(), "PUT", "/object/Product2G/'" + externalId + "'@'MASTER'", qp,   
 						new org.json.JSONObject().put("_characteristicRecords", productCrs) 
 								.toString());
 				if (response != null) {
@@ -209,7 +209,7 @@ public class AgarraloONo {
 				addCharacteristicRecord("StylistWorld", stylistWorld, false, crs);
 				addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs);
 				addCharacteristicRecord("AssignTakeNoTakeReason", takeNoTakeReason, false, crs);
-				response = rw.getRw().makeRequest("PUT", "/object/Article/'" + varid + "'@'MASTER'", qp,   
+				response = TakeNoTakeWriter.makeRequest(rw.getRw(), "PUT", "/object/Article/'" + varid + "'@'MASTER'", qp,   
 						new org.json.JSONObject().put("_characteristicRecords", crs) 
 								.toString());
 				log("Variant updated: " + (response == null ? rw.getRw().getRawResponse() : response)); 
@@ -408,7 +408,7 @@ public class AgarraloONo {
 										: "Escenario no contemplado";
 
 								addCharacteristicRecord("AssignTakeNoTakeReason", reason, false, crs);  
-								response = rw.getRw().makeRequest("PUT", "/object/Article/'" + varianteDelMismoColor + "'@'MASTER'",   
+								response = TakeNoTakeWriter.makeRequest(rw.getRw(), "PUT", "/object/Article/'" + varianteDelMismoColor + "'@'MASTER'",   
 										qp, new org.json.JSONObject().put("_characteristicRecords", crs) 
 												.toString());
 								log(response == null ? "ERR (affecting variant): " + rw.getRw().getRawResponse() 
@@ -430,7 +430,7 @@ public class AgarraloONo {
 								addCharacteristicRecord("AssignTakeNoTakeVideo", a, false, crs); 
 								addCharacteristicRecord("AssignTakeNoTakeReason", "", false, crs);  
 								addCharacteristicRecord("PrioridadDeTalla", winner.getValue(), false, crs); 
-								response = rw.getRw().makeRequest("PUT", "/object/Article/'" + winner.getKey() + "'@'MASTER'", qp,   
+								response = TakeNoTakeWriter.makeRequest(rw.getRw(), "PUT", "/object/Article/'" + winner.getKey() + "'@'MASTER'", qp,   
 										new org.json.JSONObject().put("_characteristicRecords", crs) 
 												.toString());
 								log(response == null ? "ERR (affecting winner variant): " + rw.getRw().getRawResponse() 
@@ -476,7 +476,7 @@ public class AgarraloONo {
 								addCharacteristicRecord("TipoDeToma", tipoDeToma, false, crs);
 								addCharacteristicRecord("AssignTakeNoTakeVideo", a, false, crs); 
 								addCharacteristicRecord("PrioridadDeTalla", varianteDelMismoColor.getValue(), false, crs); 
-								response = rw.getRw().makeRequest("PUT", 
+								response = TakeNoTakeWriter.makeRequest(rw.getRw(), "PUT", 
 										"/object/Article/'" + varKey + "'@'MASTER'", qp,  
 										new org.json.JSONObject().put("_characteristicRecords", crs) 
 												.toString());
@@ -820,7 +820,7 @@ public class AgarraloONo {
 	}
 
 	public String queryLookupValue(String value, String dictionary, String baseUrl) throws org.json.JSONException {
-		return queryDictionary(value, dictionary);
+		return ForoLookupCache.query(dastub, value, dictionary);
 	}
 
 	public String grabSimpleValue(String characteristicName,
@@ -884,13 +884,11 @@ public class AgarraloONo {
     }
 
 	private void log(String message) {
-		LOGGER.info(message);
+		if (Boolean.getBoolean("p360.takeNoTake.verbose")) LOGGER.info(message);
 	}
 
 	private void logE(Exception ex) {
-		try (java.io.PrintWriter pw = new java.io.PrintWriter(
-				new java.io.OutputStreamWriter(new java.io.FileOutputStream("../logs/takeNoTakeCalc.log", 
-						true)))) {
+		try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream("../logs/takeNoTakeCalc.log", true)))) {
 			ex.printStackTrace(pw);
 		} catch (java.io.IOException e) {
 		}

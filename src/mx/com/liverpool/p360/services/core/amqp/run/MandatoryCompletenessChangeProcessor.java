@@ -53,7 +53,7 @@ public final class MandatoryCompletenessChangeProcessor implements Runnable, Aut
                     MandatoryCompletenessP360Writer writer = new MandatoryCompletenessP360Writer(c, snapshot, 100);
                     writer.preflight();
                     System.out.println("Mandatory incremental started; table=" + MandatoryCompletenessPendingDao.TABLE
-                            + "; delete-on-success; cap=100000; retries<=900s; independent worker");
+                            + "; delete-on-success; cap=100000; retries<=900s; independent worker; batch=900; products/request<=100");
                     while (running) {
                         if (bootstrapRunning()) {
                             if (System.currentTimeMillis() - lastStatus > 60000) {
@@ -65,53 +65,117 @@ public final class MandatoryCompletenessChangeProcessor implements Runnable, Aut
                         }
                         // Losing this connection releases the singleton lock: stop before any more writes.
                         if (!mutex.isValid(5)) throw new SQLException("Mandatory worker mutex connection lost");
-                        List<Pending> rows = pending.due(50);
+                        List<Pending> rows = pending.due(900);
                         if (rows.isEmpty()) { if (!pause(2000)) return; continue; }
-                        for (Pending row : rows) {
-                            if (!running) return;
-                            String run = UUID.randomUUID().toString();
-                            try {
-                                Page page = resolve(c, row);
-                                work.replaceRun(run, page.ids());
-                                // Work is private to this transaction until deleted; crash/rollback cannot leak rows.
-                                Set<String> selected = new LinkedHashSet<>(page.ids());
-                                if (!row.change().force() && !selected.isEmpty()) {
-                                    Map<String, Set<String>> applicable = service.applicableCharacteristics(run);
-                                    selected.removeIf(id -> Collections.disjoint(row.change().characteristics(),
-                                            applicable.getOrDefault(id, Set.of())));
-                                    work.replaceRun(run, selected);
-                                }
-                                List<CompletenessResult> results = service.calculateWorkBatch(run);
-                                Set<String> returned = new HashSet<>();
-                                for (CompletenessResult result : results) {
-                                    if (!returned.add(result.getProductIdentifier())) throw new SQLException("Duplicate result");
-                                }
-                                if (!returned.equals(selected)) throw new SQLException("Incomplete calculation result");
-                                snapshot.upsertMandatory(run, results);
-                                work.deleteRun(run);
-                                c.commit();
-                                if (!mutex.isValid(5)) throw new SQLException("Worker mutex lost before API write");
-                                if (!writer.write(results, true)) throw new SQLException("List API failed");
-                                if (page.more()) pending.advance(row, page.cursor()); else pending.complete(row);
-                                c.commit();
-                                System.out.println("Mandatory incremental processed entity=" + row.change().entity()
-                                        + " id=" + row.change().identifier() + " products=" + results.size()
-                                        + " cursor=" + page.cursor() + " more=" + page.more());
-                            } catch (Exception error) {
-                                c.rollback();
-                                pending.fail(row, error);
-                                c.commit();
-                                System.err.println("Mandatory incremental retry entity=" + row.change().entity()
-                                        + " id=" + row.change().identifier() + " error=" + error.getClass().getSimpleName()
-                                        + ": " + error.getMessage());
-                            }
-                        }
+                        processBatch(rows, c, mutex, pending, work, service, snapshot, writer);
                     }
                 }
             } catch (Exception error) {
                 System.err.println("Mandatory incremental unavailable; durable pending retained: "
                         + error.getClass().getSimpleName() + ": " + error.getMessage());
                 if (!pause(10000)) return;
+            }
+        }
+    }
+
+    // One product can be reached by several article/product events in the same batch.
+    static Set<String> selectProducts(Map<Pending, Set<String>> candidates,
+            Map<String, Set<String>> applicable) {
+        Set<String> selected = new LinkedHashSet<>();
+        for (var entry : candidates.entrySet()) {
+            for (String id : entry.getValue()) {
+                if (entry.getKey().change().force() || !Collections.disjoint(
+                        entry.getKey().change().characteristics(), applicable.getOrDefault(id, Set.of()))) {
+                    selected.add(id);
+                }
+            }
+        }
+        return selected;
+    }
+
+    private void processBatch(List<Pending> rows, Connection c, Connection mutex,
+            MandatoryCompletenessPendingDao pending, CompletenessWorkDao work,
+            MandatoryCompletenessService service, CompletenessSnapshotDao snapshot,
+            MandatoryCompletenessP360Writer writer) throws SQLException {
+        if (!running) return;
+        long started = System.nanoTime();
+        String run = UUID.randomUUID().toString();
+        try {
+            if (!mutex.isValid(5)) throw new SQLException("Mandatory worker mutex lost");
+            Map<Pending, Page> pages = new LinkedHashMap<>();
+            Map<Pending, Set<String>> candidates = new LinkedHashMap<>();
+            Set<String> all = new LinkedHashSet<>();
+            Set<String> filterIds = new LinkedHashSet<>();
+            Set<String> forced = new LinkedHashSet<>();
+            for (Pending row : rows) {
+                Page page = resolve(c, row);
+                pages.put(row, page);
+                candidates.put(row, page.ids());
+                all.addAll(page.ids());
+                if (row.change().force()) forced.addAll(page.ids());
+                else filterIds.addAll(page.ids());
+            }
+            filterIds.removeAll(forced);
+            Map<String, Set<String>> applicable = new HashMap<>();
+            List<String> filterList = new ArrayList<>(filterIds);
+            for (int from = 0; from < filterList.size(); from += 100) {
+                work.replaceRun(run, filterList.subList(from, Math.min(from + 100, filterList.size())));
+                applicable.putAll(service.applicableCharacteristics(run));
+            }
+            List<String> selected = new ArrayList<>(selectProducts(candidates, applicable));
+            long resolved = System.nanoTime();
+            long calculateNanos = 0, writeNanos = 0;
+            for (int from = 0; from < selected.size(); from += 100) {
+                if (!running) { c.rollback(); return; }
+                Set<String> chunk = new LinkedHashSet<>(selected.subList(from, Math.min(from + 100, selected.size())));
+                long tick = System.nanoTime();
+                work.replaceRun(run, chunk);
+                List<CompletenessResult> results = service.calculateWorkBatch(run);
+                Set<String> returned = new HashSet<>();
+                for (CompletenessResult result : results) {
+                    if (!returned.add(result.getProductIdentifier())) throw new SQLException("Duplicate result");
+                }
+                if (!returned.equals(chunk)) throw new SQLException("Incomplete calculation result");
+                snapshot.upsertMandatory(run, results);
+                work.deleteRun(run);
+                c.commit();
+                calculateNanos += System.nanoTime() - tick;
+                if (!running) return; // Durable pending remains; resume after restart.
+                if (!mutex.isValid(5)) throw new SQLException("Mandatory worker mutex lost before API write");
+                tick = System.nanoTime();
+                if (!writer.write(results, true)) throw new SQLException("List API failed");
+                writeNanos += System.nanoTime() - tick;
+            }
+            // Applicable-only work can remain when the selected set is empty.
+            work.deleteRun(run);
+            if (!running) { c.rollback(); return; }
+            if (!mutex.isValid(5)) throw new SQLException("Mandatory worker mutex lost before completion");
+            List<Pending> completed = new ArrayList<>();
+            for (var entry : pages.entrySet()) {
+                if (entry.getValue().more()) pending.advance(entry.getKey(), entry.getValue().cursor());
+                else completed.add(entry.getKey()); // Version predicate preserves changes received in flight.
+            }
+            pending.completeBatch(completed);
+            c.commit();
+            System.out.println("MANDATORY_BATCH pending=" + rows.size() + " candidates=" + all.size()
+                    + " products=" + selected.size() + " resolve_ms=" + (resolved-started)/1_000_000
+                    + " calculate_ms=" + calculateNanos/1_000_000 + " write_ms=" + writeNanos/1_000_000
+                    + " total_ms=" + (System.nanoTime()-started)/1_000_000);
+        } catch (Exception error) {
+            c.rollback();
+            if (!running) return;
+            if (!c.isValid(5) || !mutex.isValid(5)) throw new SQLException("Mandatory batch connection lost; pending retained", error);
+            if (rows.size() > 1) {
+                System.err.println("MANDATORY_BATCH_SPLIT pending=" + rows.size() + " error=" + error.getClass().getSimpleName());
+                int half = rows.size()/2;
+                processBatch(rows.subList(0, half), c, mutex, pending, work, service, snapshot, writer);
+                processBatch(rows.subList(half, rows.size()), c, mutex, pending, work, service, snapshot, writer);
+            } else {
+                pending.fail(rows.get(0), error);
+                c.commit();
+                System.err.println("Mandatory incremental retry entity=" + rows.get(0).change().entity()
+                        + " id=" + rows.get(0).change().identifier() + " error=" + error.getClass().getSimpleName()
+                        + ": " + error.getMessage());
             }
         }
     }
