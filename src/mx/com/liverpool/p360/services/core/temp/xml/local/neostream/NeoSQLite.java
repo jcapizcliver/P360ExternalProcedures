@@ -74,6 +74,14 @@ public final class NeoSQLite {
     static void record(Connection c,String root,String state,String reason)throws Exception{
         try(PreparedStatement q=c.prepareStatement("INSERT INTO result_v2(root_id,state,reason,updated_at) VALUES(?,?,?,?) ON CONFLICT(root_id) DO UPDATE SET state=excluded.state,reason=excluded.reason,updated_at=excluded.updated_at")){q.setString(1,root);q.setString(2,state);q.setString(3,reason);q.setString(4,java.time.Instant.now().toString());q.executeUpdate();}
     }
+    static void identityRoute(Connection ledger,Path dir,String root,JSONObject route)throws Exception {
+        if(root==null)throw new IllegalStateException("IDENTITY_ROUTE_WITHOUT_ROOT");
+        String now=java.time.Instant.now().toString();route.put("root",root).put("at",now);
+        try(PreparedStatement q=ledger.prepareStatement("INSERT INTO identity_routes(root_id,entity_id,source_identifier,target_identifier,sku,state,detail,updated_at) VALUES(?,?,?,?,?,'ROUTED_TO_OWNER',?,?) ON CONFLICT(root_id,entity_id,source_identifier,target_identifier) DO UPDATE SET state=excluded.state,detail=excluded.detail,updated_at=excluded.updated_at")){
+            q.setString(1,root);q.setInt(2,route.getInt("entity"));q.setString(3,route.getString("sourceIdentifier"));q.setString(4,route.getString("targetIdentifier"));q.setString(5,route.getString("sku"));q.setString(6,route.toString());q.setString(7,now);q.executeUpdate();
+        }
+        Files.writeString(dir.resolve("identity-routes.ndjson"),route+"\n",StandardOpenOption.CREATE,StandardOpenOption.APPEND);
+    }
     static void saveDebt(Connection ledger,String root,JSONObject item){
         try{
             String raw=item.toString();String id=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest((root+raw).getBytes(StandardCharsets.UTF_8)));
@@ -123,14 +131,19 @@ public final class NeoSQLite {
     static int processCohort(Connection src,Connection ledger,Path dir,List<String> selected,boolean apply,
             Map<String,String> map,PubSubGCP pub,PrintWriter log)throws Exception {
         List<String> ready=new ArrayList<>();Map<String,String> owners=new HashMap<>();
+        Set<String> relationPending=new HashSet<>();
         Map<String,Integer> counts=new HashMap<>();String[] current={null};
         Files.createDirectories(dir.resolve("source"));Files.createDirectories(dir.resolve("batch-debt"));
         java.util.function.Consumer<JSONObject> route=item->{try{
             JSONObject request=item.optJSONObject("request");
             if(request!=null&&request.optJSONArray("rows")!=null){
+                if("Relations".equals(item.optString("writer")))for(String id:NeoSQLiteIdentityRouter.failedRelationSources(item)){
+                    String root=owners.get(id);if(root==null)throw new IllegalStateException("UNKNOWN_RELATION_OWNER "+id);relationPending.add(root);
+                }
                 String raw=item.toString();String hash=HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(raw.getBytes(StandardCharsets.UTF_8)));
                 Path evidence=dir.resolve("batch-debt").resolve(hash+".json");if(!Files.exists(evidence))Files.writeString(evidence,raw);
-                Map<String,JSONArray> affected=new LinkedHashMap<>();JSONArray rows=request.getJSONArray("rows");
+                JSONObject sourceRequest=item.optJSONObject("sourceRequest");
+                Map<String,JSONArray> affected=new LinkedHashMap<>();JSONArray rows=(sourceRequest==null?request:sourceRequest).getJSONArray("rows");
                 for(int i=0;i<rows.length();i++){
                     String id=rows.getJSONObject(i).getJSONObject("object").getString("id");
                     if(id.startsWith("'"))id=id.substring(1,id.lastIndexOf("'"));
@@ -163,24 +176,25 @@ public final class NeoSQLite {
             if(ready.isEmpty())return selected.size();
             StepIndex allIndex=StepXmlStreamingParser.indexProducts(streamSaved(dir,ready));
             if(!apply){for(String root:ready)record(ledger,root,"VALIDATED_SOURCE","interfamily cohort");ledger.commit();return selected.size();}
-            try(DBAccessDataStub db=new DBAccessDataStub(elog)){
-                StepDbSnapshot snap=StepDbSnapshot.load(db,allIndex);
-                Set<String> collided=new HashSet<>();
-                Map<String,String> incomingProducts=new HashMap<>(),incomingArticles=new HashMap<>();
-                for(int entity:new int[]{1100,1000}){
-                    Map<String,String> incoming=entity==1100?allIndex.getProductSkuById():allIndex.getArticleSkuById();
-                    Map<String,String> existing=entity==1100?snap.productBySku:snap.articleBySku;
-                    Map<String,String> seen=entity==1100?incomingProducts:incomingArticles;
-                    for(Map.Entry<String,String> e:incoming.entrySet()){
-                        String other=existing.get(e.getValue());if(other!=null&&!other.equals(e.getKey()))collided.add(owners.get(e.getKey()));
-                        other=seen.putIfAbsent(e.getValue(),e.getKey());if(other!=null&&!other.equals(e.getKey())){collided.add(owners.get(e.getKey()));collided.add(owners.get(other));}
-                    }
+            phaseStatus(dir,"RESOLVING_SKU_OWNERS",ready.size(),0);
+            // Same lock namespace as ECC/Jana and Match, held until all writes/publications finish.
+            try(InboundSkuResolver guard=InboundSkuResolver.openSkus(NeoSQLiteIdentityRouter.skus(allIndex),elog::log);
+                    DBAccessDataStub db=new DBAccessDataStub(elog)){
+                NeoSQLiteIdentityRouter identities=new NeoSQLiteIdentityRouter(allIndex,guard,item->{
+                    if("IDENTITY_CONFLICT".equals(item.optString("kind"))){route.accept(item);elog.log(item.toString());return;}
+                    try{identityRoute(ledger,dir,owners.get(item.getString("sourceIdentifier")),item);}
+                    catch(Exception e){throw new IllegalStateException("CANNOT_JOURNAL_IDENTITY_ROUTE",e);}
+                });
+                for(Iterator<String> it=ready.iterator();it.hasNext();){
+                    String root=it.next();JSONArray conflicts=identities.conflicts(StepXmlStreamingParser.indexProducts(List.of(savedFamily(dir,root))));
+                    if(conflicts.length()>0){record(ledger,root,"IDENTITY_REVIEW",conflicts.toString());it.remove();}
                 }
-                for(String root:collided)record(ledger,root,"COLLISION_REVIEW","Existing or incoming SKU has another Identifier");
-                ready.removeAll(collided);ledger.commit();
+                ledger.commit();
                 if(ready.isEmpty())return selected.size();
+                allIndex=StepXmlStreamingParser.indexProducts(streamSaved(dir,ready));
                 StepWriterPipeline writer=new StepWriterPipeline(db,allIndex,new StepStatusComputer(),map,elog);
                 writer.setDebtSink(route);
+                writer.setRequestMapper(identities::request);
                 String[] phases={"IDENTITY","TEXTS","MODEL","CHARACTERISTICS"};
                 for(int phase=0;phase<4;phase++){
                     int complete=0;phaseStatus(dir,phases[phase],ready.size(),0);
@@ -188,15 +202,20 @@ public final class NeoSQLite {
                         if(++complete%100==0){ledger.commit();phaseStatus(dir,phases[phase],ready.size(),complete);}}
                     writer.finishPhase(phase);ledger.commit();phaseStatus(dir,phases[phase]+"_FLUSHED",ready.size(),complete);
                 }
-                Map<String,String> productsAfter=db.getObjectInternalIds(1100,allIndex.getProductIds()),articlesAfter=db.getObjectInternalIds(1000,allIndex.getArticleIds());
+                Map<String,String> productsAfter=db.getObjectInternalIds(1100,identities.targets(1100)),articlesAfter=db.getObjectInternalIds(1000,identities.targets(1000));
                 int complete=0;
                 for(String root:ready){current[0]=root;Product p=savedFamily(dir,root);StepIndex index=StepXmlStreamingParser.indexProducts(List.of(p));
-                    boolean found=index.getProductIds().stream().allMatch(productsAfter::containsKey)&&index.getArticleIds().stream().allMatch(articlesAfter::containsKey);
+                    boolean found=index.getProductIds().stream().allMatch(id->productsAfter.containsKey(identities.target(1100,id)))&&index.getArticleIds().stream().allMatch(id->articlesAfter.containsKey(identities.target(1000,id)));
                     if(!found)route.accept(new JSONObject().put("kind","MISSING_IDENTITIES").put("products",index.getProductIds()).put("articles",index.getArticleIds()));
-                    if(found)try{publish(ledger,root,SQLiteMediaAdapter.build(src,root,sourceModels,route),pub,route);}
+                    if(found)try{
+                        JSONObject body=identities.publication(SQLiteMediaAdapter.build(src,root,sourceModels,route));
+                        if(relationPending.contains(root))route.accept(new JSONObject().put("kind","PUBSUB_RELATION_PENDING").put("reason","P360 did not confirm the requested association; repair relation before publication").put("payload",body));
+                        else publish(ledger,root,body,pub,route);
+                    }
                     catch(Exception e){route.accept(new JSONObject().put("kind","PUBSUB_BUILD_OR_SEND").put("error",e.toString()));}
                     int debts=counts.getOrDefault(root,0);
                     record(ledger,root,debts>0?"WRITTEN_WITH_DEBT":"WRITTEN_IDENTITIES_VERIFIED","interfamily; debtItems="+debts+"; identitiesVerified="+found+"; fullAttributeComparison=NOT_PERFORMED");
+                    try(PreparedStatement q=ledger.prepareStatement("UPDATE identity_routes SET state=?,updated_at=? WHERE root_id=?")){q.setString(1,debts>0?"APPLIED_WITH_DEBT":"IDENTITIES_VERIFIED");q.setString(2,java.time.Instant.now().toString());q.setString(3,root);q.executeUpdate();}
                     ledger.commit();phaseStatus(dir,"PUBSUB_AFTER_FLUSH",ready.size(),++complete);
                 }
             }
@@ -232,12 +251,13 @@ public final class NeoSQLite {
                     q.execute("CREATE TABLE IF NOT EXISTS debt(id TEXT PRIMARY KEY,root_id TEXT,kind TEXT,detail TEXT,state TEXT DEFAULT 'OPEN',created_at TEXT,updated_at TEXT)");
                     q.execute("CREATE INDEX IF NOT EXISTS debt_root ON debt(root_id,state)");
                     q.execute("CREATE TABLE IF NOT EXISTS pubsub_outbox(root_id TEXT PRIMARY KEY,payload TEXT,state TEXT,message_id TEXT,updated_at TEXT)");
+                    q.execute("CREATE TABLE IF NOT EXISTS identity_routes(root_id TEXT,entity_id INTEGER,source_identifier TEXT,target_identifier TEXT,sku TEXT,state TEXT,detail TEXT,updated_at TEXT,PRIMARY KEY(root_id,entity_id,source_identifier,target_identifier))");
                 }
                 int processed=0;Map<String,String> map=apply?statuses():Map.of();
                 PubSubGCP pub=apply?new PubSubGCP(PropertiesManager.get("p360.contingency.gcp.service_account_back"),PropertiesManager.get("p360.contingency.gcp.project_back"),PropertiesManager.get("p360.contingency.gcp.post_products_topic")):null;
                 try { while(!Files.exists(dir.resolve("STOP"))){
                     List<String> selected=new ArrayList<>();
-                    try(Statement q=src.createStatement();ResultSet r=q.executeQuery("SELECT r.root_id FROM "+selectionTable+" p CROSS JOIN migration_root r ON r.root_id=p.root_id WHERE r.state='STAGED' AND NOT EXISTS(SELECT 1 FROM delivery.result_v2 d WHERE d.root_id=r.root_id) LIMIT "+(limit>0?Math.min(cohortSize(),limit-processed):cohortSize()))){while(r.next())selected.add(r.getString(1));}
+                    try(Statement q=src.createStatement();ResultSet r=q.executeQuery("SELECT r.root_id FROM "+selectionTable+" p CROSS JOIN migration_root r ON r.root_id=p.root_id WHERE r.state='STAGED' AND NOT EXISTS(SELECT 1 FROM delivery.result_v2 d WHERE d.root_id=r.root_id AND d.state<>'COLLISION_REVIEW') LIMIT "+(limit>0?Math.min(cohortSize(),limit-processed):cohortSize()))){while(r.next())selected.add(r.getString(1));}
                     if(selected.isEmpty()){Files.writeString(dir.resolve("status.json"),new JSONObject().put("state",once?"IDLE":"WAITING_EXTRACTION").put("processedThisLaunch",processed).put("at",java.time.Instant.now().toString()).toString());if(once)break;Thread.sleep(10000);continue;}
                     processed += processCohort(src,ledger,dir,selected,apply,map,pub,log);
                     if(limit>0&&processed>=limit)return;

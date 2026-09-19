@@ -20,6 +20,13 @@ public final class InboundSkuResolver implements AutoCloseable {
     private final Map<String,String> mapCache=new HashMap<>();
     private static final class Row {String id,sku,alias;int type;Row(int t,String i,String s,String a){type=t;id=i;sku=s;alias=a;}}
 
+    /** SQLite ingestion uses the same coordination and identity rules without manufacturing XML. */
+    public static InboundSkuResolver openSkus(Collection<String> values, Consumer<String> log)throws SQLException {
+        Set<String> skus=new TreeSet<>();
+        for(String value:values)if(value!=null&&!value.isBlank())skus.add(SkuCoordinationLock.normalize(value));
+        return new InboundSkuResolver(skus,log);
+    }
+
     public static InboundSkuResolver open(byte[] xml,Consumer<String> log)throws Exception {
         DocumentBuilderFactory f=DocumentBuilderFactory.newInstance();f.setNamespaceAware(true);
         f.setFeature("http://apache.org/xml/features/disallow-doctype-decl",true);

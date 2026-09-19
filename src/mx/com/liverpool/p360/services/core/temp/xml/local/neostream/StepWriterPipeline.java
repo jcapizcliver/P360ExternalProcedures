@@ -33,6 +33,10 @@ public final class StepWriterPipeline {
     private final Map<String, String> qp = new java.util.TreeMap<>();
     private final ELog log;
     private java.util.function.Consumer<JSONObject> debtSink;
+    @FunctionalInterface public interface RequestMapper { JSONObject map(String entity,String child,JSONObject request); }
+    private RequestMapper requestMapper;
+    /** Optional for SQLite only; all writers retain their existing batching/mapping. */
+    public void setRequestMapper(RequestMapper mapper) { requestMapper=mapper; }
     public void setDebtSink(java.util.function.Consumer<JSONObject> sink) { debtSink = sink; }
     private void debt(JSONObject item) { if (debtSink != null) debtSink.accept(item); }
     private void missingCharacteristic(String entity, String id, Value value) {
@@ -716,10 +720,13 @@ public final class StepWriterPipeline {
             String child,
             JSONObject payload) {
         // RESTWrapper empties rows after the callback; preserve the exact request first.
-        JSONObject requestCopy = new JSONObject(payload.toString());
+        JSONObject sourceCopy = new JSONObject(payload.toString());
+        // Resolve before any REST call. A routing failure must never fall back to the source ID.
+        JSONObject outgoing = requestMapper==null ? payload : requestMapper.map(entity,child,new JSONObject(sourceCopy.toString()));
+        JSONObject requestCopy = new JSONObject(outgoing.toString());
         log("BATCH_SEND writer=" + writer + " rows=" + requestCopy.getJSONArray("rows").length());
         try {
-            rw.writeData("list", entity, child, qp, payload, response -> {
+            rw.writeData("list", entity, child, qp, outgoing, response -> {
                 log(response);
                 boolean failed = true;
                 try {
@@ -730,12 +737,12 @@ public final class StepWriterPipeline {
                 } catch (Exception ignored) { }
                 if (failed) debt(new JSONObject().put("kind", "API_REJECTED")
                     .put("writer", writer).put("entity", entity).put("child", child == null ? "" : child)
-                    .put("request", requestCopy).put("response", response));
+                    .put("request", requestCopy).put("sourceRequest",sourceCopy).put("response", response));
             });
         } catch (Exception e) {
             debt(new JSONObject().put("kind", "API_UNCONFIRMED").put("writer", writer)
                 .put("entity", entity).put("child", child == null ? "" : child)
-                .put("request", requestCopy).put("error", e.toString()));
+                .put("request", requestCopy).put("sourceRequest",sourceCopy).put("error", e.toString()));
             log("Writer " + writer + " falló; se conserva el aislamiento y continúa el resto: " + e.getMessage());
         } finally {
             // The exact request is preserved as debt on failure. Never let an uncleared

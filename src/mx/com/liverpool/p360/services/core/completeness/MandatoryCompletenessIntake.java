@@ -10,8 +10,8 @@ public final class MandatoryCompletenessIntake {
         PropertiesManager.get("p360.completeness.incremental.enabled","false")));
     public static boolean enabled(){return ENABLED;}
     public static MessageConsumer wrap(MessageConsumer delegate,boolean acknowledge,BooleanSupplier running){
-        if(!enabled())return delegate;
-        try { MandatoryCompletenessDurableQueue.instance(); }
+        if(!enabled() && System.getProperty("masa.journal.directory", "").isBlank())return delegate;
+        try { if(enabled())MandatoryCompletenessDurableQueue.instance(); }
         catch(Exception failure) { throw new java.lang.IllegalStateException("Cannot open durable completeness journal",failure); }
         return (MessageConsumer)Proxy.newProxyInstance(MessageConsumer.class.getClassLoader(),new Class<?>[]{MessageConsumer.class},
           new InvocationHandler(){
@@ -25,7 +25,7 @@ public final class MandatoryCompletenessIntake {
                         if(!running.getAsBoolean())throw new JMSException("Stopped before durable receipt/ACK");
                         try{
                             MasaEventJournal.capture(message);
-                            if(message instanceof TextMessage text)MandatoryCompletenessDurableQueue.instance().append(text.getText());
+                            if(message instanceof TextMessage text){if(enabled())MandatoryCompletenessDurableQueue.instance().append(text.getText());}
                             else throw new JMSException("Non-text event retained in JMS");
                             break;
                         }catch(Exception unavailable){

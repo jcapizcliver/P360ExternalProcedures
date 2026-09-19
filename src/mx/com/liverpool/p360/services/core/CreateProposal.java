@@ -4295,7 +4295,7 @@ private void checkVariantMainBarCode(org.json.JSONObject variant, String negocio
 										: null;
 								JSONObject rsp = rawResp == null ? null : new JSONObject(rawResp);
 								genericResponse = new JSONObject();
-								String[] direccionSeccion = getDireccionSeccion(itemGroup != null ? itemGroup : itemGroupS4H, business);
+								String[] direccionSeccion = responseDirectionSection(itemGroup != null ? itemGroup : itemGroupS4H, business, direction, section, sample ? null : externalProductId, rsp);
 								if (direccionSeccion != null) {
 									genericResponse.put("direccion", direccionSeccion[0]);
 									if (direccionSeccion.length > 1) genericResponse.put("seccion", direccionSeccion[1]);
@@ -6144,6 +6144,49 @@ private void checkVariantMainBarCode(org.json.JSONObject variant, String negocio
 	static boolean legacyDirectionSectionEnabled(String setting) {
 		return setting == null || !"false".equalsIgnoreCase(setting.trim());
 	}
+
+
+    private String[] responseDirectionSection(String itemGroup, String business,
+            String direction, String section, String identifier, org.json.JSONObject response) {
+        if (!legacyDirectionSectionEnabled(PropertiesManager.get("p360.createproposal.response.direction_section.enabled"))) return null;
+        if (!"Marketplace".equals(business)) return getDireccionSeccion(itemGroup, business);
+        String[] stored = storedDirectionSection(response);
+        if (direction == null || direction.isBlank()) direction = stored[0];
+        if (section == null || section.isBlank()) section = stored[1];
+        if ((direction == null || section == null) && identifier != null && !identifier.isBlank()) {
+            try {
+                String proxy = "'" + identifier.replace("'", "''") + "'@1";
+                String raw = rc.getRequest("GET", objectAPIProduct2GURL + "/" + java.net.URLEncoder.encode(proxy, "UTF-8"), null);
+                stored = storedDirectionSection(new org.json.JSONObject(raw));
+                if (direction == null) direction = stored[0];
+                if (section == null) section = stored[1];
+            } catch (Exception e) { log("Could not read Marketplace response Direction/Section for " + identifier); logE(e); }
+        }
+        return new String[] {direction, section};
+    }
+
+    static String[] storedDirectionSection(org.json.JSONObject object) {
+        String[] result = new String[2];
+        if (object == null) return result;
+        org.json.JSONObject data = object.optJSONObject("_data");
+        if (data == null) return result;
+        org.json.JSONArray extras = data.optJSONArray("productExtraData");
+        if (extras == null) return result;
+        for (int i = 0; i < extras.length(); i++) {
+            org.json.JSONObject extra = extras.optJSONObject(i);
+            if (extra == null) continue;
+            org.json.JSONObject q = extra.optJSONObject("_qualification");
+            org.json.JSONObject market = q == null ? null : q.optJSONObject("targetMarket");
+            if (market != null && !"MX".equals(market.optString("_code"))) continue;
+            String[] fields = {"direction", "section"};
+            for (int j = 0; j < fields.length; j++) {
+                org.json.JSONObject code = extra.optJSONObject(fields[j]);
+                String value = code == null ? null : code.optString("_code", null);
+                if (value != null && !value.isBlank()) result[j] = value;
+            }
+        }
+        return result;
+    }
 
 	private String[] getDireccionSeccion(String groupOfArticle, String business) {
 		// Temporary compatibility switch: false in Dev; true in production.

@@ -1055,7 +1055,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 								nuevosValores.add(externalId);
 								newAttributeValues.put(externalId, attributeValues);
 								articleHigherLevelProduct.put(externalId, externalId);
-								articleHigherLevelProductNotReadyYet.put(externalId, externalId);
+								articleHigherLevelProductNotReadyYet.put(externalId, sku);
 								org.json.JSONArray items = new org.json.JSONArray();
 								if(!"".equals(sku)) {
 									items.put(new org.json.JSONObject().put("productNo", externalId).put("sku", sku));
