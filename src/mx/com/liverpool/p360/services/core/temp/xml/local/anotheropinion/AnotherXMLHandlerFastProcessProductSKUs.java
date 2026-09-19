@@ -541,7 +541,7 @@ public class AnotherXMLHandlerFastProcessProductSKUs {
     		Value sku = valMap.get("SKU");
     		Value ean = valMap.get("MainBarCode");
     		Value ean2 = valMap.get("MainBarCodeS4H");
-    		business = determineBusiness(negocio == null || negocio.getText() == null ? "" : negocio.getText(), extwgS4h == null || extwgS4h.getText() == null ? "" : extwgS4h.getText());
+    		business = determineBusiness(negocio == null || negocio.getText() == null ? "" : negocio.getText(), extwgS4h == null || extwgS4h.getText() == null ? "" : extwgS4h.getText(), valMap.get("Negocio") == null ? null : valMap.get("Negocio").getId(), valMap.get("EXTWG_S4H") == null ? null : valMap.get("EXTWG_S4H").getId());
     		vals.put( new org.json.JSONArray().put( product.getParentId() ));
     		vals.put( business );
     		vals.put( sku == null ? "" : sku.getText() );
@@ -572,11 +572,10 @@ public class AnotherXMLHandlerFastProcessProductSKUs {
     private final org.json.JSONArray rowsStructureGroupMap = new org.json.JSONArray();
     private final org.json.JSONObject requestStructureGroup = new org.json.JSONObject().put("columns", columnsStructureGroupMap).put("rows", rowsStructureGroupMap);
     
-	private String determineBusiness(String negocio, String extwgS4h) {
-		return     "".equals(negocio) 
-				&& "".equals(extwgS4h) ? null : 
-					("".equals(negocio) && !"".equals(extwgS4h) ? "SBB": "ART. MARKETPLACE".equals(negocio) ? "MKP" : "LVP" );
-	}
+	private String determineBusiness(String negocio, String extwgS4h, String negocioCode, String extwgCode) {
+        String code = mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.resolve(negocioCode, negocio, extwgCode, extwgS4h);
+        return code;
+    }
 
 	private void log(String message) {
         try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(

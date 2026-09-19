@@ -594,7 +594,7 @@ public class TuCualesTienes {
     		String n2 = v == null ? "" : v.getText();
     		n1 = n1 == null ? "" : n1;
     		n2 = n2 == null ? "" : n2;
-    		String business = determineBusiness(n1, n2);
+    		String business = determineBusiness(n1, n2, valMap.get("Negocio") == null ? null : valMap.get("Negocio").getId(), valMap.get("EXTWG_S4H") == null ? null : valMap.get("EXTWG_S4H").getId());
     		if(business == null) {
     			otros++;
     			otros+=children.size();
@@ -613,11 +613,10 @@ public class TuCualesTienes {
     	}
     }
     
-	private String determineBusiness(String negocio, String extwgS4h) {
-		return     "".equals(negocio) 
-				&& "".equals(extwgS4h) ? null : 
-					("".equals(negocio) && !"".equals(extwgS4h) ? "SBB": "ART. MARKETPLACE".equals(negocio) ? "MKP" : "LVP" );
-	}
+	private String determineBusiness(String negocio, String extwgS4h, String negocioCode, String extwgCode) {
+        String code = mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.resolve(negocioCode, negocio, extwgCode, extwgS4h);
+        return code;
+    }
 
 	private void log(String message) {
         try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(

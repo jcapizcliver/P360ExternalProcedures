@@ -17,6 +17,7 @@ import mx.com.liverpool.p360.services.core.*;
 public final class EntradaUnicaSync implements AutoCloseable {
  static final String LIVE="timestamp '9999-12-31 00:00:00'";
  static final int PAGE=300;
+ static final boolean STATUS_ONLY=Boolean.getBoolean("p360.sync.currentStatusOnly");
  static final List<String> PRODUCT=List.of("currentStatus","prevStatus","sku","ean","template","direction","section","itemGroup","name");
  static final List<String> ARTICLE=List.of("currentStatus","prevStatus","sku","ean","colour","size");
  static final ExecutorService NET=Executors.newCachedThreadPool(r->{Thread t=new Thread(r,"entrada-sync-timeout");t.setDaemon(true);return t;});
@@ -43,15 +44,19 @@ public final class EntradaUnicaSync implements AutoCloseable {
    .applyToSocketSettings(b->b.connectTimeout(10,TimeUnit.SECONDS).readTimeout(45000,TimeUnit.MILLISECONDS))
    .applyToConnectionPoolSettings(b->b.maxSize(3)).build());
   mdb=mongo.getDatabase("BD_CAT_PRODUCTS");
+  rest.getRw().addHeader("Accept-Language","es");
   for(String e:List.of("Enum.Status","Enum.ProductStatus")){
    JSONObject r=rest.getRw().makeRequest("GET","/enum/"+e,Map.of(),null);
    if(r==null||r.optJSONArray("entries")==null)throw new IOException("Cannot load "+e);
    for(int i=0;i<r.getJSONArray("entries").length();i++){JSONObject v=r.getJSONArray("entries").getJSONObject(i);status.put(e+":"+v.getString("key"),v.getString("label"));}
   }
+  if(!STATUS_ONLY){
   try(PreparedStatement p=sql("select \"CharacteristicID\",\"Identifier\" from PIM_MAIN.\"CharacteristicRevision\" where \"RevisionID\"=1 and \"DeletionTimestamp\"="+LIVE+" and \"Identifier\" in (N'SKU',N'MainBarCode',N'MainBarCodeS4H',N'ColoursLiverpoolAtt',N'TamanoUnico',N'SizeVaD')");ResultSet r=p.executeQuery()){while(r.next())characteristicIds.put(r.getLong(1),r.getString(2));}
   try(PreparedStatement p=sql("select \"StructureID\" from PIM_MAIN.\"StructureRevision\" where \"Identifier\"=N'PrimaryProductTaxonomy' and \"RevisionID\"=1 and \"DeletionTimestamp\"="+LIVE);ResultSet r=p.executeQuery()){
    if(!r.next())throw new IOException("PrimaryProductTaxonomy absent");taxonomy=r.getLong(1);if(r.next())throw new IOException("Ambiguous taxonomy");
   }
+  }
+  System.out.println("SCOPE currentStatusOnly="+STATUS_ONLY+" product1007="+status.get("Enum.ProductStatus:1007")+" article1007="+status.get("Enum.Status:1007"));
  }
  PreparedStatement sql(String text,Object... args)throws SQLException{
   PreparedStatement p=db.prepareStatement(text);p.setQueryTimeout(60);p.setFetchSize(500);
@@ -60,7 +65,7 @@ public final class EntradaUnicaSync implements AutoCloseable {
  static String str(Object v){return v==null||v==JSONObject.NULL?"":String.valueOf(v).trim();}
  static Map<String,String> strings(Document d){Map<String,String> out=new LinkedHashMap<>();if(d!=null)d.forEach((k,v)->out.put(k,str(v)));return out;}
  static String in(Collection<?> ids){return String.join(",",Collections.nCopies(ids.size(),"?"));}
- static List<String> fields(int entity){return entity==1100?PRODUCT:ARTICLE;}
+ static List<String> fields(int entity){return STATUS_ONLY?List.of("currentStatus"):(entity==1100?PRODUCT:ARTICLE);}
  static String kind(int entity){return entity==1100?"products":"variants";}
  static String key(int entity){return entity==1100?"proposalId":"variantId";}
  static Object at(Document d,String path){Object o=d;for(String k:path.split("\\.")){if(!(o instanceof Map))return null;o=((Map<?,?>)o).get(k);}return o;}
@@ -95,11 +100,12 @@ public final class EntradaUnicaSync implements AutoCloseable {
    while(r.next()){
     long id=r.getLong(1);if(out.containsKey(id)){out.get(id).errors.add("MULTIPLE_DETAIL");continue;}
     Set<String> errors=new LinkedHashSet<>();Map<String,String> v=new LinkedHashMap<>();int entity=r.getInt(3);
-    v.put("currentStatus",enumLabel(entity,str(r.getString(4)),errors));v.put("prevStatus",enumLabel(entity,str(r.getString(5)),errors));
-    v.put("sku",str(r.getString(6)));v.put("ean",str(r.getString(7)));
+    v.put("currentStatus",enumLabel(entity,str(r.getString(4)),errors));if(!STATUS_ONLY)v.put("prevStatus",enumLabel(entity,str(r.getString(5)),errors));
+    if(!STATUS_ONLY){v.put("sku",str(r.getString(6)));v.put("ean",str(r.getString(7)));}
     out.put(id,new Row(id,r.getString(2),entity,v,new LinkedHashMap<>(),new LinkedHashSet<>(),errors));
    }
   }
+  if(!STATUS_ONLY){
   Set<Long> lookupIds=new HashSet<>();Map<Long,String[]> dom=new HashMap<>();
   try(PreparedStatement p=sql("select /*+ index(x \"XAK1_ArticleDomain\") */ x.\"ArticleRevisionID\",x.\"Res_Int_01\",x.\"Res_Int_02\",x.\"Res_Int_03\",x.\"Res_Int_04\" from \"ArticleDomain\" x where x.\"ArticleRevisionID\" in ("+in(ids)+") and x.\"DeletionTimestamp\"="+LIVE,ids.toArray());ResultSet r=p.executeQuery()){
    while(r.next()){long rev=r.getLong(1);Row row=out.get(rev);if(row==null)continue;String[] a={str(r.getString(2)),str(r.getString(3)),str(r.getString(4)),str(r.getString(5))};if(dom.containsKey(rev)&&!Arrays.equals(dom.get(rev),a))row.errors.add("MULTIPLE_DOMAIN");dom.put(rev,a);for(String s:a)if(!s.isEmpty())lookupIds.add(Long.parseLong(s));}
@@ -116,12 +122,13 @@ public final class EntradaUnicaSync implements AutoCloseable {
   try(PreparedStatement p=sql("select /*+ index(s \"XAK1_ArticleStructureMap\") */ s.\"ArticleRevisionID\",s.\"StructureGroupIdentifier\" from \"ArticleStructureMap\" s where s.\"ArticleRevisionID\" in ("+in(ids)+") and s.\"StructureID\"=? and s.\"DeletionTimestamp\"="+LIVE,concat(ids,taxonomy));ResultSet r=p.executeQuery()){
    while(r.next()){Row row=out.get(r.getLong(1));if(row!=null&&row.entity==1100)putUnique(row,"template",str(r.getString(2)));}
   }
+  }
   try(PreparedStatement p=sql("select /*+ index(x \"XIE3_ArticleReference\") */ x.\"ArticleRevisionID\",x.\"RefExtArtIdentifier\" from \"ArticleReference\" x where x.\"ArticleRevisionID\" in ("+in(ids)+") and x.\"RefEntityID\"=1100 and x.\"DeletionTimestamp\"="+LIVE,ids.toArray());ResultSet r=p.executeQuery()){
    while(r.next()){Row row=out.get(r.getLong(1));if(row!=null&&row.entity==1000&&!str(r.getString(2)).isEmpty())row.parents.add(r.getString(2));}
   }
 
   List<Long> fallback=out.values().stream().filter(r->(r.entity==1100?List.of("sku","ean"):List.of("sku","ean","colour","size")).stream().anyMatch(f->str(r.values.get(f)).isEmpty())).map(Row::revision).toList();
-  if(!fallback.isEmpty()&&!characteristicIds.isEmpty()){
+  if(!STATUS_ONLY&&!fallback.isEmpty()&&!characteristicIds.isEmpty()){
    Map<Long,Map<String,Set<String>>> values=new HashMap<>();
    List<Object[]> raw=new ArrayList<>();Set<Long> valueLookups=new HashSet<>();
    String q="select /*+ index(cv \"XAK1_ArticleCharactValue\") */ cv.\"ArticleRevisionID\",cv.\"CharacteristicID\",cv.\"Value\",cv.\"LookupValueID\" from \"ArticleCharactValue\" cv where cv.\"ArticleRevisionID\" in ("+in(fallback)+") and cv.\"DeletionTimestamp\"="+LIVE+" and cv.\"CharacteristicID\" in ("+in(characteristicIds.keySet())+")";
@@ -143,6 +150,7 @@ public final class EntradaUnicaSync implements AutoCloseable {
  Map<String,List<Document>> documents(int entity,Collection<String> ids)throws Exception{
   Map<String,List<Document>> result=new HashMap<>();if(ids.isEmpty())return result;
   Document projection=new Document(key(entity),1).append("status",1).append("sku",1).append("upcEan",1).append("template.identifier",1).append("address",1).append("section",1).append("itemGroup",1).append("nameProduct",1).append("colour",1).append("size",1);
+  if(STATUS_ONLY)projection=new Document(key(entity),1).append("status.internal",1);
   try(MongoCursor<Document> c=mdb.getCollection(kind(entity)).find(new Document(key(entity),new Document("$in",ids))).projection(projection).batchSize(PAGE).maxTime(30,TimeUnit.SECONDS).iterator()){
    while(c.hasNext()){Document d=c.next();result.computeIfAbsent(str(d.get(key(entity))),k->new ArrayList<>()).add(d);}
   }return result;
@@ -156,6 +164,7 @@ public final class EntradaUnicaSync implements AutoCloseable {
  static String code(String v){return v.replaceFirst("^(?:SB)?(0*[0-9]+)(?:[ -].*)?$","$1").replaceFirst("^0+(?!$)","");}
  static List<String> diff(Row r,Document d){List<String> out=new ArrayList<>();for(String f:fields(r.entity))if(!equal(r,d,f))out.add(f);return out;}
  static JSONObject payload(Row r,List<String> changes,String parent){
+  if(STATUS_ONLY&&changes.stream().anyMatch(f->!f.equals("currentStatus")))throw new IllegalArgumentException("Status-only publication rejected other fields");
   JSONObject obj=new JSONObject().put(r.entity==1100?"proposalId":"variantId",r.id);
   for(String f:changes){String v=str(r.values.get(f));if(v.isEmpty())continue;
    String k=switch(f){case "prevStatus"->"previousStatus";case "ean"->"MainBarCode";case "sku"->"SKU";case "colour"->"ColoursLiverpoolAtt";case "size"->"TamanoUnico";case "direction"->"Direction";case "section"->"Section";case "name"->"ProductName";case "itemGroup"->r.wire.getOrDefault("itemGroupKey","MATKLLOV");default->f;};
@@ -226,7 +235,7 @@ public final class EntradaUnicaSync implements AutoCloseable {
   try(var lock=java.nio.channels.FileChannel.open(dir.resolve("run.lock"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);var lease=lock.tryLock()){
    if(lease==null)throw new IOException("Already running");long high;
    try(PreparedStatement p=sql("select max(\"ID\") from \"ArticleRevision\"");ResultSet r=p.executeQuery()){r.next();high=r.getLong(1);}
-   Files.writeString(dir.resolve("run.json"),new Document("started",Instant.now().toString()).append("maxRevision",high).append("send",send).append("resumeDir",System.getProperty("p360.sync.resumeDir","")).append("scope",Boolean.getBoolean("p360.sync.p360Scan")?"P360":"Mongo").toJson());
+   Files.writeString(dir.resolve("run.json"),new Document("started",Instant.now().toString()).append("maxRevision",high).append("send",send).append("currentStatusOnly",STATUS_ONLY).append("resumeDir",System.getProperty("p360.sync.resumeDir","")).append("scope",Boolean.getBoolean("p360.sync.p360Scan")?"P360":"Mongo").toJson());
    try(BufferedWriter expected=Files.newBufferedWriter(dir.resolve("expected.jsonl"));BufferedWriter p=Files.newBufferedWriter(dir.resolve("products_initial.csv"));BufferedWriter a=Files.newBufferedWriter(dir.resolve("articles_initial.csv"))){
     csv(p,"ID","STATUS","REASON");csv(a,"ID","STATUS","REASON");
     Path resume=System.getProperty("p360.sync.resumeDir")==null?null:Path.of(System.getProperty("p360.sync.resumeDir"));

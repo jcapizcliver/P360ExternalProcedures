@@ -32,6 +32,18 @@ public final class StepWriterPipeline {
     private final RESTWrapper rw = new RESTWrapper();
     private final Map<String, String> qp = new java.util.TreeMap<>();
     private final ELog log;
+    private java.util.function.Consumer<JSONObject> debtSink;
+    @FunctionalInterface public interface RequestMapper { JSONObject map(String entity,String child,JSONObject request); }
+    private RequestMapper requestMapper;
+    /** Optional for SQLite only; all writers retain their existing batching/mapping. */
+    public void setRequestMapper(RequestMapper mapper) { requestMapper=mapper; }
+    public void setDebtSink(java.util.function.Consumer<JSONObject> sink) { debtSink = sink; }
+    private void debt(JSONObject item) { if (debtSink != null) debtSink.accept(item); }
+    private void missingCharacteristic(String entity, String id, Value value) {
+        debt(new JSONObject().put("kind", "MISSING_CHARACTERISTIC").put("entity", entity)
+            .put("objectId", id).put("attribute", value.getAttributeId())
+            .put("value", value.idOrText()));
+    }
 
     private final ProductNameWriter productName;
     private final ProductIdentityWriter productIdentity;
@@ -58,6 +70,26 @@ public final class StepWriterPipeline {
         relations = new RelationWriter();
         remaining = new RemainingCharacteristicWriter(db, index);
         structures = new StructureGroupWriter(db, index);
+    }
+
+    /** SQLite streams all families through each phase, sharing every RequestHandler. */
+    public void acceptPhase(int phase, Product product) {
+        switch (phase) {
+            case 0: productIdentity.accept(product); break;
+            case 1: productName.accept(product); productTexts.accept(product); break;
+            case 2: productStatus.accept(product); variants.accept(product); relations.accept(product); break;
+            case 3: remaining.accept(product); structures.accept(product); break;
+            default: throw new IllegalArgumentException("phase");
+        }
+    }
+    public void finishPhase(int phase) {
+        switch (phase) {
+            case 0: productIdentity.finish(); break;
+            case 1: productName.finish(); productTexts.finish(); break;
+            case 2: productStatus.finish(); variants.finish(); relations.finish(); break;
+            case 3: remaining.finish(); structures.finish(); break;
+            default: throw new IllegalArgumentException("phase");
+        }
     }
 
     public void accept(Product product) {
@@ -94,7 +126,7 @@ public final class StepWriterPipeline {
     private final class ProductNameWriter {
         private final RequestHandler request = new RequestHandler(
                 new JSONArray().put(new JSONObject().put("identifier", "Product2GLang.ProductName(es)")),
-                batch("p360.step.batch.product.name", 2000),
+                batch("p360.step.batch.product.name", 900),
                 payload -> writeDataSafely("ProductName", "Product2G", null, payload));
 
         void accept(Product product) {
@@ -114,13 +146,13 @@ public final class StepWriterPipeline {
                         .put(new JSONObject().put("identifier", "Product2G.Business"))
                         .put(new JSONObject().put("identifier", "Product2G.SKU"))
                         .put(new JSONObject().put("identifier", "Product2G.EAN")),
-                batch("p360.step.batch.product.identity", 2000),
+                batch("p360.step.batch.product.identity", 900),
                 payload -> writeDataSafely("ProductIdentity", "Product2G", null, payload));
 
         void accept(Product product) {
             if (!isRootProduct(product)) return;
             Map<String, Value> values = product.getValueMap();
-            String business = determineBusiness(text(values.get("Negocio")), text(values.get("EXTWG_S4H")));
+            String business = determineBusiness(text(values.get("Negocio")), text(values.get("EXTWG_S4H")), values.get("Negocio") == null ? null : values.get("Negocio").getId(), values.get("EXTWG_S4H") == null ? null : values.get("EXTWG_S4H").getId());
             String ean = text(values.get("MainBarCode"));
             if (ean.isEmpty()) ean = text(values.get("MainBarCodeS4H"));
             request.addRow(row(product.getId(), new JSONArray()
@@ -144,7 +176,7 @@ public final class StepWriterPipeline {
                         .put(new JSONObject().put(
                                 "identifier",
                                 "Product2GCharacteristicValueLang.Value('EnriquecidoEnForo',root,\"0000.0000.RK\",'EnriquecidoEnForo',-1)")),
-                batch("p360.step.batch.product.status", 1000),
+                batch("p360.step.batch.product.status", 900),
                 payload -> writeDataSafely(
                         "ProductStatus", "Product2G", null, payload));
 
@@ -153,7 +185,7 @@ public final class StepWriterPipeline {
                         .put(new JSONObject().put("identifier", "Article.CurrentStatus"))
                         .put(new JSONObject().put("identifier", "Article.PrevStatus"))
                         .put(new JSONObject().put("identifier", "Article.ExternalStatus")),
-                batch("p360.step.batch.article.status", 2000),
+                batch("p360.step.batch.article.status", 900),
                 payload -> writeDataSafely(
                         "ArticleStatus", "Article", null, payload));
 
@@ -271,7 +303,7 @@ public final class StepWriterPipeline {
                         .put(new JSONObject().put("identifier", "Product2GExtraData.SAPObjectType(MX)"))
                         .put(new JSONObject().put("identifier", "Product2GExtraData.SupplierID(MX)"))
                         .put(new JSONObject().put("identifier", "Product2GExtraData.SupplierPartNumber(MX)")),
-                batch("p360.step.batch.product.texts", 1000),
+                batch("p360.step.batch.product.texts", 900),
                 payload -> writeDataSafely("ProductTexts", "Product2G", null, payload));
 
         void accept(Product product) {
@@ -316,7 +348,7 @@ public final class StepWriterPipeline {
                         .put(new JSONObject().put("identifier", "ArticleExtraData.ColoursLiverpoolAtt(MX)"))
                         .put(new JSONObject().put("identifier", "ArticleExtraData.SupplierPartNumber(MX)"))
                         .put(new JSONObject().put("identifier", "ArticleExtraData.SAPObjectType(MX)")),
-                batch("p360.step.batch.article.variants", 5000),
+                batch("p360.step.batch.article.variants", 900),
                 payload -> writeDataSafely("Variants", "Article", null, payload));
 
         void accept(Product product) {
@@ -347,7 +379,7 @@ public final class StepWriterPipeline {
     private final class RelationWriter {
         private final RequestHandler request = new RequestHandler(
                 new JSONArray().put(new JSONObject().put("identifier", "ProductReference.ReferencedSupplierAid")),
-                batch("p360.step.batch.relations", 2000),
+                batch("p360.step.batch.relations", 900),
                 payload -> writeDataSafely("Relations", "Article", "ProductReference", payload));
 
         void accept(Product product) {
@@ -446,7 +478,8 @@ public final class StepWriterPipeline {
         private void addProductValue(String id, Value value) {
             if (value == null || value.getAttributeId() == null) return;
             String attribute = value.getAttributeId();
-            if (handledProducts.contains(attribute) || !activeProducts.contains(attribute)) return;
+            if (handledProducts.contains(attribute)) return;
+            if (!activeProducts.contains(attribute)) { missingCharacteristic("Product2G", id, value); return; }
             if (addUnitIfNeeded(id, value)) return;
             add(productRequests, "Product2G", id, attribute, value.idOrText());
         }
@@ -454,7 +487,8 @@ public final class StepWriterPipeline {
         private void addArticleValue(String id, Value value) {
             if (value == null || value.getAttributeId() == null) return;
             String attribute = value.getAttributeId();
-            if (handledArticles.contains(attribute) || !activeArticles.contains(attribute)) return;
+            if (handledArticles.contains(attribute)) return;
+            if (!activeArticles.contains(attribute)) { missingCharacteristic("Article", id, value); return; }
             add(articleRequests, "Article", id, attribute, value.idOrText());
         }
 
@@ -502,7 +536,7 @@ public final class StepWriterPipeline {
                                 + "',root,\"0000.0000.RK\",'" + attribute + "',-1)"));
                 handler = new RequestHandler(
                         columns,
-                        batch("p360.step.batch.remaining.characteristic", 10000),
+                        batch("p360.step.batch.remaining.characteristic", 900),
                         payload -> writeDataSafely("RemainingCharacteristic:" + entity + ":" + attribute, entity, null, payload));
                 requests.put(attribute, handler);
             }
@@ -617,9 +651,7 @@ public final class StepWriterPipeline {
         }
 
         private void writePrimary(List<Assignment> assignments) {
-            JSONArray columns = new JSONArray().put(new JSONObject().put(
-                    "identifier", "Product2GStructureMap.ManualMap('PrimaryProductTaxonomy')"));
-            writeAssignments(assignments, columns, null);
+            writeQualified("PrimaryProductTaxonomy", assignments);
         }
 
         private void writeQualified(String structure, List<Assignment> assignments) {
@@ -629,7 +661,7 @@ public final class StepWriterPipeline {
         }
 
         private void writeAssignments(List<Assignment> assignments, JSONArray columns, String structure) {
-            final int batchSize = batch("p360.step.batch.structures", 2000);
+            final int batchSize = batch("p360.step.batch.structures", 900);
             JSONArray rows = new JSONArray();
             for (Assignment assignment : assignments) {
                 JSONObject row = new JSONObject()
@@ -638,14 +670,14 @@ public final class StepWriterPipeline {
                 if (structure != null) row.put("qualification", new JSONObject().put("structureId", structure));
                 rows.put(row);
                 if (rows.length() == batchSize) {
-                    rw.writeData("list", "Product2G", "Product2GStructureMap", qp,
-                            new JSONObject().put("columns", columns).put("rows", rows), StepWriterPipeline.this::log);
+                    writeDataSafely("Structures:" + structure, "Product2G", "Product2GStructureMap",
+                            new JSONObject().put("columns", columns).put("rows", rows));
                     rows = new JSONArray();
                 }
             }
             if (rows.length() > 0) {
-                rw.writeData("list", "Product2G", "Product2GStructureMap", qp,
-                        new JSONObject().put("columns", columns).put("rows", rows), StepWriterPipeline.this::log);
+                writeDataSafely("Structures:" + structure, "Product2G", "Product2GStructureMap",
+                        new JSONObject().put("columns", columns).put("rows", rows));
             }
         }
     }
@@ -677,12 +709,9 @@ public final class StepWriterPipeline {
         return value == null ? "" : value.idOrText();
     }
 
-    private String determineBusiness(String negocio, String extwgS4h) {
-        return negocio.isEmpty() && extwgS4h.isEmpty()
-                ? null
-                : (negocio.isEmpty() && !extwgS4h.isEmpty()
-                        ? "SBB"
-                        : "ART. MARKETPLACE".equals(negocio) ? "MKP" : "LVP");
+    private String determineBusiness(String negocio, String extwgS4h, String negocioCode, String extwgCode) {
+        String code = mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.resolve(negocioCode, negocio, extwgCode, extwgS4h);
+        return code;
     }
 
     private void writeDataSafely(
@@ -690,17 +719,36 @@ public final class StepWriterPipeline {
             String entity,
             String child,
             JSONObject payload) {
+        // RESTWrapper empties rows after the callback; preserve the exact request first.
+        JSONObject sourceCopy = new JSONObject(payload.toString());
+        // Resolve before any REST call. A routing failure must never fall back to the source ID.
+        JSONObject outgoing = requestMapper==null ? payload : requestMapper.map(entity,child,new JSONObject(sourceCopy.toString()));
+        JSONObject requestCopy = new JSONObject(outgoing.toString());
+        log("BATCH_SEND writer=" + writer + " rows=" + requestCopy.getJSONArray("rows").length());
         try {
-            rw.writeData(
-                    "list",
-                    entity,
-                    child,
-                    qp,
-                    payload,
-                    StepWriterPipeline.this::log);
+            rw.writeData("list", entity, child, qp, outgoing, response -> {
+                log(response);
+                boolean failed = true;
+                try {
+                    JSONObject result = new JSONObject(response);
+                    JSONObject counters = result.optJSONObject("counters");
+                    failed = counters == null || counters.optInt("errors", 0) > 0
+                            || counters.optInt("objectsWithErrors", 0) > 0;
+                } catch (Exception ignored) { }
+                if (failed) debt(new JSONObject().put("kind", "API_REJECTED")
+                    .put("writer", writer).put("entity", entity).put("child", child == null ? "" : child)
+                    .put("request", requestCopy).put("sourceRequest",sourceCopy).put("response", response));
+            });
         } catch (Exception e) {
-            log("Writer " + writer + " falló; se conserva el aislamiento y continúa el resto: "
-                    + e.getMessage());
+            debt(new JSONObject().put("kind", "API_UNCONFIRMED").put("writer", writer)
+                .put("entity", entity).put("child", child == null ? "" : child)
+                .put("request", requestCopy).put("sourceRequest",sourceCopy).put("error", e.toString()));
+            log("Writer " + writer + " falló; se conserva el aislamiento y continúa el resto: " + e.getMessage());
+        } finally {
+            // The exact request is preserved as debt on failure. Never let an uncleared
+            // failed batch grow beyond its threshold or contaminate the next batch.
+            JSONArray rows=payload.optJSONArray("rows");
+            if(rows!=null)while(rows.length()>0)rows.remove(rows.length()-1);
         }
     }
 
@@ -723,3 +771,4 @@ public final class StepWriterPipeline {
         if (log != null) log.log(message);
     }
 }
+

@@ -616,7 +616,7 @@ public class LoadProductDataSecondOpinionForFlatChildProducts {
     		currentStatus = getStatusLabel( bundle[0] );
     		prevStatus = getStatusLabel( bundle[1] );
     		externalStatus = bundle[0] == null || "".equals(bundle[0]) ? "" : internalToExternalStatusMap.get(bundle[0]);
-    		business = determineBusiness(negocio == null || negocio.getText() == null ? "" : negocio.getText(), extwgS4h == null || extwgS4h.getText() == null ? "" : extwgS4h.getText());
+    		business = determineBusiness(negocio == null || negocio.getText() == null ? "" : negocio.getText(), extwgS4h == null || extwgS4h.getText() == null ? "" : extwgS4h.getText(), valMap.get("Negocio") == null ? null : valMap.get("Negocio").getId(), valMap.get("EXTWG_S4H") == null ? null : valMap.get("EXTWG_S4H").getId());
     		String[] bundle2 = new String[] { nvlById(negocio), nvlById(extwgS4h), nvl(supplierPartNumber), prevStatus, currentStatus, externalStatus, business };
     		gens.put(product.getId(), bundle2);
     		if(childProducts != null && !childProducts.isEmpty()) {
@@ -673,11 +673,10 @@ public class LoadProductDataSecondOpinionForFlatChildProducts {
     	return v == null ? "" : v.getId() == null ? v.getText() == null ? "" : v.getText() : v.getId();
     }
     
-	private String determineBusiness(String negocio, String extwgS4h) {
-		return     "".equals(negocio) 
-				&& "".equals(extwgS4h) ? null : 
-					("".equals(negocio) && !"".equals(extwgS4h) ? "SBB": "ART. MARKETPLACE".equals(negocio) ? "MKP" : "LVP" );
-	}
+	private String determineBusiness(String negocio, String extwgS4h, String negocioCode, String extwgCode) {
+        String code = mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.resolve(negocioCode, negocio, extwgCode, extwgS4h);
+        return code;
+    }
     
     private void processVariantData(Product product, String[] bundle) throws IOException {
     	String negocio = bundle[0];

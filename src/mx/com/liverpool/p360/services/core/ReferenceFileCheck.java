@@ -1,114 +1,80 @@
 package mx.com.liverpool.p360.services.core;
 
-import java.io.BufferedReader;
-import java.io.FileReader;
 import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.io.UncheckedIOException;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.TreeMap;
+import java.util.LinkedHashSet;
+import java.util.Locale;
+import java.util.Set;
 
 public class ReferenceFileCheck implements AutoCloseable {
 
-    private final NavigableMap<String, String> index = new TreeMap<>();
-    private final Map<String, RandomAccessFile> openFiles = new HashMap<>();
+	public ReferenceFileCheck() throws IOException {
+		/*
+		 * Se conserva la firma para no romper consumidores existentes.
+		 * Ya no se carga reference.index ni se abren shards locales:
+		 * P360_EXPLOIT.TC_EAN_NEGOCIO es la fuente de verdad.
+		 */
+	}
 
-    public ReferenceFileCheck() throws IOException {
-        loadIndex();
-    }
+	public boolean exists(String value, DBAccessDataStub dastub) throws IOException {
+		return !businesses(value, dastub).isEmpty();
+	}
 
-    private void loadIndex() throws IOException {
-    	if(PropertiesManager.get("p360.contingency.reference_ean_dir") != null && java.nio.file.Files.exists(java.nio.file.Paths.get( PropertiesManager.get("p360.contingency.reference_ean_dir"), "reference.index"))) {
-	        try (BufferedReader br = new BufferedReader(new FileReader( java.nio.file.Paths.get( PropertiesManager.get("p360.contingency.reference_ean_dir"), "reference.index").toFile()))) {
-	            String line;
-	            while ((line = br.readLine()) != null) {
-	                String[] parts = line.split("\\|", 2);
-	                if (parts.length == 2) {
-	                    index.put(parts[0], parts[1]);
-	                }
-	            }
-	        }
-    	}
-    }
+	public Set<String> businesses(String value, DBAccessDataStub dastub) throws IOException {
 
-    public boolean exists(String value, DBAccessDataStub dastub) throws IOException {
-        if (value == null) return false;
-        	value = value.trim();
-        if (value.isEmpty()) return false;
+		Set<String> result = new LinkedHashSet<>();
 
-        var entry = index.floorEntry(value);
-        if (entry == null) return false;
+		if(value == null || dastub == null) {
+			return result;
+		}
 
-        String shardFile = entry.getValue();
+		value = value.trim();
 
-        RandomAccessFile raf = openFiles.computeIfAbsent( java.nio.file.Paths.get( PropertiesManager.get("p360.contingency.reference_ean_dir"),  shardFile).toString(), f -> {
-            try {
-                return new RandomAccessFile(f, "r");
-            } catch (IOException e) {
-                throw new UncheckedIOException(e); // para que funcione dentro de computeIfAbsent
-            }
-        });
+		if(value.isEmpty()) {
+			return result;
+		}
 
-        return checkOnExcept( value, binarySearchInFile(raf, value), dastub );
-    }
-    
-    private boolean lookupValueCodeExists(String lookupIdentifier, String code, DBAccessDataStub dastub) {
+		for(String negocio : dastub.getEanNegocios(value)) {
+			String business = toP360Business(negocio);
+			if(business != null && !business.isEmpty()) {
+				result.add(business);
+			}
+		}
 
-    	return dastub.getLookupValueId(lookupIdentifier, code, true) != null;
-    }
-    
-    private boolean checkOnExcept(String val, boolean prevResult, DBAccessDataStub dastub) {
-    	return prevResult && !lookupValueCodeExists("EANsLiberados", val, dastub);
-//    	if(!prevResult)
-//    		return false;
-//    	try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get( PropertiesManager.get("p360.contingency.reference_ean_dir"),  "excepts").toFile())))){
-//    		String line = null;
-//    		while((line = br.readLine()) != null) {
-//    			if(line.equals(val)) {
-//    				return false;
-//    			}
-//    		}
-//    	}catch(java.io.IOException e) {
-//    		throw new IllegalStateException(e);
-//    	}
-//    	return prevResult;
-    }
+		return result;
+	}
 
-    private boolean binarySearchInFile(RandomAccessFile raf, String target) throws IOException {
-        long low = 0;
-        long high = raf.length() - 1;
+	private String toP360Business(String negocio) {
 
-        while (low <= high) {
-            long mid = (low + high) / 2;
-            raf.seek(mid);
-            raf.readLine(); // alinearse a línea completa
+		if(negocio == null) {
+			return null;
+		}
 
-            String line = raf.readLine();
-            if (line == null) break;
+		String normalized = negocio.trim();
 
-            String current = line.trim();
-            int cmp = current.compareTo(target);
+		if(normalized.isEmpty()) {
+			return null;
+		}
 
-            if (cmp == 0) return true;
-            if (cmp < 0) {
-                low = raf.getFilePointer();
-            } else {
-                high = mid - 1;
-            }
-        }
-        return false;
-    }
+		switch(normalized.toUpperCase(Locale.ROOT)) {
+		case "REGULAR":
+		case "DUTY FREE":
+			return "Liverpool";
 
-    @Override
-    public void close() throws IOException {
-        for (RandomAccessFile raf : openFiles.values()) {
-            try {
-                raf.close();
-            } catch (IOException ignored) {
-            }
-        }
-        openFiles.clear();
-    }
+		case "MARKETPLACE":
+			return "Marketplace";
+
+		case "SUBURBIA":
+			return "Suburbia";
+
+		default:
+			return normalized;
+		}
+	}
+
+	@Override
+	public void close() throws IOException {
+		/*
+		 * Ya no hay archivos abiertos que cerrar.
+		 */
+	}
 }

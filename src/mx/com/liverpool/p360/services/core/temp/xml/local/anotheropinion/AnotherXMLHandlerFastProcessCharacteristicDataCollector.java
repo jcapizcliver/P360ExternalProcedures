@@ -667,7 +667,7 @@ public class AnotherXMLHandlerFastProcessCharacteristicDataCollector {
     		String descriptionLongStr = descriptionLong == null ? "" : descriptionLong.getText() ;
     		String descriptionLong2Str = descriptionLong2 == null ? "" : descriptionLong2.getText() ;
     		String productNameStr = productName == null ? "" : productName.getText() ;
-    		business = determineBusiness(negocio == null || negocio.getText() == null ? "" : negocio.getText(), extwgS4h == null || extwgS4h.getText() == null ? "" : extwgS4h.getText());
+    		business = determineBusiness(negocio == null || negocio.getText() == null ? "" : negocio.getText(), extwgS4h == null || extwgS4h.getText() == null ? "" : extwgS4h.getText(), valMap.get("Negocio") == null ? null : valMap.get("Negocio").getId(), valMap.get("EXTWG_S4H") == null ? null : valMap.get("EXTWG_S4H").getId());
     		String nameStr = product.getName();
     		String wdspr = WildDateStandardizer.normalize(firstdateapproveStr, java.time.ZoneId.of("America/Mexico_City"), WildDateStandardizer.AmbiguityPolicy.PREFER_DMY).orElse("");
     		String[] bundle = elese.computeStatus(calculatedWFAtt == null ? "" : calculatedWFAtt.getText(), !"".equals(firstdateapproveStr) ? "Aprobado" : (stateSKU == null ? "" : stateSKU.getText()), fotoTomadaLiverpool == null ? "" : fotoTomadaLiverpool.getText(), product.getId());
@@ -944,11 +944,10 @@ public class AnotherXMLHandlerFastProcessCharacteristicDataCollector {
     	log("Sitios Web: " + webSites.length);
     }
     
-	private String determineBusiness(String negocio, String extwgS4h) {
-		return     "".equals(negocio) 
-				&& "".equals(extwgS4h) ? null : 
-					("".equals(negocio) && !"".equals(extwgS4h) ? "SBB": "ART. MARKETPLACE".equals(negocio) ? "MKP" : "LVP" );
-	}
+	private String determineBusiness(String negocio, String extwgS4h, String negocioCode, String extwgCode) {
+        String code = mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.resolve(negocioCode, negocio, extwgCode, extwgS4h);
+        return code;
+    }
 
 	private void log(String message) {
         try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(

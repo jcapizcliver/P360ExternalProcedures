@@ -1,0 +1,44 @@
+package mx.com.liverpool.p360.services.core.completeness;
+import java.lang.reflect.*;
+import java.util.function.BooleanSupplier;
+import javax.jms.*;
+import mx.com.liverpool.p360.services.core.PropertiesManager;
+
+/** Preserve masa receipt and durable completeness invalidation before the existing ACK. */
+public final class MandatoryCompletenessIntake {
+    private static final boolean ENABLED=Boolean.parseBoolean(System.getProperty("p360.completeness.incremental.enabled",
+        PropertiesManager.get("p360.completeness.incremental.enabled","false")));
+    public static boolean enabled(){return ENABLED;}
+    public static MessageConsumer wrap(MessageConsumer delegate,boolean acknowledge,BooleanSupplier running){
+        if(!enabled() && System.getProperty("masa.journal.directory", "").isBlank())return delegate;
+        try { if(enabled())MandatoryCompletenessDurableQueue.instance(); }
+        catch(Exception failure) { throw new java.lang.IllegalStateException("Cannot open durable completeness journal",failure); }
+        return (MessageConsumer)Proxy.newProxyInstance(MessageConsumer.class.getClassLoader(),new Class<?>[]{MessageConsumer.class},
+          new InvocationHandler(){
+            long warning;
+            public Object invoke(Object proxy,Method method,Object[] args)throws Throwable{
+                if(method.getName().equals("setMessageListener"))throw new UnsupportedOperationException("Synchronous receive required");
+                Object result;
+                try{result=method.invoke(delegate,args);}catch(InvocationTargetException e){throw e.getCause();}
+                if(method.getName().startsWith("receive") && result instanceof Message message){
+                    while(true){
+                        if(!running.getAsBoolean())throw new JMSException("Stopped before durable receipt/ACK");
+                        try{
+                            MasaEventJournal.capture(message);
+                            if(message instanceof TextMessage text){if(enabled())MandatoryCompletenessDurableQueue.instance().append(text.getText());}
+                            else throw new JMSException("Non-text event retained in JMS");
+                            break;
+                        }catch(Exception unavailable){
+                            if(System.currentTimeMillis()-warning>60000){
+                                System.err.println("MANDATORY_DURABLE capture_failed_no_ack="+unavailable.getClass().getSimpleName());warning=System.currentTimeMillis();
+                            }
+                            Thread.sleep(1000);
+                        }
+                    }
+                    if(acknowledge)message.acknowledge();
+                }
+                return result;
+            }
+          });
+    }
+}

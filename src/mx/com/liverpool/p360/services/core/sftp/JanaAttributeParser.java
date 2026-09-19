@@ -1,0 +1,136 @@
+package mx.com.liverpool.p360.services.core.sftp;
+
+import java.math.BigDecimal;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.function.Consumer;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+import org.w3c.dom.Element;
+import org.w3c.dom.Node;
+
+/** Pure XML/value conversion shared by the Jana importer and its offline checks. */
+final class JanaAttributeParser {
+    private JanaAttributeParser() { }
+
+    static String sku(Element values) {
+        if (values != null) {
+            for (Node node = values.getFirstChild(); node != null; node = node.getNextSibling()) {
+                if (node instanceof Element && "Value".equals(node.getNodeName())
+                        && "MATNR".equals(((Element) node).getAttribute("AttributeID"))) {
+                    return node.getTextContent().trim().replaceFirst("^0+(?!$)", "");
+                }
+            }
+        }
+        return null;
+    }
+
+    static Map<String, List<String>> attributes(Element values) {
+        Map<String, List<String>> result = new LinkedHashMap<>();
+        if (values == null) {
+            return result;
+        }
+        for (Node node = values.getFirstChild(); node != null; node = node.getNextSibling()) {
+            if (!(node instanceof Element) || !"Attributes".equals(node.getNodeName())) {
+                continue;
+            }
+            String name = null;
+            List<String> recordValues = new ArrayList<>();
+            for (Node field = node.getFirstChild(); field != null; field = field.getNextSibling()) {
+                if (!(field instanceof Element) || !"Value".equals(field.getNodeName())) {
+                    continue;
+                }
+                String fieldId = ((Element) field).getAttribute("AttributeID");
+                String text = field.getTextContent().trim();
+                if ("ZZIDCONSEC".equals(fieldId)) {
+                    append(result, name, recordValues);
+                    name = null;
+                    recordValues = new ArrayList<>();
+                } else if ("ATNAM".equals(fieldId)) {
+                    if (name != null) {
+                        append(result, name, recordValues);
+                        recordValues = new ArrayList<>();
+                    }
+                    name = text;
+                } else if ("ATWRT".equals(fieldId)) {
+                    recordValues.add(text);
+                }
+            }
+            append(result, name, recordValues);
+        }
+        return result;
+    }
+
+    private static void append(Map<String, List<String>> result, String name, List<String> values) {
+        if (name == null && values.isEmpty()) {
+            return;
+        }
+        if (name == null || name.isBlank() || values.isEmpty()) {
+            throw new IllegalArgumentException("Incomplete Jana attribute: ATNAM=" + name + ", ATWRT=" + values);
+        }
+        for (String value : values) {
+            // Empty input is not an instruction to erase an existing P360 value.
+            if (!value.isEmpty()) {
+                List<String> target = result.computeIfAbsent(name, key -> new ArrayList<>());
+                if (!target.contains(value)) {
+                    target.add(value);
+                }
+            }
+        }
+    }
+
+    static Object resolve(String characteristic, String type, String value, String lookup,
+            Map<String, Map<String, String>> codes, Map<String, Map<String, String>> labels,
+            Consumer<String> log) {
+        if (value == null || type == null || type.isBlank()) {
+            return null;
+        }
+        try {
+            switch (type) {
+            case "LOOKUP":
+                Map<String, String> byCode = lookup == null ? null : codes.get(lookup);
+                Map<String, String> byLabel = lookup == null ? null : labels.get(lookup);
+                String code = byCode != null && byCode.containsKey(value) ? value
+                        : byLabel == null ? null : byLabel.get(value);
+                if (code == null) {
+                    log.accept("Unknown lookup value: " + characteristic + " (" + lookup + ") = " + value);
+                    return null;
+                }
+                return new JSONObject().put("_code", code);
+            case "INTEGER":
+                return new BigDecimal(value).intValueExact();
+            case "DECIMAL":
+                return new BigDecimal(value);
+            case "BOOLEAN":
+                if ("true".equalsIgnoreCase(value) || "1".equals(value)) {
+                    return Boolean.TRUE;
+                }
+                if ("false".equalsIgnoreCase(value) || "0".equals(value)) {
+                    return Boolean.FALSE;
+                }
+                throw new IllegalArgumentException("Expected true/false or 1/0");
+            case "DATE":
+                return LocalDate.parse(value, value.matches("[0-9]{8}")
+                        ? DateTimeFormatter.BASIC_ISO_DATE : DateTimeFormatter.ISO_LOCAL_DATE).toString();
+            default:
+                return value;
+            }
+        } catch (IllegalArgumentException | ArithmeticException | java.time.DateTimeException ex) {
+            log.accept("Invalid " + type + " value: " + characteristic + " = " + value + ": " + ex.getMessage());
+            return null;
+        }
+    }
+
+    static void addValues(String name, JSONArray values, JSONArray records) {
+        if (values.length() > 0) {
+            records.put(new JSONObject()
+                    .put("_qualification", new JSONObject().put("characteristic", new JSONObject().put("_code", name)))
+                    .put("_recordLang", new JSONArray().put(new JSONObject().put("values", values))));
+        }
+    }
+}

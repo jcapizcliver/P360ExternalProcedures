@@ -30,7 +30,7 @@ public class PublicationExceptions {
         try {
             rawResponse = rc.getRequest( "GET", 
             		objectAPIProduct2GURL + java.net.URLEncoder.encode(inputProduct, "UTF-8" ) + "?includeLabels=true", null, headers );
-            System.out.println(rawResponse);
+            if (Boolean.getBoolean("p360.publication.exceptions.verbose")) System.out.println(rawResponse);
             response = new JSONObject(rawResponse);
 
             productSKU = getCharacteristicValueFromObject(response, "SKU");
@@ -179,7 +179,7 @@ public class PublicationExceptions {
                 if(characteristic.equals( entry.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code") )){
                     return String.valueOf( entry.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").get(0) );
                 }else {
-                	System.out.println(characteristic + " ----->" + entry.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"));
+                	if (Boolean.getBoolean("p360.publication.exceptions.verbose")) System.out.println(characteristic + " ----->" + entry.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"));
                 }
             }
         }catch(org.json.JSONException e){ }

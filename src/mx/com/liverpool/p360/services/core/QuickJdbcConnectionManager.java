@@ -27,6 +27,10 @@ public final class QuickJdbcConnectionManager {
     private static final Pattern PLACEHOLDER_PATTERN = Pattern.compile("\\$\\{([^}]+)\\}");
 
     private final JdbcConfig jdbcConfig;
+    private static final ThreadLocal<String> REQUEST_MODULE = new ThreadLocal<>();
+    public static void setRequestModule(String module) {
+        if (module == null) REQUEST_MODULE.remove(); else REQUEST_MODULE.set(module);
+    }
 
     public QuickJdbcConnectionManager() {
         this(resolveServerPropertiesPath());
@@ -50,6 +54,11 @@ public final class QuickJdbcConnectionManager {
         boolean success = false;
         try {
             connection.setAutoCommit(autoCommit);
+            String module = REQUEST_MODULE.get();
+            if (module != null) {
+                try { connection.setClientInfo("OCSID.MODULE", module); }
+                catch (java.sql.SQLClientInfoException ignored) { /* Diagnostics must not reject requests. */ }
+            }
             success = true;
             return connection;
         } finally {

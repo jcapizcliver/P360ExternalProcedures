@@ -57,7 +57,7 @@ public class ProductArticleCharacteristicValueChangeProcessor implements Closeab
 	
 	private final DataRequestor dr = new DataRequestor(dastub);
 	
-	private boolean running = true;
+	private volatile boolean running = true;
 	
 	private final RESTWrapper rw;
 	private final RESTWorkshop workshop;
@@ -92,7 +92,19 @@ public class ProductArticleCharacteristicValueChangeProcessor implements Closeab
 		qp0.put("includeObjectsInProtocol", "false");
 	}
 
+
+    // Filter only legacy side effects; durable MM/completeness intake precedes this method.
+    private boolean hasLegacyWork(Element root, String entity) {
+        java.util.List<Node> records = xmm.listImmediateChildElements(xmm.byName(root, entity)).get("_characteristicRecords");
+        return CharacteristicEventWork.needsWork(records, "product".equals(entity), resendToSKU);
+    }
+
 	private void messageProcessor(String message) throws org.json.JSONException, ParserConfigurationException, SAXException, java.io.IOException, ServiceUnavailableException {
+        try { processLegacyMessage(message); }
+        catch (Exception failure) { logE(failure); }
+    }
+
+    private void processLegacyMessage(String message) throws org.json.JSONException, ParserConfigurationException, SAXException, java.io.IOException, ServiceUnavailableException {
 
 //		java.util.Map<String, java.util.LinkedList< org.json.JSONObject >> characteristicRecordsMap = new java.util.TreeMap<>();
 
@@ -188,7 +200,7 @@ public class ProductArticleCharacteristicValueChangeProcessor implements Closeab
 //				    	brandIdS4HLabel = getValueLabel("BRAND_ID_S4H", characteristicRecordsMap);
 //						currentStatus  = !data.has("currentStatus")  ? "" : String.valueOf( data.getJSONObject("currentStatus" ).getInt("_key") );
 //						internalStatus = !data.has("currentStatus")  ? "" : data.getJSONObject("currentStatus" ).getString("_label");
-						if(changedFieldSet.contains("Product2GCharacteristicValueLang.Value")){
+						if(changedFieldSet.contains("Product2GCharacteristicValueLang.Value") && hasLegacyWork(rootElement, "product")){
 							java.util.LinkedList<Node> crs = xmm.listImmediateChildElements( xmm.byName(rootElement, "product")).get("_characteristicRecords");
 							String charId = null;
 							boolean toSend = false;
@@ -230,7 +242,7 @@ public class ProductArticleCharacteristicValueChangeProcessor implements Closeab
 									if(_externalId != null) {
 										prevValue = _externalId.getTextContent().replaceAll("^'|('@'.+)", "").replaceAll("\\\\'", "'");
 									}else {
-										prevValue = currentValueNode .getTextContent();
+										prevValue = oldValueNode .getTextContent();
 									}
 //									Node _code = xmm.byName( oldValueNode, "_code");
 //									prevValue = (_code != null ? _code : oldValueNode) .getTextContent();
@@ -346,7 +358,7 @@ public class ProductArticleCharacteristicValueChangeProcessor implements Closeab
 								}
 							}
 						}
-						if(changedFieldSet.contains("ArticleCharacteristicValueLang.Value")){
+						if(changedFieldSet.contains("ArticleCharacteristicValueLang.Value") && hasLegacyWork(rootElement, "article")){
 							java.util.LinkedList<Node> crs = xmm.listImmediateChildElements( xmm.byName(rootElement, "article")).get("_characteristicRecords");
 							String charId = null;
 							boolean toSend = false;
@@ -518,7 +530,8 @@ public class ProductArticleCharacteristicValueChangeProcessor implements Closeab
 								}
 							}
 							String sku = null;
-							try {
+                            boolean needsSkuUpdate = CharacteristicEventWork.containsAny(crs, resendToSKU);
+							if (needsSkuUpdate) try {
 								sku = jp.getString("SKU");
 								String r0 = dr.getProductData(new org.json.JSONArray().put(jp.getString("ProductNo")));
 								org.json.JSONObject jp0 = null;
@@ -527,7 +540,7 @@ public class ProductArticleCharacteristicValueChangeProcessor implements Closeab
 									jp0 = jr0.getJSONArray("items").getJSONObject(0);
 								}
 								String internalStatus = jp0.getString("CurrentStatus");
-								if( resendToSKU.contains(charId) ) {
+								if (needsSkuUpdate) {
 									if(
 											"1020".equals(internalStatus) 
 											|| "1007".equals(internalStatus) 
@@ -1097,9 +1110,9 @@ public class ProductArticleCharacteristicValueChangeProcessor implements Closeab
 			connectionFactory = new ActiveMQConnectionFactory("tcp://" + host + ":" + port + "?wireFormat.maxInactivityDuration=60000&keepAlive=true");
 			connection = connectionFactory.createConnection();
 			connection.start();
-			session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+			session = connection.createSession(false, (mx.com.liverpool.p360.services.core.completeness.MandatoryCompletenessIntake.enabled() ? Session.CLIENT_ACKNOWLEDGE : Session.AUTO_ACKNOWLEDGE));
 	        responseQueue = session.createQueue(qName);
-	        consumer = session.createConsumer(responseQueue);
+	        consumer = mx.com.liverpool.p360.services.core.completeness.MandatoryCompletenessIntake.wrap(session.createConsumer(responseQueue), true, () -> running);
 		}catch(JMSException e){
 			e.printStackTrace();
 		}
@@ -1135,6 +1148,7 @@ public class ProductArticleCharacteristicValueChangeProcessor implements Closeab
 	}
 
 	private void disconnect() {
+        if (consumer != null) try { consumer.close(); } catch (JMSException ignored) {}
 		if(connection != null){
 			try{
 				connection.close();

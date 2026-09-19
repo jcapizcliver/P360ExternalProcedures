@@ -90,12 +90,14 @@ public class GrabLaDataDelWarjaus {
             }
         }
 //        crp-pro-dwh-semanticagold.MUS_PRO_DWH_VIEWS_ODS.VDIM_SKU_VISIBLES_LIV
+        /*
         printViewMetadata(
       		  bigquery
       		, "crp-pro-dwh-semanticagold"
       		, "MUS_PRO_DWH_VIEWS_ODS"
       		, "VDIM_SKU_VISIBLES_LIV"
       	);
+        */
 //      System.out.println("\n**** ^^ ****\n");
 //      printViewMetadata(
 //      		  bigquery
@@ -128,9 +130,9 @@ public class GrabLaDataDelWarjaus {
 //        String table = "crp-pro-cx-semantica.mus_pro_gob_producto_prd_views.CIFRAS_ATRIBUTOS_PLANTILLAS";
 //        String table = "crp-pro-cx-semantica.mus_pro_gob_producto_prd_views.CIFRAS_ATRIBUTOS_GRUPOS_DE_ARTICULO";
 //        String table = "crp-pro-dwh-semanticagold.EIL_DP_VMASTER.VFAC_GOB_PROD_PRODUCTO_ATRIB_DET";
-//        String table = "crp-pro-dwh-semanticagold.EIL_DP_VMASTER.VFAC_GOB_PROD_PRODUCTO_ATRIB_DET";
+        String table = "crp-pro-dwh-semanticagold.EIL_DP_VMASTER.VFAC_GOB_PROD_PRODUCTO_ATRIB_DET";
 //        String table = "select * from `crp-pro-cx-semantica.mus_pro_gob_producto_prd_views.VW_EU_COB_ATR_ITEMGROUP` where pct_cobertura <> 100.0 limit 50";
-        String table = "select * from `crp-pro-dwh-semanticagold.MUS_PRO_DWH_VIEWS_ODS.VDIM_SKU_VISIBLES_LIV` limit 50";
+//        String table = "select * from `crp-pro-dwh-semanticagold.MUS_PRO_DWH_VIEWS_ODS.VDIM_SKU_VISIBLES_LIV` limit 50";
     	try
 //    	(
 //    			java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(new java.io.FileOutputStream(java.nio.file.Paths.get("C:", "opt", "LVP", "desorden", "BQ", "___" + table + "___.csv").toFile())))

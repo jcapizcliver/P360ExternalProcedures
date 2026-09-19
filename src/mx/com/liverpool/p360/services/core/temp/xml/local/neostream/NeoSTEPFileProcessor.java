@@ -107,6 +107,9 @@ public final class NeoSTEPFileProcessor {
 
         try (DBAccessDataStub db = new DBAccessDataStub(log)) {
 
+            Path arrivalAudit = StepArrivalAudit.write(db, index, sourcePath);
+            log.log("Existence before P360 writes: " + arrivalAudit);
+
             t = System.currentTimeMillis();
             StepDbSnapshot snapshot = StepDbSnapshot.load(db, index);
 

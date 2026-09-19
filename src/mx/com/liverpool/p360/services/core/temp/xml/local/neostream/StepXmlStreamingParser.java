@@ -222,6 +222,34 @@ public final class StepXmlStreamingParser {
         return handler.productsCounter;
     }
 
+    /** Builds the same index from already materialized SQLite families. */
+    public static StepIndex indexProducts(Iterable<Product> products) {
+        StepIndex index = new StepIndex();
+        for (Product p : products) indexProduct(index, p, true);
+        return index;
+    }
+    private static void indexProduct(StepIndex i, Product p, boolean root) {
+        boolean product = root && !isNumericProductParent(p.getParentId());
+        boolean article = !product || (root && p.getProducts().isEmpty() && !p.getUserTypeId().startsWith("SalesItemFamily"));
+        Value skuValue=p.getValueMap().get("SKU");
+        String sku=skuValue==null?"":skuValue.getText().trim();
+        Set<String> attrs=new LinkedHashSet<>();
+        for(Value v:p.getValues()) if(v.getAttributeId()!=null) attrs.add(v.getAttributeId());
+        for(MultiValue v:p.getMultiValues()) if(v.getAttributeId()!=null) attrs.add(v.getAttributeId());
+        if(product) {
+            i.productIds.add(p.getId());i.productAttributeIds.addAll(attrs);
+            if(!sku.isBlank()){i.productSkus.add(sku);i.productSkuById.put(p.getId(),sku);}
+            if(p.getParentId()!=null&&!p.getParentId().isBlank())i.primaryStructureGroupIds.add(p.getParentId());
+            for(Classification c:p.getClassifications()) {
+                if("WebsiteLink".equals(c.getType()))i.webStructureGroupIds.add(c.getId());
+                if("GALink".equals(c.getType()))i.eccStructureGroupIds.add(c.getId());
+                if("GALink_S4H".equals(c.getType()))i.s4hStructureGroupIds.add(c.getId());
+            }
+        }
+        if(article){i.articleIds.add(p.getId());i.articleAttributeIds.addAll(attrs);if(!sku.isBlank()){i.articleSkus.add(sku);i.articleSkuById.put(p.getId(),sku);}}
+        for(Product child:p.getProducts())indexProduct(i,child,false);
+    }
+
     private static SAXParser newSafeParser()
             throws ParserConfigurationException, SAXException {
         SAXParserFactory factory = SAXParserFactory.newInstance();

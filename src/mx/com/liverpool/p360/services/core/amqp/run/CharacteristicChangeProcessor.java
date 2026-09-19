@@ -35,7 +35,7 @@ import mx.com.liverpool.p360.services.xmlutils.XMLMisc;
 
 public class CharacteristicChangeProcessor implements Closeable {
 
-	private boolean running = true;
+	private volatile boolean running = true;
 
 	private DBAccessDataStub dastub = new DBAccessDataStub( new ELog() {
 		
@@ -71,6 +71,11 @@ public class CharacteristicChangeProcessor implements Closeable {
 	}
 
 	private void messageProcessor(String message) throws org.json.JSONException, ParserConfigurationException, SAXException, java.io.IOException {
+        try { processLegacyMessage(message); }
+        catch (Exception failure) { logE(failure); }
+    }
+
+    private void processLegacyMessage(String message) throws org.json.JSONException, ParserConfigurationException, SAXException, java.io.IOException {
 
 		String entity = null;
 		String changeSummary = null;
@@ -86,7 +91,7 @@ public class CharacteristicChangeProcessor implements Closeable {
 	     	changeSummary = json.getJSONObject("entityItemChange").getString("_changeSummary");
 	     	identifier = json.getJSONObject("entityItemChange").getString("_identifier");
 	     	changedField = json.getJSONObject("entityItemChange").has("_changedField") ? json.getJSONObject("entityItemChange").getJSONArray("_changedField") : new org.json.JSONArray();
-			log("A message body: " + json);
+			log("Characteristic event identifier=" + identifier + " fields=" + changedField);
 			for(int i=0; i<changedField.length(); i++) {
 				changedFieldSet.add(changedField.getString(i));
 			}
@@ -111,18 +116,26 @@ public class CharacteristicChangeProcessor implements Closeable {
 						Element alternativeIdentifierElement = (Element) xmm.byName(characteristicElement, "alternativeIdentifier");
 						Element lookup = (Element) xmm.byName(characteristicElement, "lookup");
 						
+                        // Read once and reuse the same mutable row if both fields changed.
+                        org.json.JSONObject catalogItem = null;
+                        if (dataType != null || lookup != null) {
+                            String data = dr.getCharacteristicData(new org.json.JSONArray().put(identifier));
+                            if (data != null) {
+                                org.json.JSONArray items = new org.json.JSONObject(data).optJSONArray("items");
+                                if (items != null && items.length() > 0) catalogItem = items.getJSONObject(0);
+                            }
+                        }
 						if(dataType != null) {
 							Element old = (Element) xmm.byName(dataType, "_old");
 							Element current = (Element) xmm.byName(dataType, "_current");
-							String drr = dr.getCharacteristicData(new org.json.JSONArray().put(identifier));
-							if(drr != null && current != null) {
-								org.json.JSONObject jr = new org.json.JSONObject(drr);
-								org.json.JSONObject item = jr.getJSONArray("items").getJSONObject(0);
+							boolean hasCatalogItem = catalogItem != null;
+							if(hasCatalogItem && current != null) {
+								org.json.JSONObject item = catalogItem;
 								item.put("dataType", ((Element) xmm.byName(current, "_key")).getTextContent());
-								if("LOOKUP".equals(((Element) xmm.byName(old, "_key")).getTextContent()))
+								if(old != null && xmm.byName(old, "_key") != null && "LOOKUP".equals(xmm.byName(old, "_key").getTextContent()))
 									item.put("lookup", "");
 								log( dr.addCharacteristicData(new org.json.JSONArray().put(item)) );
-							}else if(drr != null && current == null) {
+							}else if(hasCatalogItem && current == null) {
 								
 							}
 						}
@@ -130,15 +143,13 @@ public class CharacteristicChangeProcessor implements Closeable {
 						if(lookup != null) {
 							Element old = (Element) xmm.byName(lookup, "_old");
 							Element current = (Element) xmm.byName(lookup, "_current");
-							String drr = dr.getCharacteristicData(new org.json.JSONArray().put(identifier));
-							if(drr != null && current != null) {
-								org.json.JSONObject jr = new org.json.JSONObject(drr);
-								org.json.JSONObject item = jr.getJSONArray("items").getJSONObject(0);
+							boolean hasCatalogItem = catalogItem != null;
+							if(hasCatalogItem && current != null) {
+								org.json.JSONObject item = catalogItem;
 								item.put("lookup", ((Element) xmm.byName(current, "_code")).getTextContent());
 								dr.addCharacteristicData(new org.json.JSONArray().put(item));
-							}else if(drr != null && current == null) {
-								org.json.JSONObject jr = new org.json.JSONObject(drr);
-								org.json.JSONObject item = jr.getJSONArray("items").getJSONObject(0);
+							}else if(hasCatalogItem && current == null) {
+								org.json.JSONObject item = catalogItem;
 								item.put("lookup", "");
 								dr.addCharacteristicData(new org.json.JSONArray().put(item));
 							}
@@ -249,9 +260,9 @@ public class CharacteristicChangeProcessor implements Closeable {
 			connectionFactory = new ActiveMQConnectionFactory("tcp://" + host + ":" + port + "?wireFormat.maxInactivityDuration=60000&keepAlive=true");
 			connection = connectionFactory.createConnection();
 			connection.start();
-			session = connection.createSession(false, Session.AUTO_ACKNOWLEDGE);
+			session = connection.createSession(false, (mx.com.liverpool.p360.services.core.completeness.MandatoryCompletenessIntake.enabled() ? Session.CLIENT_ACKNOWLEDGE : Session.AUTO_ACKNOWLEDGE));
 	        responseQueue = session.createQueue(qName);
-	        consumer = session.createConsumer(responseQueue);
+	        consumer = mx.com.liverpool.p360.services.core.completeness.MandatoryCompletenessIntake.wrap(session.createConsumer(responseQueue), true, () -> running);
 		}catch(JMSException e){
 			e.printStackTrace();
 		}
@@ -287,6 +298,7 @@ public class CharacteristicChangeProcessor implements Closeable {
 	}
 
 	private void disconnect() {
+        if (consumer != null) try { consumer.close(); } catch (JMSException ignored) {}
 		if(connection != null){
 			try{
 				connection.close();

@@ -127,6 +127,7 @@ public class ParsersTools {
 	}
 	
 	public String[] checkArticle(String id) {
+        if (id == null || id.isBlank() || "null".equalsIgnoreCase(id.trim())) return null;
 		String resp = dr.getProductByVariant(new org.json.JSONArray().put(id));
 		sl.log("Req " + id + ": " + resp);
 		if(resp != null) {

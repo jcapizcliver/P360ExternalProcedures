@@ -1,0 +1,99 @@
+package mx.com.liverpool.p360.services.core.sftp;
+
+import java.io.*;
+import java.nio.channels.FileChannel;
+import java.nio.file.*;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.TimeUnit;
+import java.util.function.*;
+import org.json.*;
+import org.apache.sshd.client.SshClient;
+import org.apache.sshd.common.keyprovider.FileKeyPairProvider;
+import org.apache.sshd.sftp.client.*;
+import mx.com.liverpool.p360.services.core.PropertiesManager;
+
+/** Download first, close SFTP, then process. Retain XML until all records are acknowledged. */
+public final class DurableSftpQueue {
+ public interface Processor {void run(byte[] bytes,String name)throws Exception;}
+ public interface RecordProcessor<T> {void run(T value)throws Exception;}
+ static final ThreadLocal<Job> ACTIVE=new ThreadLocal<>();
+ static final Path ROOT=Path.of(System.getProperty("p360.parsers.queue","/u01/workshop/java/queues/xml"));
+ static final class Job {
+  final Path dir;final JSONObject meta;final Set<String> receipts=new HashSet<>();
+  Job(Path d)throws IOException{dir=d;meta=new JSONObject(Files.readString(d.resolve("job.json")));Path f=d.resolve("receipts.txt");if(Files.exists(f))receipts.addAll(Files.readAllLines(f));}
+  void receipt(String key)throws IOException{if(!receipts.contains(key)){try(FileChannel c=FileChannel.open(dir.resolve("receipts.txt"),StandardOpenOption.CREATE,StandardOpenOption.WRITE,StandardOpenOption.APPEND)){writeFully(c,StandardCharsets.UTF_8.encode(key+"\n"));c.force(true);}receipts.add(key);}}
+ }
+ public static boolean enabled(){return Boolean.getBoolean("p360.parsers.durable");}
+ static String sha(byte[] b){try{return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(b));}catch(Exception e){throw new IllegalStateException(e);}}
+ static void writeFully(FileChannel c,java.nio.ByteBuffer b)throws IOException{while(b.hasRemaining())c.write(b);}
+ static void atomic(Path p,String text)throws IOException{Path tmp=p.resolveSibling(p.getFileName()+".tmp");try(FileChannel c=FileChannel.open(tmp,StandardOpenOption.CREATE,StandardOpenOption.WRITE,StandardOpenOption.TRUNCATE_EXISTING)){writeFully(c,StandardCharsets.UTF_8.encode(text));c.force(true);}Files.move(tmp,p,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);}
+ public static boolean confirmed(String key){Job j=ACTIVE.get();return j!=null&&j.receipts.contains(key);}
+ public static void confirm(String key){Job j=ACTIVE.get();if(j!=null)try{j.receipt(key);}catch(IOException e){throw new UncheckedIOException(e);}}
+ public static String publicationKey(JSONObject e){return "sku:"+sha((e.getString("entity")+"|"+e.getString("id")+"|"+e.getString("sku")+"|"+e.optString("parent")).getBytes(StandardCharsets.UTF_8));}
+ public static void beforePublish(List<JSONObject> entries){Job j=ACTIVE.get();if(j==null)return;for(JSONObject e:entries){String k=publicationKey(e);if(j.receipts.contains("inflight:"+k)&&!j.receipts.contains(k))throw new IllegalStateException("SKU_ACK_UNCERTAIN requires review: "+e.getString("id"));}for(JSONObject e:entries)confirm("inflight:"+publicationKey(e));}
+ public static <T> void records(List<T> rows,RecordProcessor<T> processor,Consumer<String> log)throws Exception{
+  int done=0,skipped=0,failed=0;for(int i=0;i<rows.size();i++){String key="record:"+i;if(confirmed(key)){skipped++;continue;}try{processor.run(rows.get(i));confirm(key);done++;}catch(Exception e){failed++;log.accept("RECORD_DEFERRED index="+i+" reason="+e.getClass().getSimpleName()+": "+e.getMessage());}}
+  log.accept("RECORD_PROGRESS written="+done+" prior="+skipped+" pending="+failed);if(failed>0)throw new IOException("RECORDS_PENDING="+failed);
+ }
+ public static ByteArrayOutputStream bytes(byte[] b)throws IOException{ByteArrayOutputStream out=new ByteArrayOutputStream(b.length);out.write(b);return out;}
+ static boolean same(SftpClient.Attributes a,JSONObject m){return a.getSize()==m.getLong("size")&&a.getModifyTime().toMillis()==m.getLong("mtime");}
+ static List<Job> jobs(Path root)throws IOException{List<Job> result=new ArrayList<>();try(var s=Files.list(root)){for(Path d:s.filter(Files::isDirectory).toList())if(Files.exists(d.resolve("job.json")))result.add(new Job(d));}result.sort(Comparator.comparing(j->j.meta.getString("name")));return result;}
+ static void collect(String system,String prefix,Path root,Consumer<String> log)throws Exception{
+  String p="p360.contingency."+system+".";String remote=PropertiesManager.get(p+"remote_directory_122");
+  Map<String,Job> existing=new HashMap<>();for(Job j:jobs(root))existing.put(j.meta.getString("name")+":"+j.meta.getLong("mtime")+":"+j.meta.getLong("size"),j);
+  try(SshClient c=SshClient.setUpDefaultClient()){
+   c.setKeyIdentityProvider(new FileKeyPairProvider(Path.of(PropertiesManager.get(p+"private_key_path"))));c.start();
+   try(var session=c.connect(PropertiesManager.get(p+"userp360"),PropertiesManager.get(p+"host"),Integer.parseInt(PropertiesManager.get(p+"port"))).verify(15,TimeUnit.SECONDS).getSession()){
+    session.auth().verify(15,TimeUnit.SECONDS);
+    try(SftpClient f=SftpClientFactory.instance().createSftpClient(session)){
+     int pending=0,staged=0,removed=0;
+     for(var e:f.readDir(remote)){
+      String n=e.getFilename();if(!n.startsWith(prefix)||!n.matches("GenericXML(?:products|attributes)[0-9]+\\.[Xx][Mm][Ll]"))continue;
+      pending++;var a=e.getAttributes();if(System.currentTimeMillis()-a.getModifyTime().toMillis()<5000)continue;
+      String identity=n+":"+a.getModifyTime().toMillis()+":"+a.getSize();Job j=existing.get(identity);String path=remote+"/"+n;
+      if(j==null){
+       if(a.getSize()>128L*1024*1024){log.accept("FILE_TOO_LARGE "+n);continue;}
+       byte[] b;try(InputStream in=f.read(path)){b=in.readAllBytes();}
+       var after=f.stat(path);if(b.length!=a.getSize()||after.getSize()!=a.getSize()||!after.getModifyTime().equals(a.getModifyTime())){log.accept("FILE_STILL_CHANGING "+n);continue;}
+       Path d=root.resolve(n+"."+sha(identity.getBytes(StandardCharsets.UTF_8)).substring(0,16));Files.createDirectories(d);
+       try(FileChannel channel=FileChannel.open(d.resolve("input.xml"),StandardOpenOption.CREATE,StandardOpenOption.WRITE,StandardOpenOption.TRUNCATE_EXISTING)){writeFully(channel,java.nio.ByteBuffer.wrap(b));channel.force(true);}
+       JSONObject m=new JSONObject().put("name",n).put("size",a.getSize()).put("mtime",a.getModifyTime().toMillis()).put("sha256",sha(b)).put("staged",Instant.now().toString());atomic(d.resolve("job.json"),m.toString());j=new Job(d);
+       Path seed=ROOT.resolve("prior-acks").resolve(system+"-"+n+".jsonl");int seeded=0;
+       if(Files.exists(seed))for(String l:Files.readAllLines(seed)){JSONObject ack=new JSONObject(l);if(ack.getLong("at")>=a.getModifyTime().toMillis()){j.receipt(publicationKey(ack));seeded++;}}
+       if(seeded>0)log.accept("SKU_RECEIPTS_IMPORTED file="+n+" count="+seeded);staged++;
+      }
+      if(Files.exists(j.dir.resolve("complete.json"))&&!Files.exists(j.dir.resolve("removed.json"))){
+       if(same(f.stat(path),j.meta)){f.remove(path);atomic(j.dir.resolve("removed.json"),Instant.now().toString());removed++;log.accept("SFTP_FINALIZED "+n);}
+      }
+     }
+     log.accept("SFTP_QUEUE system="+system+" kind="+prefix+" remote="+pending+" staged="+staged+" removed="+removed);
+    }
+   }
+  }
+ }
+ public static void run(String system,String prefix,BooleanSupplier running,Processor processor,Consumer<String> log){
+  Path root=ROOT.resolve(system+"-"+prefix);try{Files.createDirectories(root);}catch(IOException e){throw new UncheckedIOException(e);}
+  try(FileChannel lock=FileChannel.open(root.resolve("worker.lock"),StandardOpenOption.CREATE,StandardOpenOption.WRITE);var lease=lock.tryLock()){
+   if(lease==null)throw new IOException("Queue worker already active");
+   while(running.getAsBoolean()){
+    try{collect(system,prefix,root,log);}catch(Exception e){log.accept("SFTP_RETRY "+e.getClass().getSimpleName()+": "+e.getMessage());}
+    int attempted=0;long cycle=System.currentTimeMillis();
+    for(Job j:jobs(root)){
+     if(!running.getAsBoolean())break;
+     if(Files.exists(j.dir.resolve("complete.json")))continue;
+     Path retry=j.dir.resolve("retry.json");JSONObject r=Files.exists(retry)?new JSONObject(Files.readString(retry)):new JSONObject();
+     if(r.optLong("after")>System.currentTimeMillis())continue;
+     long start=System.currentTimeMillis();ACTIVE.set(j);
+     try{byte[] b=Files.readAllBytes(j.dir.resolve("input.xml"));if(!sha(b).equals(j.meta.getString("sha256")))throw new IOException("Local input checksum mismatch");log.accept("FILE_BEGIN "+j.meta.getString("name"));processor.run(b,j.meta.getString("name"));atomic(j.dir.resolve("complete.json"),new JSONObject().put("finished",Instant.now().toString()).put("milliseconds",System.currentTimeMillis()-start).toString());log.accept("FILE_COMPLETE "+j.meta.getString("name")+" milliseconds="+(System.currentTimeMillis()-start));}
+     catch(Exception e){int tries=r.optInt("attempts")+1;long delay=Math.min(900000L,60000L*(1L<<Math.min(tries-1,4)));atomic(retry,new JSONObject().put("attempts",tries).put("after",System.currentTimeMillis()+delay).put("reason",e.toString()).toString());log.accept("FILE_DEFERRED "+j.meta.getString("name")+" retrySeconds="+delay/1000+" reason="+e.getMessage());}
+     finally{ACTIVE.remove();}
+     if(++attempted>=5||System.currentTimeMillis()-cycle>=60000)break;
+    }
+    Thread.sleep(attempted==0?10000:1000);
+   }
+  }catch(InterruptedException e){Thread.currentThread().interrupt();}catch(IOException e){throw new UncheckedIOException(e);}
+ }
+}

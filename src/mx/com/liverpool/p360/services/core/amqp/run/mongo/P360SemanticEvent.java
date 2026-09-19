@@ -1,0 +1,398 @@
+package mx.com.liverpool.p360.services.core.amqp.run.mongo;
+
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+
+public class P360SemanticEvent {
+
+    public enum EntityType {
+        PRODUCT2G,
+        ARTICLE
+    }
+
+    public enum EventType {
+        CREATED,
+        CHANGED,
+        DELETED
+    }
+
+    public enum ChangeAction {
+        UPSERT,
+        CLEAR,
+        DELETE
+    }
+
+    public enum ParentRelationAction {
+        NONE,
+        UPSERT,
+        DELETE
+    }
+
+    private EntityType entityType;
+    private EventType eventType;
+    private String identifier;
+    private String eventTimestamp;
+    private String module;
+    private String user;
+
+    private String productName;
+    private String descriptionLong;
+    private String templateId;
+
+    private String parentId;
+    private ParentRelationAction parentRelationAction = ParentRelationAction.NONE;
+
+    private final List<AttributeChange> attributes = new ArrayList<>();
+    private final List<ImageChange> images = new ArrayList<>();
+
+    public EntityType getEntityType() {
+        return entityType;
+    }
+
+    public void setEntityType(EntityType entityType) {
+        this.entityType = entityType;
+    }
+
+    public EventType getEventType() {
+        return eventType;
+    }
+
+    public void setEventType(EventType eventType) {
+        this.eventType = eventType;
+    }
+
+    public String getIdentifier() {
+        return identifier;
+    }
+
+    public void setIdentifier(String identifier) {
+        this.identifier = identifier;
+    }
+
+    public String getEventTimestamp() {
+        return eventTimestamp;
+    }
+
+    public void setEventTimestamp(String eventTimestamp) {
+        this.eventTimestamp = eventTimestamp;
+    }
+
+    public String getModule() {
+        return module;
+    }
+
+    public void setModule(String module) {
+        this.module = module;
+    }
+
+    public String getUser() {
+        return user;
+    }
+
+    public void setUser(String user) {
+        this.user = user;
+    }
+
+    public String getProductName() {
+        return productName;
+    }
+
+    public void setProductName(String productName) {
+        this.productName = productName;
+    }
+
+    public String getDescriptionLong() {
+        return descriptionLong;
+    }
+
+    public void setDescriptionLong(String descriptionLong) {
+        this.descriptionLong = descriptionLong;
+    }
+
+    public String getTemplateId() {
+        return templateId;
+    }
+
+    public void setTemplateId(String templateId) {
+        this.templateId = templateId;
+    }
+
+    public String getParentId() {
+        return parentId;
+    }
+
+    public void setParentId(String parentId) {
+        this.parentId = parentId;
+    }
+
+    public ParentRelationAction getParentRelationAction() {
+        return parentRelationAction;
+    }
+
+    public void setParentRelationAction(ParentRelationAction parentRelationAction) {
+        this.parentRelationAction = parentRelationAction == null
+                ? ParentRelationAction.NONE
+                : parentRelationAction;
+    }
+
+    public List<AttributeChange> getAttributes() {
+        return attributes;
+    }
+
+    public List<ImageChange> getImages() {
+        return images;
+    }
+
+    public boolean hasProductPayloadChanges() {
+        return notBlank(productName)
+                || descriptionLong != null
+                || notBlank(templateId)
+                || !attributes.isEmpty()
+                || !images.isEmpty();
+    }
+
+    public boolean hasArticlePayloadChanges() {
+        return notBlank(productName)
+                || !attributes.isEmpty()
+                || !images.isEmpty();
+    }
+
+    public boolean hasSemanticChanges() {
+        if (eventType == EventType.DELETED) {
+            return true;
+        }
+        if (parentRelationAction != ParentRelationAction.NONE) {
+            return true;
+        }
+        return entityType == EntityType.PRODUCT2G
+                ? hasProductPayloadChanges()
+                : hasArticlePayloadChanges();
+    }
+
+    private static boolean notBlank(String value) {
+        return value != null && !value.isBlank();
+    }
+
+    public static class AttributeChange {
+        private String characteristic;
+        private String recordKey;
+        private String parentRecordKey;
+        private String language;
+        private String datatype;
+        private String valueId;
+        private Object value;
+        private String oldValueId;
+        private Object oldValue;
+        private ChangeAction action = ChangeAction.UPSERT;
+
+        public String getCharacteristic() {
+            return characteristic;
+        }
+
+        public void setCharacteristic(String characteristic) {
+            this.characteristic = characteristic;
+        }
+
+        public String getRecordKey() {
+            return recordKey;
+        }
+
+        public void setRecordKey(String recordKey) {
+            this.recordKey = recordKey;
+        }
+
+        public String getParentRecordKey() {
+            return parentRecordKey;
+        }
+
+        public void setParentRecordKey(String parentRecordKey) {
+            this.parentRecordKey = parentRecordKey;
+        }
+
+        public String getLanguage() {
+            return language;
+        }
+
+        public void setLanguage(String language) {
+            this.language = language;
+        }
+
+        public String getDatatype() {
+            return datatype;
+        }
+
+        public void setDatatype(String datatype) {
+            this.datatype = datatype;
+        }
+
+        public String getValueId() {
+            return valueId;
+        }
+
+        public void setValueId(String valueId) {
+            this.valueId = valueId;
+        }
+
+        public Object getValue() {
+            return value;
+        }
+
+        public void setValue(Object value) {
+            this.value = value;
+        }
+
+        public String getOldValueId() {
+            return oldValueId;
+        }
+
+        public void setOldValueId(String oldValueId) {
+            this.oldValueId = oldValueId;
+        }
+
+        public Object getOldValue() {
+            return oldValue;
+        }
+
+        public void setOldValue(Object oldValue) {
+            this.oldValue = oldValue;
+        }
+
+        public ChangeAction getAction() {
+            return action;
+        }
+
+        public void setAction(ChangeAction action) {
+            this.action = action;
+        }
+    }
+
+    public static class ImageChange {
+        private String sourceCharacteristic;
+        private String recordKey;
+        private String type;
+        private Integer order;
+
+        private String name;
+        private String url;
+        private String statusId;
+        private String status;
+
+        private String oldName;
+        private String oldUrl;
+        private String oldStatusId;
+        private String oldStatus;
+
+        private ChangeAction action = ChangeAction.UPSERT;
+        private final Map<String, Object> metadata = new LinkedHashMap<>();
+
+        public String getSourceCharacteristic() {
+            return sourceCharacteristic;
+        }
+
+        public void setSourceCharacteristic(String sourceCharacteristic) {
+            this.sourceCharacteristic = sourceCharacteristic;
+        }
+
+        public String getRecordKey() {
+            return recordKey;
+        }
+
+        public void setRecordKey(String recordKey) {
+            this.recordKey = recordKey;
+        }
+
+        public String getType() {
+            return type;
+        }
+
+        public void setType(String type) {
+            this.type = type;
+        }
+
+        public Integer getOrder() {
+            return order;
+        }
+
+        public void setOrder(Integer order) {
+            this.order = order;
+        }
+
+        public String getName() {
+            return name;
+        }
+
+        public void setName(String name) {
+            this.name = name;
+        }
+
+        public String getUrl() {
+            return url;
+        }
+
+        public void setUrl(String url) {
+            this.url = url;
+        }
+
+        public String getStatusId() {
+            return statusId;
+        }
+
+        public void setStatusId(String statusId) {
+            this.statusId = statusId;
+        }
+
+        public String getStatus() {
+            return status;
+        }
+
+        public void setStatus(String status) {
+            this.status = status;
+        }
+
+        public String getOldName() {
+            return oldName;
+        }
+
+        public void setOldName(String oldName) {
+            this.oldName = oldName;
+        }
+
+        public String getOldUrl() {
+            return oldUrl;
+        }
+
+        public void setOldUrl(String oldUrl) {
+            this.oldUrl = oldUrl;
+        }
+
+        public String getOldStatusId() {
+            return oldStatusId;
+        }
+
+        public void setOldStatusId(String oldStatusId) {
+            this.oldStatusId = oldStatusId;
+        }
+
+        public String getOldStatus() {
+            return oldStatus;
+        }
+
+        public void setOldStatus(String oldStatus) {
+            this.oldStatus = oldStatus;
+        }
+
+        public ChangeAction getAction() {
+            return action;
+        }
+
+        public void setAction(ChangeAction action) {
+            this.action = action;
+        }
+
+        public Map<String, Object> getMetadata() {
+            return metadata;
+        }
+    }
+}

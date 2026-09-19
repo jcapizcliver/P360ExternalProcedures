@@ -165,6 +165,10 @@ public class GetProposals implements Closeable {
             structureGroupName,
             multivalueCharacteristics,
             headers);
+        // Preserve the caller's proposal identity while returning the golden product's graph.
+        if (requestedIdentifier != null && !requestedIdentifier.isEmpty()) {
+          response.put("proposalId", requestedIdentifier);
+        }
         responses.put(response);
       }
 
@@ -207,6 +211,11 @@ public class GetProposals implements Closeable {
     productIds.addAll(productsByIdentifier.values());
     productIds.remove(null);
     productIds.remove("");
+
+    java.util.Map<String,String> aliases = ProductAliasResolver.resolveDatabase(productIds);
+    productsBySKU.replaceAll((key,value) -> aliases.getOrDefault(value,value));
+    productsByIdentifier.replaceAll((key,value) -> aliases.getOrDefault(value,value));
+    productIds = new java.util.LinkedHashSet<>(aliases.values());
 
     log("Bulk loading " + productIds.size() + " Product2G entity graph(s).");
     java.util.Map<String, org.json.JSONObject> productsById =
@@ -580,7 +589,7 @@ public class GetProposals implements Closeable {
             if(modifiedFields.length() > 0) {
             	jsonRes.put("modifiedFields", modifiedFields);
             }
-            return jsonRes;
+            return NativeModelPriority.finishProduct(jsonRes, productEntity, batchVariantsById);
   }
 
   private String appendZeros(String value, int length) {
@@ -803,6 +812,13 @@ public class GetProposals implements Closeable {
           characteristicRecord = characteristicRecords.getJSONObject( j );
           characteristicIdentifier = characteristicRecord.getJSONObject( "_qualification" ).getJSONObject( "characteristic" ).getString( "_code" );
           vcs = variantLevelAttributes.get( characteristicIdentifier );
+          // A populated MX ExtraData dimension takes precedence, even when its
+          // legacy characteristic is empty or malformed.
+          if ("TamanoUnico".equals(characteristicIdentifier)
+              && !variantExtraDataValue(response.getJSONObject("_data"), "tamanoUnico").isEmpty()) continue;
+          if ("ColoursLiverpoolAtt".equals(characteristicIdentifier)
+              && !variantExtraDataValue(response.getJSONObject("_data"), "coloursLiverpoolAtt").isEmpty()) continue;
+
 
           if(characteristicIdentifier.endsWith("_Rechazo")) {
           	rechazos.addLast(characteristicRecord);
@@ -900,10 +916,7 @@ public class GetProposals implements Closeable {
         	variantsRejectionBoard.put(article, modifiedFields);
         }
 
-        if(!jsonRes.has("TamanoUnico"))
-        	jsonRes.put("TamanoUnico", tallaUnica == null ? "" : tallaUnica);
-        if(!jsonRes.has("ColoursLiverpoolAtt"))
-        	jsonRes.put("ColoursLiverpoolAtt", color == null ? "" : color);
+        applyVariantDimensionPriority(jsonRes, response.getJSONObject("_data"));
         if(!jsonRes.has("SupplierPartNumber"))
         	jsonRes.put("SupplierPartNumber", supplierPartNumberVariant == null ? supplierPartNumber : supplierPartNumberVariant);
         if(!jsonRes.has("SAPObjectType"))
@@ -1203,7 +1216,7 @@ public class GetProposals implements Closeable {
       appendArticleExtraData(data, entity);
     }
 
-    return response;
+    return NativeNamePriority.apply(response);
   }
 
   private void appendLanguages(org.json.JSONObject data, org.json.JSONObject entity) {
@@ -1261,6 +1274,40 @@ public class GetProposals implements Closeable {
     }
 
     data.put("productExtraData", new org.json.JSONArray().put(extra));
+  }
+
+
+  static void applyVariantDimensionPriority(JSONObject result, JSONObject data) {
+    String[][] fields = {{"TamanoUnico", "tamanoUnico"}, {"ColoursLiverpoolAtt", "coloursLiverpoolAtt"}};
+    for (String[] field : fields) {
+      String primary = variantExtraDataValue(data, field[1]);
+      if (!primary.isEmpty()) result.put(field[0], primary);
+      else if (!result.has(field[0]) || result.isNull(field[0])) result.put(field[0], "");
+    }
+  }
+
+  static String variantExtraDataValue(JSONObject data, String property) {
+    org.json.JSONArray entries = data.optJSONArray("articleExtraData");
+    if (entries == null) return "";
+    for (int i = 0; i < entries.length(); i++) {
+      JSONObject entry = entries.optJSONObject(i);
+      JSONObject q = entry == null ? null : entry.optJSONObject("_qualification");
+      JSONObject market = q == null ? null : q.optJSONObject("targetMarket");
+      if (market == null || !("MX".equals(market.optString("_code", ""))
+          || "MX".equals(market.optString("_key", "")))) continue;
+      Object value = entry.opt(property);
+      if (value == null || value == JSONObject.NULL) continue;
+      if (value instanceof JSONObject) {
+        JSONObject lookup = (JSONObject) value;
+        String label = lookup.isNull("_label") ? "" : lookup.optString("_label", "").trim();
+        if (!label.isEmpty()) return label;
+        String code = lookup.isNull("_code") ? "" : lookup.optString("_code", "").trim();
+        if (!code.isEmpty()) return code;
+      } else if (value instanceof String && !((String) value).trim().isEmpty()) {
+        return ((String) value).trim();
+      }
+    }
+    return "";
   }
 
   private void appendArticleExtraData(org.json.JSONObject data, org.json.JSONObject entity) {
@@ -1368,6 +1415,9 @@ public class GetProposals implements Closeable {
       case 1030: return "Rechazo Category";
       case 1031: return "Repoblamiento";
       case 1032: return "Excepción de Catalogación";
+      case 2001: return "Aceptado";
+      case 2002: return "Aceptado con ajustados";
+      case 2003: return "Placeholder en Revisión";
       case 10031: return "Borrador";
       default: return String.valueOf(status);
     }

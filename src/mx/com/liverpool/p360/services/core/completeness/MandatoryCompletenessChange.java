@@ -1,0 +1,92 @@
+package mx.com.liverpool.p360.services.core.completeness;
+
+import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import javax.xml.parsers.DocumentBuilderFactory;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import org.w3c.dom.Element;
+import org.w3c.dom.NodeList;
+import org.xml.sax.InputSource;
+
+/** Compact invalidation, not a second set of completeness business rules. */
+public record MandatoryCompletenessChange(String entity, String identifier, boolean force,
+                                         Set<String> characteristics) {
+    public MandatoryCompletenessChange {
+        characteristics = Set.copyOf(characteristics);
+        if (identifier == null || identifier.isBlank() || identifier.length() > 255)
+            throw new IllegalArgumentException("Missing/oversize completeness identifier");
+    }
+
+    public static MandatoryCompletenessChange parse(String body) throws Exception {
+        JSONObject envelope = new JSONObject(body);
+        JSONObject event = envelope.optJSONObject("entityItemChange");
+        if (event == null) {
+            // Deletion envelopes can omit the old parent/template. Reconcile by pages.
+            if (envelope.has("entityItemsDeleted")) return sweep();
+            return null;
+        }
+        String entity = event.optString("_entity");
+        if (!entity.equals("Product2G") && !entity.equals("Article")) {
+            String container = event.optJSONObject("_container") == null ? ""
+                    : event.getJSONObject("_container").optString("_externalId");
+            if (entity.equals("Characteristic")
+                    || (entity.equals("StructureGroup") && container.contains("PrimaryProductTaxonomy"))
+                    || ((entity.equals("LookupValue") || entity.equals("StandardizationValue"))
+                        && (container.contains("ValoresPredeterminadosPorPlantilla")
+                            || container.contains("GlobalTemplateAttributeConfiguration")
+                            || container.contains("PPH_L4_Templates")
+                            || container.contains("CreationType")))) return sweep();
+            return null;
+        }
+        JSONArray fields = event.optJSONArray("_changedField");
+        boolean selfOnly = fields != null && fields.length() > 0;
+        boolean characteristicOnly = selfOnly;
+        if (fields != null) for (int i = 0; i < fields.length(); i++) {
+            String field = fields.optString(i);
+            selfOnly &= field.equals("Product2G.MandatoryCompleteness");
+            characteristicOnly &= field.startsWith(entity + "Characteristic");
+        }
+        if (selfOnly) return null;
+        Set<String> codes = new LinkedHashSet<>();
+        if (characteristicOnly) {
+            String xml = event.optString("_changeSummary");
+            DocumentBuilderFactory f = DocumentBuilderFactory.newInstance();
+            f.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+            f.setFeature("http://xml.org/sax/features/external-general-entities", false);
+            f.setFeature("http://xml.org/sax/features/external-parameter-entities", false);
+            f.setXIncludeAware(false);
+            f.setExpandEntityReferences(false);
+            var doc = f.newDocumentBuilder().parse(new InputSource(new StringReader(xml)));
+            NodeList qualifications = doc.getElementsByTagName("_qualification");
+            for (int i = 0; i < qualifications.getLength(); i++) {
+                NodeList chars = ((Element) qualifications.item(i)).getElementsByTagName("characteristic");
+                for (int j = 0; j < chars.getLength(); j++) {
+                    NodeList ids = ((Element) chars.item(j)).getElementsByTagName("_code");
+                    for (int k = 0; k < ids.getLength(); k++) {
+                        String id = ids.item(k).getTextContent().trim();
+                        if (!id.isEmpty()) codes.add(id);
+                    }
+                }
+            }
+        }
+        return compact(entity, event.optString("_identifier"), !characteristicOnly || codes.isEmpty(), codes);
+    }
+
+    public static MandatoryCompletenessChange sweep() {
+        return new MandatoryCompletenessChange("Metadata", "*", true, Set.of());
+    }
+
+    public static MandatoryCompletenessChange compact(String entity, String id, boolean force, Set<String> codes) {
+        if (new JSONArray(codes).toString().getBytes(StandardCharsets.UTF_8).length > 3900) force = true;
+        return new MandatoryCompletenessChange(entity, id, force, force ? Set.of() : codes);
+    }
+
+    public MandatoryCompletenessChange merge(MandatoryCompletenessChange other) {
+        Set<String> all = new LinkedHashSet<>(characteristics);
+        all.addAll(other.characteristics);
+        return compact(entity, identifier, force || other.force, all);
+    }
+}

@@ -758,7 +758,7 @@ public class LoadProductDataSecondOpinionForFlat {
     		String altoVaDStr = altoVaD == null ? "" : altoVaD.getId() != null ? altoVaD.getId() : altoVaD.getText() == null ? "" : altoVaD.getText() ;
     		String anchoVaDStr = anchoVaD == null ? "" : anchoVaD.getId() != null ? anchoVaD.getId() : anchoVaD.getText() == null ? "" : anchoVaD.getText() ;
     		String dutyfreekeyStr = dutyfreekey == null ? "" : dutyfreekey.getId() != null ? dutyfreekey.getId() : dutyfreekey.getText() == null ? "" : dutyfreekey.getText() ;
-    		business = determineBusiness(negocio == null || negocio.getText() == null ? "" : negocio.getText(), extwgS4h == null || extwgS4h.getText() == null ? "" : extwgS4h.getText());
+    		business = determineBusiness(negocio == null || negocio.getText() == null ? "" : negocio.getText(), extwgS4h == null || extwgS4h.getText() == null ? "" : extwgS4h.getText(), valMap.get("Negocio") == null ? null : valMap.get("Negocio").getId(), valMap.get("EXTWG_S4H") == null ? null : valMap.get("EXTWG_S4H").getId());
     		nameStr = product.getName();
     		
     		bundle = elese.computeStatus(calculatedWFAtt, !"".equals(firstdateapproveStr) ? "Aprobado" : stateskuStr, fotoTomadaLiverpool, product.getId());
@@ -983,11 +983,10 @@ public class LoadProductDataSecondOpinionForFlat {
     	log("Sitios Web: " + webSites.length);
     }
     
-	private String determineBusiness(String negocio, String extwgS4h) {
-		return     "".equals(negocio) 
-				&& "".equals(extwgS4h) ? null : 
-					("".equals(negocio) && !"".equals(extwgS4h) ? "SBB": "ART. MARKETPLACE".equals(negocio) ? "MKP" : "LVP" );
-	}
+	private String determineBusiness(String negocio, String extwgS4h, String negocioCode, String extwgCode) {
+        String code = mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.resolve(negocioCode, negocio, extwgCode, extwgS4h);
+        return code;
+    }
 
 	private void log(String message) {
         try (java.io.PrintWriter pw = new java.io.PrintWriter(new java.io.OutputStreamWriter(

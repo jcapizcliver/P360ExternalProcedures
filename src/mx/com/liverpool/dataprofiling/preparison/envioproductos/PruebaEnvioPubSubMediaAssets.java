@@ -48,6 +48,19 @@ public class PruebaEnvioPubSubMediaAssets extends ProcessXMLFiles {
 				.put("rows", products);
 	}
 
+    /** Same XML payload builder; accepts models assembled from SQLite. No publish or webhook here. */
+    public static org.json.JSONObject buildPayloadFromModels(
+            java.util.List<ProductFileProductElement> roots,
+            java.util.Map<String, ProductFileAssetElement> assets) {
+        PruebaEnvioPubSubMediaAssets r = new PruebaEnvioPubSubMediaAssets();
+        r.payloadOnly = true;
+        r.currentWorkingFile = "SQLite";
+        for (ProductFileProductElement root : roots)
+            r.processProductElement(root, r.globalVendorCenterSections, assets);
+        return new org.json.JSONObject(r.body.toString());
+    }
+    private boolean payloadOnly;
+
     private static final PubSubGCP PUB = new PubSubGCP(
             PropertiesManager.get("p360.contingency.gcp.service_account_back"),
             PropertiesManager.get("p360.contingency.gcp.project_back"),
@@ -244,14 +257,14 @@ public class PruebaEnvioPubSubMediaAssets extends ProcessXMLFiles {
 				productValues = toMap(product.getValues());
 	    		String[] negocio = productValues.get("Negocio");
 	    		String[] extwgS4h = productValues.get("EXTWG_S4H");
-				String business = determineBusiness(negocio == null || negocio.length < 3 || negocio[2] == null ? "" : negocio[2], extwgS4h == null || extwgS4h.length < 3 || extwgS4h[2] == null ? "" : extwgS4h[2]);
+				String business = determineBusiness(negocio == null || negocio.length < 3 || negocio[2] == null ? "" : negocio[2], extwgS4h == null || extwgS4h.length < 3 || extwgS4h[2] == null ? "" : extwgS4h[2], negocio == null || negocio.length == 0 ? null : negocio[0], extwgS4h == null || extwgS4h.length == 0 ? null : extwgS4h[0]);
 				String[] direccion = productValues.get("Direction");
-				String[] seccion = productValues.get("Direction");
+				String[] seccion = productValues.get("Section");
 				String[] supplierID = productValues.get("SupplierID");
 				jp.put("migrado", 1);
 				jp.put("Direction", direccion != null && direccion.length == 3 ? direccion[2] : "");
 				jp.put("Section", seccion != null && seccion.length == 3 ? seccion[2] : "");
-				jp.put("supplier", supplierID != null && supplierID.length == 3 ? "0".repeat(20 - supplierID[2].length()) + supplierID[2] : "");
+				jp.put("supplier", supplierID != null && supplierID.length == 3 ? "0".repeat(Math.max(0, 20 - supplierID[2].length())) + supplierID[2] : "");
 				buildSections(globalVendorCenterSections, productValues, jp, false);
 				jp.put("Business", business);
 				java.util.Map<String, ProductFileValueElement> pvs = product.getValues();
@@ -347,7 +360,7 @@ public class PruebaEnvioPubSubMediaAssets extends ProcessXMLFiles {
 					variants.put(variant);
 				}
 				gc++;
-				if(gc % 500 == 0) {
+				if(!payloadOnly && gc % 500 == 0) {
 					PUB.publishMessage( body.toString() );
 					if(unaVez) {
 						log(body.toString());
@@ -371,11 +384,9 @@ public class PruebaEnvioPubSubMediaAssets extends ProcessXMLFiles {
 			}
 	}
     
-	private String determineBusiness(String negocio, String extwgS4h) {
-		return     "".equals(negocio) 
-				&& "".equals(extwgS4h) ? null : 
-					("".equals(negocio) && !"".equals(extwgS4h) ? "Suburbia": "ART. MARKETPLACE".equals(negocio) ? "Marketplace" : "Liverpool" );
-	}
+	private String determineBusiness(String negocio, String extwgS4h, String negocioCode, String extwgCode) {
+        return mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.label(mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.resolve(negocioCode, negocio, extwgCode, extwgS4h));
+    }
 	
 	private void buildSections(java.util.Map<String, String> sections, java.util.Map<String, String[]> productValues, org.json.JSONObject product, boolean includeProducto) {
 		String[] data = null;

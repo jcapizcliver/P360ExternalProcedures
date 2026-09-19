@@ -52,6 +52,10 @@ public class ParseJanaAttributesFile implements Closeable {
 	});
 
 	private static final RESTWrapper rw = new RESTWrapper();
+    private long metadataLoadedAt;
+    private final java.util.Map<String,String> cachedTypes=new java.util.TreeMap<>(),cachedEqs=new java.util.TreeMap<>();
+    private final java.util.Set<String> cachedSizes=new java.util.TreeSet<>();
+    private final java.util.LinkedList<String> cachedProductCharacteristics=new java.util.LinkedList<>(),cachedArticleCharacteristics=new java.util.LinkedList<>();
 	private static final RESTWorkshop workshop = rw.getRw();
 	private static final XMLMisc xmm = workshop.getXmm();
 	private static final String BASE_URL = PropertiesManager.get("p360.contingency.base_url");
@@ -99,30 +103,37 @@ public class ParseJanaAttributesFile implements Closeable {
 	    private final org.json.JSONObject reqColor = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "ArticleExtraData.ColoursLiverpoolAtt(MX)"))).put("rows", new org.json.JSONArray());
 	    private final org.json.JSONObject reqTalla = new org.json.JSONObject().put("columns", new org.json.JSONArray().put(new org.json.JSONObject().put("identifier", "ArticleExtraData.TamanoUnico(MX)"))).put("rows", new org.json.JSONArray());
 
-	    private void addColor(String id, String color) {
+	    private void addColor(String id, String color) throws IOException {
 	    	org.json.JSONArray rows = reqColor.getJSONArray("rows");
 	    	rows.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + id + "'@1")).put("values", new org.json.JSONArray().put(color)));
 	    	if(rows.length() == 1000) {
-	    		rw.writeData("list", "Article", null, qp0, reqColor, this::log);
+			flushArticleExtras(reqColor);
 	    	}
 	    }
 
-	    private void addTalla(String id, String talla) {
+	    private void addTalla(String id, String talla) throws IOException {
 	    	org.json.JSONArray rows = reqTalla.getJSONArray("rows");
 	    	rows.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + id + "'@1")).put("values", new org.json.JSONArray().put(talla)));
 	    	if(rows.length() == 1000) {
-	    		rw.writeData("list", "Article", null, qp0, reqTalla, this::log);
+			flushArticleExtras(reqTalla);
 	    	}
 	    }
 	    
-	    private void sendData() {
+	    private void sendData() throws IOException {
 	    	if(reqColor.getJSONArray("rows").length() > 0) {
-	    		rw.writeData("list", "Article", null, qp0, reqColor, this::log);
+			flushArticleExtras(reqColor);
 	    	}
 	    	if(reqTalla.getJSONArray("rows").length() > 0) {
-	    		rw.writeData("list", "Article", null, qp0, reqTalla, this::log);
+			flushArticleExtras(reqTalla);
 	    	}
 	    }
+
+	private void flushArticleExtras(org.json.JSONObject request) throws IOException {
+		org.json.JSONObject response = workshop.makeRequest("POST", "/list/Article", qp0, request.toString());
+		AttributeImportSupport.requireSuccess(response, "Jana article extras");
+		org.json.JSONArray rows = request.getJSONArray("rows");
+		while (rows.length() > 0) rows.remove(0);
+	}
 
     private java.util.Map<String, java.util.Map<String, String>> diccionarios = new java.util.TreeMap<>();
 	private java.util.Map<String, java.util.Map<String, String>> map = new java.util.TreeMap<>();
@@ -162,6 +173,15 @@ public class ParseJanaAttributesFile implements Closeable {
     }
     
 	public void runOnSftp(String[] args) {
+        if(DurableSftpQueue.enabled()) {
+            DurableSftpQueue.run("s4h", "GenericXMLattributes", () -> true, (body, filename) -> {
+                DurableSftpQueue.records(AttributeRecordXml.split(body), record -> {
+                    processFile(DurableSftpQueue.bytes(record)); sendData();
+                }, this::log);
+            }, this::log);
+            return;
+        }
+
 		qp0.put("includeObjectsInProtocol", "false");
 		if(args.length > 0) {
     		USE_CACHE = Boolean.parseBoolean(args[0]);
@@ -222,15 +242,6 @@ public class ParseJanaAttributesFile implements Closeable {
                                         Path localCopy = LOCAL_PROCESSED_DIR.resolve(name);
                                         java.nio.file.Files.write(localCopy, out.toByteArray());
 
-                                        processedState.setProperty(name, String.valueOf(remoteModified));
-
-                                        if (USE_CACHE) {
-                                            try (java.io.OutputStream stateOut =
-                                                         java.nio.file.Files.newOutputStream(STATE_FILE)) {
-                                                processedState.store(stateOut, null);
-                                            }
-                                        }
-
                                         if (!name.startsWith("GenericXMLattributes")) {
                                             log("Skipping " + name);
                                             continue;
@@ -238,7 +249,15 @@ public class ParseJanaAttributesFile implements Closeable {
 
                                         try {
                                             processFile(out);
+                                            sendData();
                                             sftp.remove(filePath);
+                                            processedState.setProperty(name, String.valueOf(remoteModified));
+                                            if (USE_CACHE) {
+                                                try (java.io.OutputStream stateOut =
+                                                             java.nio.file.Files.newOutputStream(STATE_FILE)) {
+                                                    processedState.store(stateOut, null);
+                                                }
+                                            }
                                         } catch (ParserConfigurationException | SAXException | IOException e) {
                                             logE(e);
                                         }
@@ -321,17 +340,13 @@ public class ParseJanaAttributesFile implements Closeable {
 		org.json.JSONArray articleCharacteristicRecords = new org.json.JSONArray();
 		Element values = null;
 		String sku = null;
-		java.util.LinkedList<Node> attributeValueNodeList = null;
-		int driver = 0;
 		String attId = null;
-		String value = null;
-		StringBuilder sb = new StringBuilder();
-		java.util.Map<String, String> dataTypes = new java.util.TreeMap<>();
-		java.util.Map<String, String> attributeValues = new java.util.TreeMap<>();
-		java.util.LinkedList<String> product2GCharacteristics = new java.util.LinkedList<>();
-		java.util.LinkedList<String> articleCharacteristics = new java.util.LinkedList<>();
-		java.util.Map<String, String> mapEqs = new java.util.TreeMap<>(); 
-		java.util.Set<String> atributosTalla = new java.util.TreeSet<>();
+		java.util.Map<String, String> dataTypes = cachedTypes;
+		java.util.Map<String, java.util.List<String>> attributeValues = new java.util.LinkedHashMap<>();
+		java.util.LinkedList<String> product2GCharacteristics = cachedProductCharacteristics;
+		java.util.LinkedList<String> articleCharacteristics = cachedArticleCharacteristics;
+		java.util.Map<String, String> mapEqs = cachedEqs; 
+		java.util.Set<String> atributosTalla = cachedSizes;
 		java.util.Map<String, String> diccionario = null;
 		String productId = null;
 		String itemId = null;
@@ -339,8 +354,12 @@ public class ParseJanaAttributesFile implements Closeable {
 		String valorTU = null;
 		String attEq = null;
 		java.util.LinkedList<String> listaDeDiccionarios = new java.util.LinkedList<>();
+        if(!DurableSftpQueue.enabled() || System.currentTimeMillis()-metadataLoadedAt>900000) {
+        cachedTypes.clear();cachedEqs.clear();cachedSizes.clear();cachedProductCharacteristics.clear();cachedArticleCharacteristics.clear();
 		collectLookupCharacteristics(dataTypes, s4hFieldMapping, lkps);
 		loadEqS4HANAAttributes(mapEqs);
+		mapEqs.forEach((externalId, characteristic) -> s4hFieldMapping.put(characteristic, externalId));
+		lkps.putIfAbsent("TamanoUnico", "TamanoUnicoLOV");
 		loadSizeAttributesMap(atributosTalla);
 		log("Resolving over: " + atributosTalla);
 		log("Also resolving over: " + mapEqs);
@@ -354,107 +373,111 @@ public class ParseJanaAttributesFile implements Closeable {
 		tools.collectLookupValues("C100LOV", map, mapB, "LOOKUP");
 		tools.collectLookupValues("SB_COLORESLOV", map, mapB, "LOOKUP");
 		log("Done collecting lookup values for TamanoUnico");
+        metadataLoadedAt=System.currentTimeMillis();
+        }
 		if(productNodeList != null) {
 			for(Node pn : productNodeList) {
 				el = (Element)pn;
 				values = (Element) xmm.byName(el, "Values");
-				sku = xmm.byName(values, "Value").getTextContent();
+				sku = JanaAttributeParser.sku(values);
 				if(sku == null || "".equals(sku)) {
 					log("No SKU provided: " + sku);
 					continue;
 				}else {
 					log("<:::::>GOT sku: " + sku);
 				}
-				sku = sku.replaceAll("^0+", "");
-				attributeValueNodeList = xmm.listImmediateChildElements( xmm.listImmediateChildElements(values).get("Attributes").getFirst() ).get("Value");
-				valorTU = "SIN TAMAÑO";
+				try {
+					attributeValues = JanaAttributeParser.attributes(values);
+				} catch (IllegalArgumentException e) {
+					throw new IOException("Malformed attributes for SKU " + sku, e);
+				}
+				// Partial updates without a size must not reset TamanoUnico.
+				valorTU = null;
 				String color = null;
-				for(Node avn : attributeValueNodeList) {
-					driver++;
-					if( driver == 2) {
-						attId = avn.getTextContent();
-						sb.append( sb.length() > 0 ? "," : "" );
-						sb.append(attId);
-					}else if( driver == 3 ) {
-						value = avn.getTextContent();
-						if(!"".equals(value)) {
-							if("SB_COLORES".equals(attId)) {
-								color = value;
-							}
-							attEq = mapEqs.get(attId);
-							log("Value: " + value + ", Checking if contained: -->" + attId + " -> " + attEq + "<-- in " + atributosTalla);
-							if(attEq != null && atributosTalla.contains(attEq)) {
-								diccionario = this.diccionarios.get( attId + "LOV" );
-								if(diccionario != null) {
-									valorTU = diccionario.get(value);
-									if(valorTU == null) {
-										log("No value found un current attribute dictionary -->" + value + "<--");
-										valorTU = "SIN TAMAÑO";
-									}else {
-										log("Present, value added -->" + valorTU + "<--");
-									}
-								}else {
-									log("No dictionary for: " + attId + " -> " + attEq);
-								}
-							}else {
-								log("Not a size att.");
-							}
-							attributeValues.put(attId, value);
+				for (java.util.Map.Entry<String, java.util.List<String>> attribute : attributeValues.entrySet()) {
+					attId = attribute.getKey();
+					attEq = mapEqs.get(attId);
+					if (attEq == null) {
+						throw new IOException("No S4HANA characteristic mapping for SKU " + sku + ": " + attId);
+					} else if (!dataTypes.containsKey(attEq)) {
+						throw new IOException("No data type for SKU " + sku + ": " + attId + " -> " + attEq);
+					}
+					for (String incomingValue : attribute.getValue()) {
+						if ("SB_COLORES".equals(attId)) {
+							color = incomingValue;
 						}
-						driver = 0;
-						attId = null;
-						value = null;
+						if (attEq != null && atributosTalla.contains(attEq)) {
+							diccionario = this.diccionarios.get(attId + "LOV");
+							String sizeLabel = diccionario == null ? null : diccionario.get(incomingValue);
+							if (sizeLabel != null && !sizeLabel.isBlank()) {
+								valorTU = sizeLabel;
+							} else {
+								log("Unknown size for SKU " + sku + ": " + attId + " = " + incomingValue);
+							}
+						}
 					}
 				}
 				if(valorTU != null) {
 					log("Adding value to TU: " + valorTU);
 					addValue("TamanoUnico", resolveDataType("TamanoUnico", "LOOKUP", valorTU, map, mapB), articleCharacteristicRecords );
 				}
-				log("Collecting over: " + sb.toString());
-//				log("Collected: " + dataTypes + " dataTypes and, " + s4hFieldMapping + " S4H field mappings...");
-				sb.setLength(0);
-				for(java.util.Map.Entry<String, String> entry : dataTypes.entrySet()) {
-					tools.collectLookupValues( lkps.get( entry.getKey() ), map, mapB, entry.getValue());
-					try{
-						if(product2GCharacteristics.contains(entry.getKey()) ) {
-							addValue(entry.getKey(), resolveDataType(entry.getKey(), entry.getValue(), attributeValues.get(s4hFieldMapping.get(entry.getKey())), map, mapB), product2GCharacteristicRecords );
+				for (java.util.Map.Entry<String, String> entry : dataTypes.entrySet()) {
+					String characteristic = entry.getKey();
+					java.util.List<String> incomingValues = attributeValues.get(s4hFieldMapping.get(characteristic));
+					if (incomingValues == null || incomingValues.isEmpty()) {
+						continue;
+					}
+					boolean forProduct = product2GCharacteristics.contains(characteristic);
+					boolean forArticle = articleCharacteristics.contains(characteristic);
+					if (!forProduct && !forArticle) {
+						throw new IOException("No target entity for characteristic: " + characteristic);
+					}
+					String lookup = lkps.get(characteristic);
+					if (lookup != null && !map.containsKey(lookup)) {
+						tools.collectLookupValues(lookup, map, mapB, entry.getValue());
+					}
+					org.json.JSONArray converted = new org.json.JSONArray();
+					for (String incomingValue : incomingValues) {
+						Object convertedValue = resolveDataType(characteristic, entry.getValue(), incomingValue, map, mapB);
+						if (convertedValue != null) {
+							converted.put(convertedValue);
+						} else {
+							throw new IOException("Unresolved value for " + characteristic + ", SKU " + sku);
 						}
-						if(articleCharacteristics.contains(entry.getKey()) ) {
-							addValue(entry.getKey(), resolveDataType(entry.getKey(), entry.getValue(), attributeValues.get(s4hFieldMapping.get(entry.getKey())), map, mapB), articleCharacteristicRecords );
-						}
-					}catch(IllegalArgumentException e) {
-						logE(e);
+					}
+					if (forProduct) {
+						JanaAttributeParser.addValues(characteristic, converted, product2GCharacteristicRecords);
+					}
+					if (forArticle) {
+						JanaAttributeParser.addValues(characteristic, converted, articleCharacteristicRecords);
 					}
 				}
 				log("Done going over dataTypes...");
 				info = checkProductBySKU(sku);
-				if(info != null && !"".equals(sku)) {
-					log("Found SKU in product");
-					productId = info[0];
-					sendWriteRequest("Product2G", productId, product2GCharacteristicRecords, null, null);
-					if("00".equals(info[1])) {
-						addValue("MensajeCreacionSKU", "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()), articleCharacteristicRecords );
-						itemId = checkArticleBySKU(sku);
-						if(itemId != null) {
-							sendWriteRequest("Article", itemId, articleCharacteristicRecords, null, null);
-						}
-					}
-				} else {
-					itemId = checkArticleBySKU(sku);
-					if(itemId != null) {
-						log("Found SKU in article.");
-						sendWriteRequest("Article", itemId, articleCharacteristicRecords, null, null);
-					}else {
-						log("********************* No product found for: " + sku);
-					}
+				productId = info == null ? null : info[0];
+				itemId = checkArticleBySKU(sku);
+				if (itemId != null) {
+					String parent = AttributeImportSupport.parentOf(workshop, itemId);
+					if (parent != null) productId = parent;
 				}
+				boolean articleExpected = itemId != null || info == null || "00".equals(info[1]);
+				AttributeImportSupport.requireTargets(sku, productId, itemId,
+						product2GCharacteristicRecords.length() > 0,
+						articleExpected && (articleCharacteristicRecords.length() > 0 || valorTU != null || color != null));
+				if (product2GCharacteristicRecords.length() > 0) {
+					sendWriteRequest("Product2G", productId, product2GCharacteristicRecords, null, null);
+				}
+				if (itemId != null) {
+					sendWriteRequest("Article", itemId, articleCharacteristicRecords, null, null);
+				}
+				log("Attribute targets for SKU " + sku + ": Product2G=" + productId + ", Article=" + itemId);
 				if(itemId != null) {
 					if(color != null && !"".equals(color)) {
 						java.util.Map<String, String> s1 = map.get("SB_COLORESLOV");
-						String lblColor = s1.get(color);
+						String lblColor = s1 == null ? null : s1.get(color);
 						if(lblColor != null) {
 							java.util.Map<String, String> c2 = mapB.get("C100LOV");
-							String c100 = c2.get(lblColor);
+							String c100 = c2 == null ? null : c2.get(lblColor);
 							if(c100 != null) {
 								addColor(itemId, c100);
 							}
@@ -525,12 +548,7 @@ public class ParseJanaAttributesFile implements Closeable {
 	
 	private java.util.Map<String, String> loadDiccionario(String diccionario) {
 		java.util.Map<String, String> atributos = new java.util.TreeMap<>();
-		java.util.List<org.json.JSONObject> rows =
-				dastub.getLookupValueCodeNameExternalCodeRows(
-						diccionario,
-						10,
-						null,
-						true);
+		java.util.List<org.json.JSONObject> rows = dastub.getLookupValueCodeNameExternalCodeRows(diccionario, 10, null, true);
 		for(org.json.JSONObject row : rows) {
 			String code = row.optString("code", "");
 			if(code == null || code.isBlank()) {
@@ -620,13 +638,17 @@ public class ParseJanaAttributesFile implements Closeable {
 		currentIndex = 0;
 	}
 	
-	private void sendWriteRequest(String entity, String id, org.json.JSONArray characteristicRecords, String fotoTomadaLiverpool, String currentStatus) {
+	private void sendWriteRequest(String entity, String id, org.json.JSONArray characteristicRecords, String fotoTomadaLiverpool, String currentStatus) throws IOException {
+		if (characteristicRecords.length() == 0) {
+			return;
+		}
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
 		org.json.JSONObject request = new org.json.JSONObject();
 		request.put("_characteristicRecords", characteristicRecords);
 		org.json.JSONObject response = null;
 		log("/object/" + entity + "/'" + id + "'@'MASTER'");
 		response = workshop.makeRequest("PUT", "/object/" + entity + "/'" + id + "'@'MASTER'", qp, request.toString());
+		AttributeImportSupport.requireSuccess(response, entity + " " + id);
 		if(response != null) {
 			log("\tWriting: " + characteristicRecords + "\nNot really an error from writing id: " + id + ": " + response);
 		}else {
@@ -644,39 +666,55 @@ public class ParseJanaAttributesFile implements Closeable {
 //		return (response != null && response.getJSONArray("rows").length() > 0) ? response.getJSONArray("rows").getJSONObject(0).getJSONArray("values").getString(0) : null;
 	}
 	
-	private String[] checkProductBySKU(String sku) {
+	private String[] checkProductBySKU(String sku) throws IOException {
+		if (sku == null || !sku.matches("[0-9]+")) throw new IOException("Invalid SKU: " + sku);
 		java.util.Map<String, String> qp = new java.util.TreeMap<>();
-		qp.put("query",  "characteristic('SKU',-1) equals \"" + sku + "\"");
+		qp.put("query", "Product2G.SKU = " + sku);
 		qp.put("fields", 
 				"Product2G.ProductNo"
-				+ ",Product2GCharacteristicValue.LookupValue('SAPObjectType',root,\"0000.0000.RK\",'SAPObjectType')->LookupValue.Code"
-				+ ",Product2GCharacteristicValue.LookupValue('Business',root,\"0000.0000.RK\",'Business')->LookupValue.Code");
+				+ ",Product2GExtraData.SAPObjectType(MX)->LookupValue.Code"
+				+ ",Product2G.Business->LookupValue.Code");
 		org.json.JSONObject response = null;
 		response = workshop.makeRequest("GET", "/list/Product2G/bySearch", qp, null);
-		return (response != null && response.getJSONArray("rows").length() > 0) ? new String[] { 
-				response.getJSONArray("rows").getJSONObject(0).getJSONArray("values").getString(0)
-				, response.getJSONArray("rows").getJSONObject(0).getJSONArray("values").getJSONArray(1).getString(0)
-				, response.getJSONArray("rows").getJSONObject(0).getJSONArray("values").getJSONArray(2).getString(0)} : null;
+		AttributeImportSupport.requireSuccess(response, "Product lookup for SKU " + sku);
+		org.json.JSONArray rows = response.optJSONArray("rows");
+		if (rows == null) throw new IOException("Missing product lookup rows for SKU " + sku);
+		if (response.optInt("totalSize", rows.length()) > 1) throw new IOException("Multiple products for SKU " + sku);
+		if (rows.length() == 0) return null;
+		org.json.JSONArray values = rows.getJSONObject(0).getJSONArray("values");
+		return new String[] { values.getString(0), values.optString(1, ""), values.optString(2, "") };
 	}
 	
-	private void collectLookupCharacteristics(java.util.Map<String, String> characteristicsInfo, java.util.Map<String, String> sbbMapping, java.util.Map<String, String> lkps){
-		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "characteristics").toFile()), java.nio.charset.StandardCharsets.UTF_8))){
-			String line = null;
-			String[] erg = null;
-			while((line = br.readLine()) != null) {
-				erg = workshop.parseLine(line, "\"", ";", "\\");
-				if(erg != null && erg.length == 6) {
-					characteristicsInfo.put(erg[0], erg[1]);
-					lkps.put(erg[0], erg[5]);
-					sbbMapping.put(erg[0], erg[3]);
-				}else {
-					log("Pieza malformada: --->" + line + "<---");
-				}
-			}
-		}catch(java.io.IOException e) {
-			logE(e);
-		}
+	private void collectLookupCharacteristics(java.util.Map<String, String> characteristicsInfo, java.util.Map<String, String> sbbMapping, java.util.Map<String, String> lkps) {
+	    for (org.json.JSONObject row : dastub.getCharacteristicIntegrationMetadataRows()) {
+	        String identifier = row.optString("identifier", "");
+	        if (identifier.isBlank()) {
+	            continue;
+	        }
+	        characteristicsInfo.put(identifier, row.optString("dataType", ""));
+	        sbbMapping.put(identifier, row.optString("s4hana", ""));
+	        lkps.put(identifier, row.optString("lookup", ""));
+	    }
 	}
+	
+//	private void collectLookupCharacteristics(java.util.Map<String, String> characteristicsInfo, java.util.Map<String, String> sbbMapping, java.util.Map<String, String> lkps){
+//		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "characteristics").toFile()), java.nio.charset.StandardCharsets.UTF_8))){
+//			String line = null;
+//			String[] erg = null;
+//			while((line = br.readLine()) != null) {
+//				erg = workshop.parseLine(line, "\"", ";", "\\");
+//				if(erg != null && erg.length == 6) {
+//					characteristicsInfo.put(erg[0], erg[1]);
+//					lkps.put(erg[0], erg[5]);
+//					sbbMapping.put(erg[0], erg[3]);
+//				}else {
+//					log("Pieza malformada: --->" + line + "<---");
+//				}
+//			}
+//		}catch(java.io.IOException e) {
+//			logE(e);
+//		}
+//	}
 	
 //	private void collectLookupCharacteristics(String names, java.util.Map<String, String> characteristicsInfo, java.util.Map<String, String> s4hMapping){
 //		String[] pieces = names.split(",");
@@ -815,60 +853,14 @@ public class ParseJanaAttributesFile implements Closeable {
 //	}
 	
 	private Object resolveDataType(String charId, String dataType, String value, java.util.Map<String, java.util.Map<String, String>> map, java.util.Map<String, java.util.Map<String, String>> mapB) {
-		if(dataType != null && value != null) {
-			if("LOOKUP".equals(dataType)) {
-				String code = null;
-				String label = null;
-				if("UnidadDeMedidaPeso".equals(charId)) {
-				}else if("UnidadDeMedidaLongitud".equals(charId)) {
-				}else if("UnidadDeMedidaVolumen".equals(charId)) {
-				}else {
-					java.util.Map<String, String> lkp = map.get(charId);
-					if(lkp != null) {
-						label = lkp.get(value);
-					}
-					java.util.Map<String, String> lkpB = mapB.get(charId);
-					if(lkpB != null) {
-						code = lkpB.get(value);
-					}
-					if(code == null && label == null) {
-						log("Unknown value found: " + value + " for Characteristic: " + charId);
-					}
-				}
-				if(label == null && code == null)
-					return null;
-				return new org.json.JSONObject().put( "_code", label != null ? value : code);
-			}else if("INTEGER".equals(dataType)) {
-				try{
-					return new java.math.BigDecimal(value).intValue();
-				}catch(NumberFormatException e) {
-					logE(e);
-				}
-			}else if("DECIMAL".equals(dataType)) {
-				try {
-					return new java.math.BigDecimal(value).floatValue();
-				}catch(NumberFormatException e) {
-					logE(e);
-				}
-			}else if("BOOLEAN".equals(dataType)) {
-				return Boolean.parseBoolean(value);
-			}else if("DATE".equals(dataType)) {
-				try{
-					return new java.text.SimpleDateFormat("yyyy-MM-dd").format(new java.text.SimpleDateFormat().parse(value));
-				}catch(java.text.ParseException e) {
-					logE(e);
-				}
-			}
-		}
-		return value;
-	}
-	
-	private void addValue(String name, Object value, org.json.JSONArray values) {
-		if(value == null)
-			return;
-		values.put( new org.json.JSONObject().put("_qualification", new org.json.JSONObject().put("characteristic", new org.json.JSONObject().put("_code", name))).put("_recordLang", new org.json.JSONArray().put(new org.json.JSONObject().put("values", new org.json.JSONArray().put( value )))) );
+		return JanaAttributeParser.resolve(charId, dataType, value, lkps.get(charId), map, mapB, this::log);
 	}
 
+	private void addValue(String name, Object value, org.json.JSONArray values) {
+		if (value != null) {
+			JanaAttributeParser.addValues(name, new org.json.JSONArray().put(value), values);
+		}
+	}
 
 	private static final Logger LOGGER = Logger.getLogger(ParseJanaAttributesFile.class.getName());
 

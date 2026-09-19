@@ -63,7 +63,7 @@ public class RealExportProducts2Mirakl {
 		org.json.JSONObject response = null;
 		try {
 			rawResponse = rc.getRequest("GET", baseUrlDEV + "/object/Product2G/'" + compa + "'@'MASTER'?entityFilter=Product2GLang,Product2GStructureGroupMap,Product2GCharacteristicValue,Product2G,ProductExtraData&includeIds=true&includeLabels=true", null);
-			response = new org.json.JSONObject(rawResponse);
+			response = new org.json.JSONObject(rawResponse); if(!response.getJSONObject("_data").has("_characteristicRecords")) System.out.println("No characteristicRecords for: " + compa + " -->" + rawResponse + "<--");
 		} catch (org.json.JSONException | IOException e) {
 			logE(e);
 		}
@@ -458,18 +458,18 @@ public class RealExportProducts2Mirakl {
 					// talla normalizada hacia ATG debe de salir como TC-NormalizedSize
 	//				final String[] productsToTestWith = new String[] {proposalId};
 					org.json.JSONObject rp = getMeTheCompa(proposalId);
-					if(rp == null) {
+					if(rp == null || !rp.has("_data")) {
 						recordNonDeliveryReason(reqPublishMessage, proposalId,
 								"FAILED Marketplace el " + deliveryTimestamp()
 								+ ". No se pudo cargar la información necesaria del Product2G.");
 						continue;
 					}
-					String template = !rp.getJSONObject("_data").has("structureGroupMap") ? null : getPrimaryProductTaxonomyTemplate(rp.getJSONObject("_data").getJSONArray("structureGroupMap")); // rp.getJSONObject("_data").getJSONArray("structureGroupMap").getJSONObject(0).getJSONObject("_qualification").getJSONObject("structureGroup").getString("_externalId").split("@")[0].replaceAll("^'|'$", "");
-					if(template == null) {
-						log("No template found for " + proposalId);
-						reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1")).put("values",new org.json.JSONArray().put( "SKIPPED Marketplace el " + deliveryTimestamp() + ". Sin plantilla." )));
-						continue;
-					}
+					if (!rp.getJSONObject("_data").has("_characteristicRecords")) rp.getJSONObject("_data").put("_characteristicRecords", new org.json.JSONArray());
+                    String template = !rp.getJSONObject("_data").has("structureGroupMap") ? null : getPrimaryProductTaxonomyTemplate(rp.getJSONObject("_data").getJSONArray("structureGroupMap")); // rp.getJSONObject("_data").getJSONArray("structureGroupMap").getJSONObject(0).getJSONObject("_qualification").getJSONObject("structureGroup").getString("_externalId").split("@")[0].replaceAll("^'|'$", "");
+					if (template == null) {
+                            log("INFO Marketplace " + proposalId + ": Sin plantilla; se usa metadata global disponible.");
+                            template = "";
+                        }
 					java.util.LinkedList<org.json.JSONObject> lst = null;
 					java.util.Map<String, java.util.LinkedList<org.json.JSONObject>> dataMap = buildDataMap( rp.getJSONObject("_data").getJSONArray("_characteristicRecords") );
 					String itemId = rp.getJSONObject("_entityItem").getString("_externalId").split("@")[0].replaceAll("^'|'$", "");
@@ -487,7 +487,7 @@ public class RealExportProducts2Mirakl {
 						recordNonDeliveryReason(reqPublishMessage, proposalId,
 								"SKIPPED Marketplace el " + deliveryTimestamp()
 								+ ". Business no elegible para Marketplace: " + String.valueOf(business) + ".");
-						continue;
+                        continue;
 					}
 					
 					String descLong2 = rp.getJSONObject("_data").has("lang")
@@ -679,14 +679,7 @@ public class RealExportProducts2Mirakl {
 								}
 							}
 						}
-						if("SalesItem".equals(productType) && ( piName == null || piUrl == null )) {
-							log("(" + business + ") " + productType);
-							log("(" + business + ") No tenía imágenes2: " + proposalId);
-							log("(" + business + ") Had: " + upperRows.length());
-							log("(" + business + ") Raw: " + upperRows);
-							reqPublishMessage.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + proposalId + "'@1")).put("values", new org.json.JSONArray().put( "SKIPPED Marketplace el " + deliveryTimestamp() + ". Sin imágenes \"congeladas\"." )));
-							continue;
-						}
+						if (piName == null || piUrl == null) log("INFO Marketplace " + proposalId + ": Sin imagen congelada; se continua.");
 					} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
 						logE(e);
 					}
@@ -711,7 +704,7 @@ public class RealExportProducts2Mirakl {
 							propiedadesCaracteristicas.put(entry.getKey(), copied);
 						}
 						java.util.Map<String, org.json.JSONObject> templateProperties =
-								dastub.getTemplateCharacteristicProperties(template);
+								(template.isEmpty() ? new java.util.TreeMap<String, org.json.JSONObject>() : dastub.getTemplateCharacteristicProperties(template));
 						propiedadesCaracteristicas.putAll(templateProperties);
 						for (java.util.Map.Entry<String, org.json.JSONObject> entry : templateProperties.entrySet()) {
 							if ("Y".equals(entry.getValue().optString("RelevantForATG", ""))) {
@@ -719,7 +712,7 @@ public class RealExportProducts2Mirakl {
 							}
 						}
 						templateStructureGroupAttributeValues.put(template,
-								dastub.getTemplateStructureGroupAttributeValues(template, 10));
+								(template.isEmpty() ? new java.util.TreeMap<String, String>() : dastub.getTemplateStructureGroupAttributeValues(template, 10)));
 					}
 		        	Element product = null;
 	
@@ -727,13 +720,13 @@ public class RealExportProducts2Mirakl {
 		        		product = docMKT.createElement("Product");
 		        		product.setAttribute("ID", proposalId);
 		        		product.setAttribute("UserTypeID", productType );
-		        		product.setAttribute("ParentID", template);
+		        		if (!template.isEmpty()) product.setAttribute("ParentID", template);
 		        		product.setAttribute("Changed", "true");
 		        	}else {
 		        		product = doc.createElement("Product");
 		        		product.setAttribute("ID", proposalId);
 		        		product.setAttribute("UserTypeID", productType );
-		        		product.setAttribute("ParentID", template);
+		        		if (!template.isEmpty()) product.setAttribute("ParentID", template);
 		        		product.setAttribute("Changed", "true");
 		        	}
 	
@@ -836,7 +829,7 @@ public class RealExportProducts2Mirakl {
 					java.util.Map<String, String> structureAttributeValues =
 							templateStructureGroupAttributeValues.get(template);
 					if (structureAttributeValues == null) {
-						structureAttributeValues = dastub.getTemplateStructureGroupAttributeValues(template, 10);
+						structureAttributeValues = (template.isEmpty() ? new java.util.TreeMap<String, String>() : dastub.getTemplateStructureGroupAttributeValues(template, 10));
 						templateStructureGroupAttributeValues.put(template, structureAttributeValues);
 					}
 					for (String attributeName : new String[] {
@@ -1010,12 +1003,7 @@ public class RealExportProducts2Mirakl {
 								charactName = characteristic.getJSONArray("_recordLang").getJSONObject(0)
 										.getJSONArray("values").getString(0);
 							} else if("ItemGroupS4H".equals( charId ) || "ItemGroup".equals( charId )) {
-		        				if(isBannedForMarketplace(characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"), "ItemGroups", "MATKLLOV")) {
-	        						log("Returning since the item group was in the no send to mkt list.");
-	        						recordNonDeliveryReason(reqPublishMessage, proposalId, "SKIPPED Marketplace el " + deliveryTimestamp() + ". ItemGroup pertenece a BannedElementsForMarketplacePublication.");
-	        						brk = true;
-		        					break;
-		        				}
+		        				if(isBannedForMarketplace(characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"), "ItemGroups", "MATKLLOV")) log("INFO Marketplace: coincidencia en BannedElementsForMarketplacePublication; no bloquea el envio.");
 		        				if("ItemGroupS4H".equals( charId )) {
 			        				itemGroupS4H = itemGroupS4H == null || "".equals(itemGroupS4H)
 											? characteristic.getJSONArray("_recordLang").getJSONObject(0)
@@ -1054,14 +1042,7 @@ public class RealExportProducts2Mirakl {
 		        				itemGroup = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code");
 		        				itemGroupLabel = characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_label");
 		        			}else if("BrandName".equals(charId) || "BRAND_ID_S4H".equals(charId)) {
-		        					if(isBannedForMarketplace(characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"), "Brands", "ZCOMALOV")) {
-		        						log("Returning since brand was in no send to mkt list.");
-											recordNonDeliveryReason(reqPublishMessage, proposalId,
-													"SKIPPED Marketplace el " + deliveryTimestamp()
-													+ ". Brand pertenece a BannedElementsForMarketplacePublication.");
-		        						brk = true;
-		        							break;
-		        					}
+		        					if(isBannedForMarketplace(characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").getJSONObject(0).getString("_code"), "Brands", "ZCOMALOV")) log("INFO Marketplace: coincidencia en BannedElementsForMarketplacePublication; no bloquea el envio.");
 		        					brandName = brandName == null || "".equals(brandName)
 											? characteristic.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values")
 													.getJSONObject(0).getString("_code")
@@ -1246,19 +1227,23 @@ public class RealExportProducts2Mirakl {
 		        		continue;
 		        	}
     				if (!behvo) {
-        				String elese = characteristic.getJSONArray("_recordLang").getJSONObject(0)
-        						.getJSONArray("values").getJSONObject(0).getString("_code");
-        				String dictionary = "ItemGroup".equals(charId)
-        						? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H";
-        				String laetiqueta = queryDictionary(elese, dictionary);
-        				if (laetiqueta != null && !laetiqueta.isBlank()) {
-        					String elcode = dastub.getLookupValueCodeByName(
-        							"SAP_BEHVOLOV", 10, laetiqueta, true);
-        					if (elcode != null && !elcode.isBlank()) {
-        						appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO",
-        								attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
-        								"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
-        					}
+        				try {
+	    					String elese = "SBB".equals(business) ? itemGroupS4H : itemGroup;
+	    					String dictionary = "ItemGroup".equals(charId)
+	    							? "GpoArtVsEnvase" : "GpoArtVsEnvase_S4H";
+	    					String laetiqueta = queryDictionary(elese, dictionary);
+	    					if (laetiqueta != null && !laetiqueta.isBlank()) {
+	    						String elcode = dastub.getLookupValueCodeByName(
+	    								"SAP_BEHVOLOV", 10, laetiqueta, true);
+	    						if (elcode != null && !elcode.isBlank()) {
+	    							appendPlainElementValue(laetiqueta, elcode, "SAP_BEHVO",
+	    									attributeValues, "MKP".equals(business) ? attributesMKT : attributes,
+	    											"MKP".equals(business) ? docMKT : doc, propiedadesCaracteristicas);
+	    						}
+	    					}
+        				}catch(Exception e) {
+        					System.out.println("--->" + characteristic.getJSONArray("_recordLang").getJSONObject(0) + "<---");
+        					e.printStackTrace();
         				}
     				}
 		        	if (embeddedCodeWEB != null && !"".equals(embeddedCodeWEB)) {
@@ -1508,8 +1493,7 @@ public class RealExportProducts2Mirakl {
 								raw = rw.makeRequest("GET", "/object/Article/'" + firstVariant + "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData", null);
 								resp = new org.json.JSONObject(raw);
 								resp = resp.getJSONObject("_data");
-								if(!resp.has("_characteristicRecords"))
-									continue;
+								if (!resp.has("_characteristicRecords")) resp.put("_characteristicRecords", new org.json.JSONArray());
 								rows = resp.getJSONArray("_characteristicRecords");
 								org.json.JSONArray children = null;
 								String[] chunk = null;
@@ -1739,11 +1723,8 @@ public class RealExportProducts2Mirakl {
 								if(!procede) {
 									procede = resp.has("procedeNoProcede") && resp.getBoolean("procedeNoProcede");
 								}
-								if(!procede) {
-									continue;
-								}else {
-				                	product.appendChild(subProduct);
-								}
+								if (!procede) log("INFO Marketplace: procede=false; no bloquea el envio.");
+                                product.appendChild(subProduct);
 								if(miraklVariantGroupId == null && "MKP".equals(business)) {
 									appendPlainElementValue(
 		        							sku,
@@ -2102,8 +2083,7 @@ public class RealExportProducts2Mirakl {
 							raw = rw.makeRequest("GET", "/object/Article/'" + firstVariant + "'@'MASTER'?includeLabels=true&entityFilter=ArticleCharacteristicValue,Article,ArticleExtraData", null);
 							org.json.JSONObject resp = new org.json.JSONObject(raw);
 							resp = resp.getJSONObject("_data");
-							if(!resp.has("_characteristicRecords"))
-								continue;
+							if (!resp.has("_characteristicRecords")) resp.put("_characteristicRecords", new org.json.JSONArray());
 							if(resp.has("procedeNoProcede")) {
 								procede = resp.getBoolean("procedeNoProcede");
 								log("El procede: " + procede);
@@ -2211,21 +2191,21 @@ public class RealExportProducts2Mirakl {
 							logE(e);
 						}
 			        	}
-		        	if (rw.getXmm().listImmediateChildElements(product).get("Product") != null || "SalesItem".equals(productType)) {
+		        	java.util.List<String> minimumProblems = validateMarketplaceMinimumFields(product);
+                    if (!minimumProblems.isEmpty()) {
+                        recordNonDeliveryReason(reqPublishMessage, proposalId, "SKIPPED Marketplace el " + deliveryTimestamp()
+                            + ". Campos requeridos faltantes: " + minimumProblems);
+                    }
+                    if (minimumProblems.isEmpty()) {
 			        	if("MKP".equals(business)) {
 			        		productsMKT.appendChild(product);
 			        	}else {
 			        		products.appendChild(product);
 			        	}
-		        	}else {
-		        		recordNonDeliveryReason(reqPublishMessage, proposalId,
-								"SKIPPED Marketplace el " + deliveryTimestamp()
-								+ ". Producto sin estructura publicable para Marketplace.");
-						log("Dropped. " + product.getAttribute("ID"));
-		        		System.out.println("Dropped. " + productType + "---");
-		        		System.out.println(rw.getXmm().prettyPrint(product));
-		        		this.dropped++;
-		        	}
+		        	} else {
+                        log("Marketplace omitido por nombre/SKU: " + proposalId);
+                        this.dropped++;
+                    }
 	    				    			System.out.println(sku + " - " + proposalId);
 					} finally {
 						if (hasProducts(current)) {
@@ -3431,7 +3411,27 @@ public class RealExportProducts2Mirakl {
 		return null;
 	}
 
+    private static java.util.List<String> validateMarketplaceMinimumFields(Element product) {
+        java.util.List<String> missing = new java.util.ArrayList<>();
+        for (String key : new String[]{"SKU", "ProductName"}) {
+            boolean present = false;
+            for (org.w3c.dom.Node n = product.getFirstChild(); n != null; n = n.getNextSibling()) {
+                if (!(n instanceof Element) || !"Values".equals(n.getNodeName())) continue;
+                for (org.w3c.dom.Node v = n.getFirstChild(); v != null; v = v.getNextSibling()) {
+                    if (v instanceof Element && key.equals(((Element)v).getAttribute("AttributeID"))
+                            && !v.getTextContent().trim().isEmpty()) present = true;
+                }
+            }
+            if (!present) missing.add(product.getAttribute("ID") + ":" + key);
+        }
+        for (org.w3c.dom.Node n = product.getFirstChild(); n != null; n = n.getNextSibling())
+            if (n instanceof Element && "Product".equals(n.getNodeName()))
+                missing.addAll(validateMarketplaceMinimumFields((Element)n));
+        return missing;
+    }
+
 	private String getTheVariantSequence(String latalla, String template) {
+		if (template == null || template.isEmpty()) return null;
 		String rawMap = queryVariantOrder(template);
 		if(rawMap != null) {
 			String[] pieces = rawMap.split(",");

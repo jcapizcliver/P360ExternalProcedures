@@ -78,6 +78,28 @@ public class NameAndProductName extends RESTDQRuleImpl {
 						characteristicsMap2.put(json2.getJSONObject("_qualification").getJSONObject("characteristic").getString("_code"), json2);
 					}
 				}
+				for (Map.Entry<String, JSONObject> entry : characteristicsMap2.entrySet()) {
+                    JSONObject incoming = new JSONObject(entry.getValue().toString());
+                    JSONObject previous = characteristicsMap.get(entry.getKey());
+                    if ("LOOKUP".equals(incoming.optString("_datatype"))) {
+                        JSONObject value = incoming.getJSONArray("_recordLang").getJSONObject(0).getJSONArray("values").optJSONObject(0);
+                        if (value != null && value.optString("_label").isEmpty()) {
+                            if (previous != null && getCharacteristicValue(previous, true).equals(value.optString("_code"))) {
+                                value.put("_label", getCharacteristicValue(previous));
+                            } else if ("ProductTypeSAP".equals(entry.getKey()) && !value.optString("_code").isEmpty()) {
+                                Map<String,String> lookupQuery = new java.util.TreeMap<>();
+                                lookupQuery.put("items", "'" + value.getString("_code").replace("'", "\\'") + "'@'PE000LOV'");
+                                lookupQuery.put("fields", "LookupValueLang.Name(es)");
+                                rw.collectData("list", "LookupValue", null, "byItems", lookupQuery, row -> value.put("_label", row.getJSONArray("values").getString(0)));
+                            }
+                            if (value.optString("_label").isEmpty() && java.util.Arrays.stream(java.util.Objects.toString(this.orderOfAttributesForName, "").split(",")).map(String::trim).anyMatch(entry.getKey()::equals)) {
+                                log("TITLE_NOT_CALCULATED unresolved lookup " + proposalId + " field=" + entry.getKey());
+                                return;
+                            }
+                        }
+                    }
+                    characteristicsMap.put(entry.getKey(), incoming);
+                }
 				String[] td = new String[3];
 				td[0] = null;
 				td[1] = null;
@@ -121,8 +143,8 @@ public class NameAndProductName extends RESTDQRuleImpl {
 				log("Got template: " + template);
 				log("Got template name: " + templateName);
 				org.json.JSONObject esLang = null;
-				if(objectResponse.has("lang")) {
-					org.json.JSONArray lang = objectResponse.getJSONArray("lang");
+				if(objectResponse.getJSONObject("_data").has("lang")) {
+					org.json.JSONArray lang = objectResponse.getJSONObject("_data").getJSONArray("lang");
 					for(int i=0; i<lang.length(); i++) {
 						if(10 == lang.getJSONObject(i).getJSONObject("_qualification").getJSONObject("language").getInt("_key")) {
 							esLang = lang.getJSONObject(i);
@@ -132,7 +154,7 @@ public class NameAndProductName extends RESTDQRuleImpl {
 						
 					}
 				}
-				String negocio = objectResponse.has("business") ? objectResponse.getJSONObject("business").getString("_label") : getCharacteristicValue( characteristicsMap.get("Business"), false );
+				String negocio = objectResponse.getJSONObject("_data").has("business") ? objectResponse.getJSONObject("_data").getJSONObject("business").getString("_label") : getCharacteristicValue( characteristicsMap.get("Business"), false );
 				String prevPN = esLang != null && esLang.has("descriptionShort") ? esLang.getString("descriptionShort") : null;
 				String prevProductName = esLang != null && esLang.has("productName") ? esLang.getString("productName") : null;
 				String descriptionLong = esLang != null && esLang.has("descriptionLong") ? esLang.getString("descriptionLong") : null;
@@ -165,6 +187,7 @@ public class NameAndProductName extends RESTDQRuleImpl {
 					StringBuilder sb = new StringBuilder();
 					String val = null;
 					for(String element : elements) {
+						element = element.trim();
 						val = getCharacteristicValue( characteristicsMap.get(element) );
 						if(val == null || "".equals(val)) {
 							val = getCharacteristicValue( characteristicsMap2.get(element) );
@@ -195,12 +218,12 @@ public class NameAndProductName extends RESTDQRuleImpl {
 					}else { log("Not mkp"); }
 					
 					log("PN: " + productName);
-					org.json.JSONObject pno = createCharacteristicValueObject("ProductName", prevProductName == null || prevProductName.isEmpty() ? productName : prevProductName);
-					org.json.JSONObject no  = createCharacteristicValueObject("Name", prevPN == null || prevPN.isEmpty() ? productName : prevPN);
-					records.put(pno);
-					records.put(no);
+					org.json.JSONObject pno = createCharacteristicValueObject("ProductName", productName);
+					// Name is entered by the user; never replace it with the generated title.
+					if (!productName.trim().isEmpty()) TitleText.putProductName(records, pno);
+
 					sourceData.put("ProductName", pno);
-					sourceData.put("Name", no);
+
 				}
 				org.json.JSONObject data = null;
 //				if(prevPN != null && !"".equals(prevPN)) {
@@ -262,10 +285,11 @@ public class NameAndProductName extends RESTDQRuleImpl {
 			log("Business: " + negocio);
 			log("orderOfAttributesForName: " + orderOfAttributesForName);
 			log("PrevPN: " + prevPN);
-			if(orderOfAttributesForName != null && !"".equals(orderOfAttributesForName) && (prevPN == null || prevPN.isEmpty()) ) {
+			if(orderOfAttributesForName != null && !"".equals(orderOfAttributesForName)  ) {
 				String[] elements = orderOfAttributesForName.split(",");
 				StringBuilder sb = new StringBuilder();
 				for(String element : elements) {
+						element = element.trim();
 					log("Element for PN Calc: " + element);
 					if("ProductTypeSAP".equals(element)) {
 						sb.append(sb.length() == 0 ? "" : ", ").append(itemGroup.replaceAll("^\\d+ - ", ""));
@@ -297,11 +321,11 @@ public class NameAndProductName extends RESTDQRuleImpl {
 					}
 				}
 				org.json.JSONObject pno = createCharacteristicValueObject("ProductName", productName);
-				org.json.JSONObject no  = createCharacteristicValueObject("Name", productName);
-				records.put(pno);
-				records.put(no);
+				// Preserve the submitted Name independently of ProductName.
+				if (!productName.trim().isEmpty()) TitleText.putProductName(records, pno);
+
 				sourceData.put("ProductName", pno);
-				sourceData.put("Name", no);
+
 			}else {
 				if(! ( prevPN == null || prevPN.isEmpty() ) ) {
 					log("Using previous ProductName: " + prevPN);

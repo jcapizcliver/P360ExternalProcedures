@@ -83,6 +83,8 @@ public class ParseECCAttributesFile implements SimpleLog, Closeable {
 	private java.util.Map<String, String> globalDataTypes = new java.util.TreeMap<>();
 	
 	private final int bs = 5000;
+    private long metadataLoadedAt;
+    private final java.util.Set<String> cachedSizes=new java.util.TreeSet<>();
 	
 
 	private java.util.LinkedList<String> product2GCharacteristics = new java.util.LinkedList<>();
@@ -165,6 +167,20 @@ public class ParseECCAttributesFile implements SimpleLog, Closeable {
     }
     
 	public void runOnSftp() throws ParserConfigurationException, SAXException {
+        if(DurableSftpQueue.enabled()) {
+            DurableSftpQueue.run("ecc", "GenericXMLattributes", () -> running, (body, filename) -> {
+                var factory=javax.xml.parsers.SAXParserFactory.newInstance();
+                factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl",true);
+                ECC122AttributesHandler handler=new ECC122AttributesHandler();
+                factory.newSAXParser().parse(new java.io.ByteArrayInputStream(body),handler);
+                DurableSftpQueue.records(handler.getCollected(), product -> {
+                    processFile(java.util.Collections.singletonList(product), filename);
+                    sendData();
+                }, this::log);
+            }, this::log);
+            return;
+        }
+
 		qp.put("includeObjectsInProtocol", "false");
 		workshop.setBaseUrl(BASE_URL);
     	USE_CACHE = true;
@@ -240,7 +256,7 @@ public class ParseECCAttributesFile implements SimpleLog, Closeable {
                                     try (java.io.ByteArrayInputStream bais = new java.io.ByteArrayInputStream(out.toByteArray())) {
                                         parser.parse(bais, handler);
                                     }
-                                    processFile(handler.getCollected());
+                                    processFile(handler.getCollected(), name);
 
                                     sftp.remove(filePath);
 
@@ -292,177 +308,101 @@ public class ParseECCAttributesFile implements SimpleLog, Closeable {
         }
     }
     
-	public void processFile(java.util.List<ECC122AttributesHandler.Product> products) throws ParserConfigurationException, SAXException, IOException  {
-		String sku = null;
-		int driver = 0;
-		String attId = null;
-		String value = null;
-		StringBuilder sb = new StringBuilder();
-		java.util.Map<String, String> dataTypes = new java.util.TreeMap<>();
-		java.util.Map<String, String> attributeValues = new java.util.TreeMap<>();
-//		java.util.Map<String, String> mapEqs = new java.util.TreeMap<>(); 
-		java.util.Set<String> atributosTalla = new java.util.TreeSet<>();
-		java.util.Map<String, String> diccionario = null;
-		String productId = null;
-		String itemId = null;
-		String[] info = null;
-		String valorTU = null;
-		String attEq = null;
-		java.util.LinkedList<String> listaDeDiccionarios = new java.util.LinkedList<>();
-//		loadEqECCAttributes(mapEqs);
+	public void processFile(java.util.List<ECC122AttributesHandler.Product> products) throws ParserConfigurationException, SAXException, IOException {
+        processFile(products, null);
+    }
 
-		/*
-		 * IMPORTANTE: esto debe ocurrir ANTES de construir listaDeDiccionarios.
-		 * Si el metadata inyectado vino vacío, attEq quedaría null para TODOS
-		 * los ATNAM y jamás se intentaría resolver la talla.
-		 */
+    public void processFile(java.util.List<ECC122AttributesHandler.Product> products, String sourceFile) throws ParserConfigurationException, SAXException, IOException {
+		if (products == null) throw new IOException("Malformed ECC attribute document");
 		ensureEccMetadataAvailable();
 
-		loadSizeAttributesMap(atributosTalla);
-		eccToCharID.keySet().forEach(a -> listaDeDiccionarios.addLast( a ));
-		loadDiccionarios(listaDeDiccionarios);
-//		collectCharacteristicsByEntity(product2GCharacteristics, articleCharacteristics);
-		log("Collecting lookup values for TamanoUnico");
-		collectLookupValues("TamanoUnico", map, mapB, "LOOKUP");
-		log("Done collecting lookup values for TamanoUnico");
-//		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "characteristics").toFile()), java.nio.charset.StandardCharsets.UTF_8))){
-//			String line = null;
-//			String[] pcs = null;
-//			while((line = br.readLine()) != null) {
-//				pcs = workshop.parseLine(line, "\"", ";", "\\");
-//				if(pcs.length > 2) {
-//					if(!"".equals(pcs[2])) {
-//						eccFieldMapping.put(pcs[0], pcs[2]);
-//						eccToCharID.put(pcs[2], pcs[0]);
-//					}
-//					globalDataTypes.put(pcs[0], pcs[1]);
-//				}
-//			}
-//		}catch(java.io.IOException e) {
-//			e.printStackTrace();
-//		}
-		java.util.List<String> atts = new java.util.ArrayList<>();
-		if(products != null) {
-			int amount = 0;
-			for(ECC122AttributesHandler.Product pn : products) {
-				sku = pn.getValues().get(0).getText();
-				if(sku == null || "".equals(sku)) {
-					log("No SKU provided: " + sku);
-					continue;
-				}
-				log("Starting with atts for: " + sku);
-				valorTU = null;
-				for(Value avn : pn.getAttributes()) {
-					driver++;
-					if( driver == 2) {
-						attId = avn.getText();
-						atts.add(attId);
-						sb.append( sb.length() > 0 ? "," : "" );
-						sb.append(attId);
-					}else if( driver == 3 ) {
-						value = avn.getText();
-						if(valorTU == null) {
-							attEq = eccToCharID.get(attId);
-							if(attEq != null && atributosTalla.contains(attEq)) {
-								diccionario = this.diccionarios.get( attId + "LOV" );
-								if(diccionario != null) {
-									valorTU = diccionario.get(value);
-									if(valorTU == null) {
-										log("No value found in current attribute dictionary -->" + value + "<--");
-									}else {
-										log("Present, value added -->" + valorTU + "<--");
-									}
-								}else {
-									log("No dictionary for: " + attId + " -> " + attEq);
-								}
-							}else {
-								log("Not present. " + attId + " || " + attEq + " || ");
-							}
-						}
-						attributeValues.put(attId, value);
-						driver = 0;
-						attId = null;
-						value = null;
-					}
-				}
-				log("Done atts for: " + sku);
-				info = checkProductBySKU(sku);
-				if(info != null && !"".equals(sku)) {
-					log("Found SKU in product. " + java.util.Arrays.asList(info));
-					productId = info[0];
-					if("00".equals(info[1])) {
-						itemId = checkArticleBySKU(sku);
-						if(itemId != null) {
-							addValue("MensajeCreacionSKU", "Article", itemId, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()));
-						}else {
-							log("No item id found.");
-						}
-					}else{
-						log("No known to send...");
-					}
-				} else {
-					log("O: " + ( info != null ? java.util.Arrays.asList(info) : "NoN"));
-					itemId = checkArticleBySKU(sku);
-					
-					if(itemId != null) {
-						addValue("MensajeCreacionSKU", "Article", itemId, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()));
-						log("Found SKU in article.");
-					}else{
-						log("O-: " + (info != null ? java.util.Arrays.asList(info) : "NoN" ));
-						log("No known to send in art either... (" + sku + ") atts: " + atts);
-					}
-				}
-				valorTU = valorTU == null ? "SIN TAMAÑO" : valorTU;
-				log("Adding value to TU: " + valorTU);
-				if(itemId != null) {
-					addValue("TamanoUnico", "Article", itemId, valorTU );
-					String c100 = attributeValues.get("C100");
-					log("Elegy " + itemId + ", " + c100);
-					rowsArticle.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + itemId + "'@1")).put("values", new org.json.JSONArray().put(valorTU).put(c100)));
-					if(rowsArticle.length() == bs) {
-						rw.writeData("list", "Article", null, qp, requestArticle, this::log);
-					}
-					log("Collecting over: " + sb.toString());
-					getDataTypes(atts, dataTypes);
-					sb.setLength(0);
-					log("Ended up with: " + dataTypes);
-					for(java.util.Map.Entry<String, String> entry : dataTypes.entrySet()) {
-						collectLookupValues(entry.getKey(), map, mapB, entry.getValue());
-						try{
-							if(productId != null) {
-								if(product2GCharacteristics.contains(entry.getKey()) ) {
-									addValue(entry.getKey(), "Product2G", productId, attributeValues.get(eccFieldMapping.get(entry.getKey())) );
-								}
-							}
-							log("Came with (" + itemId + " || " + sku + "): " + entry.getKey() + " | " + eccFieldMapping.get(entry.getKey()) + " | " + attributeValues.get(eccFieldMapping.get(entry.getKey())));
-							if(articleCharacteristics.contains(entry.getKey()) ) {
-								log("Added");
-								addValue(entry.getKey(), "Article", itemId, attributeValues.get(eccFieldMapping.get(entry.getKey())));
-//							}else {
-//								log("Not added (" + articleCharacteristics  + ")");
-							}
-						}catch(IllegalArgumentException e) {
-							logE(e);
-						}
-					}
-				}
-				valorTU = null;
-				log("Entry processed.");
-				sku = null;
-				itemId = null;
-				info = null;
-				productId = null;
-				attributeValues.clear();
-				attributeValues.clear();
-				atts.clear();
-				amount++;
-				log(amount + "/" + products.size());
+        java.util.Set<String> sizes=cachedSizes;
+        if(!DurableSftpQueue.enabled() || System.currentTimeMillis()-metadataLoadedAt>900000) {
+            collectLookupCharacteristics(dataTypes, lkps); sizes.clear();
+            loadSizeAttributesMap(sizes); loadDiccionarios(new java.util.LinkedList<>(eccToCharID.keySet()));
+            metadataLoadedAt=System.currentTimeMillis();
+        }
+		for (ECC122AttributesHandler.Product product : products) {
+			String sku = AttributeImportSupport.eccSku(product.getValues());
+			if (sku == null || sku.isBlank()) throw new IOException("Missing MATNR in ECC attributes");
+			java.util.Map<String, java.util.List<String>> incoming = AttributeImportSupport.eccAttributes(product.getAttributes());
+			String missingPath = PropertiesManager.get("p360.contingency.ecc.unmapped_attributes_file");
+            Path deferred = missingPath == null || missingPath.isBlank()
+                    ? LOCAL_PROCESSED_DIR.resolveSibling("unmapped-attributes.jsonl") : Paths.get(missingPath);
+            ECCUnmappedAttributes.deferUnmapped(incoming, eccToCharID, deferred, sourceFile, sku);
+            if (incoming.isEmpty()) continue;
+			String[] info = checkProductBySKU(sku);
+			String productId = info == null ? null : info[0];
+			String itemId = checkArticleBySKU(sku);
+			if (itemId != null) {
+				String parent = AttributeImportSupport.parentOf(workshop, itemId);
+				if (parent != null) productId = parent;
 			}
-		}else {
-			log("Malformed file content...");
+			boolean articleExpected = itemId != null || info == null || "00".equals(info[1]);
+			org.json.JSONArray productRecords = new org.json.JSONArray();
+			org.json.JSONArray articleRecords = new org.json.JSONArray();
+			String sizeLabel = null;
+			for (java.util.Map.Entry<String, java.util.List<String>> entry : incoming.entrySet()) {
+				String characteristic = eccToCharID.get(entry.getKey());
+				if (characteristic == null) {
+					throw new IOException("No ECC mapping for " + entry.getKey() + ", SKU " + sku);
+				}
+				String type = dataTypes.get(characteristic);
+				String lookup = lkps.get(characteristic);
+				if (type == null || type.isBlank()) throw new IOException("No datatype for " + characteristic);
+				if ("LOOKUP".equals(type) && lookup != null && !map.containsKey(lookup)) {
+					tools.collectLookupValues(lookup, map, mapB, type);
+				}
+				org.json.JSONArray converted = new org.json.JSONArray();
+				for (String raw : entry.getValue()) {
+					Object value = JanaAttributeParser.resolve(characteristic, type, raw, lookup, map, mapB, this::log);
+					if (value == null) throw new IOException("Unresolved value for " + characteristic + ", SKU " + sku);
+					converted.put(value);
+					if (sizes.contains(characteristic)) {
+						java.util.Map<String, String> dictionary = diccionarios.get(entry.getKey() + "LOV");
+						String label = dictionary == null ? null : dictionary.get(raw);
+						if (label != null && !label.isBlank()) sizeLabel = label;
+					}
+				}
+				boolean forProduct = product2GCharacteristics.contains(characteristic);
+				boolean forArticle = articleCharacteristics.contains(characteristic);
+				if (!forProduct && !forArticle) throw new IOException("No entity for " + characteristic);
+				if (forProduct) JanaAttributeParser.addValues(characteristic, converted, productRecords);
+				if (forArticle && articleExpected) JanaAttributeParser.addValues(characteristic, converted, articleRecords);
+			}
+			Object sizeValue = null;
+			if (sizeLabel != null && articleExpected) {
+				tools.collectLookupValues("TamanoUnicoLOV", map, mapB, "LOOKUP");
+				sizeValue = JanaAttributeParser.resolve("TamanoUnico", "LOOKUP", sizeLabel, "TamanoUnicoLOV", map, mapB, this::log);
+				if (sizeValue == null) throw new IOException("Unresolved TamanoUnico for SKU " + sku);
+				JanaAttributeParser.addValues("TamanoUnico", new org.json.JSONArray().put(sizeValue), articleRecords);
+			}
+			AttributeImportSupport.requireTargets(sku, productId, itemId, productRecords.length() > 0,
+					articleExpected && (articleRecords.length() > 0 || incoming.containsKey("C100")));
+			AttributeImportSupport.write(workshop, "Product2G", productId, productRecords);
+			AttributeImportSupport.write(workshop, "Article", itemId, articleRecords);
+			// Only include supplied extra fields; absent size/color must keep their current value.
+			if (itemId != null && (sizeLabel != null || incoming.containsKey("C100"))) {
+				org.json.JSONArray columns = new org.json.JSONArray();
+				org.json.JSONArray values = new org.json.JSONArray();
+				if (sizeLabel != null) {
+					columns.put(new org.json.JSONObject().put("identifier", "ArticleExtraData.TamanoUnico(MX)"));
+					values.put(sizeLabel);
+				}
+				if (incoming.containsKey("C100")) {
+					columns.put(new org.json.JSONObject().put("identifier", "ArticleExtraData.ColoursLiverpoolAtt(MX)"));
+					values.put(incoming.get("C100").get(0));
+				}
+				org.json.JSONObject request = new org.json.JSONObject().put("columns", columns).put("rows",
+						new org.json.JSONArray().put(new org.json.JSONObject().put("object",
+								new org.json.JSONObject().put("id", AttributeImportSupport.objectId(itemId))).put("values", values)));
+				AttributeImportSupport.requireSuccess(workshop.makeRequest("POST", "/list/Article", qp, request.toString()), "Article extras " + itemId);
+			}
+			log("Attributes written for SKU " + sku + ": Product2G=" + productId + " (" + productRecords.length()
+					+ "), Article=" + itemId + " (" + articleRecords.length() + ")");
 		}
 	}
-	
+
 	public void sendData() {
 		log("Sending data for attributes file...");
 		for(java.util.Map.Entry<String, org.json.JSONObject> entry : peticiones.entrySet()) {
@@ -561,10 +501,7 @@ public class ParseECCAttributesFile implements SimpleLog, Closeable {
 		 *   [2] AlternativeIdentifier(ECC)
 		 *   ...
 		 */
-		java.nio.file.Path cacheFile = java.nio.file.Paths.get(
-				PropertiesManager.get("p360.contingency.base_directory"),
-				"cache",
-				"characteristics");
+		java.nio.file.Path cacheFile = java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "characteristics");
 
 		try (java.io.BufferedReader br = java.nio.file.Files.newBufferedReader(
 				cacheFile,
@@ -620,7 +557,7 @@ public class ParseECCAttributesFile implements SimpleLog, Closeable {
 
 	private void loadSizeAttributesMap(java.util.Set<String> atributos) {
 		java.util.Map<String, String> relAttrib =
-				dastub.getDictionaryCharacteristicAlternativeValueMap("RelAttribSTDATG");
+				dastub.getDictionaryValueAlternativeValueMap("RelAttribSTDATG");
 		atributos.addAll(relAttrib.keySet());
 		log("Loaded size characteristics from DB. Count: " + atributos.size());
 	}
@@ -640,12 +577,7 @@ public class ParseECCAttributesFile implements SimpleLog, Closeable {
 	
 	private java.util.Map<String, String> loadDiccionario(String diccionario) {
 		java.util.Map<String, String> atributos = new java.util.TreeMap<>();
-		java.util.List<org.json.JSONObject> rows =
-				dastub.getLookupValueCodeNameExternalCodeRows(
-						diccionario,
-						10,
-						null,
-						true);
+		java.util.List<org.json.JSONObject> rows = dastub.getLookupValueCodeNameExternalCodeRows( diccionario, 10, null, true );
 		for(org.json.JSONObject row : rows) {
 			String code = row.optString("code", "");
 			if(code == null || code.isBlank()) {
@@ -705,7 +637,7 @@ public class ParseECCAttributesFile implements SimpleLog, Closeable {
 				logE(e);
 			}
 		}
-		return resp;
+		return null;
 	}
 	
 	private String[] checkProductBySKU(String sku) {
@@ -870,21 +802,17 @@ public class ParseECCAttributesFile implements SimpleLog, Closeable {
 		creaPeticion(entity, objectId, name, value);
 	}
 	
-	private void collectLookupCharacteristics(java.util.Map<String, String> characteristicsInfo, java.util.Map<String, String> lkps){
-		try(java.io.BufferedReader br = new java.io.BufferedReader(new java.io.InputStreamReader(new java.io.FileInputStream(java.nio.file.Paths.get(PropertiesManager.get("p360.contingency.base_directory"), "cache", "characteristics").toFile()), java.nio.charset.StandardCharsets.UTF_8))){
-			String line = null;
-			String[] erg = null;
-			while((line = br.readLine()) != null) {
-				erg = workshop.parseLine(line, "\"", ";", "\\");
-				if(erg != null && erg.length == 6) {
-					characteristicsInfo.put(erg[0], erg[1]);
-					lkps.put(erg[0], erg[5]);
-				}else {
-					log("Pieza malformada: --->" + line + "<---");
-				}
+	private void collectLookupCharacteristics(java.util.Map<String, String> characteristicsInfo, java.util.Map<String, String> lookups) {
+		for (org.json.JSONObject row : dastub.getCharacteristicIntegrationMetadataRows()) {
+			String id = row.optString("identifier", "");
+			if (id.isBlank()) continue;
+			characteristicsInfo.put(id, row.optString("dataType", ""));
+			lookups.put(id, row.optString("lookup", ""));
+			String ecc = row.optString("ecc", "");
+			if (!ecc.isBlank()) {
+				eccToCharID.put(ecc, id);
+				eccFieldMapping.put(id, ecc);
 			}
-		}catch(java.io.IOException e) {
-			logE(e);
 		}
 	}
 

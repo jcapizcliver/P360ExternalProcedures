@@ -109,7 +109,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 	
 	private final ParseECCAttributesFile attp = new ParseECCAttributesFile();
 	
-	private final java.util.List<String> pids = new java.util.ArrayList<>(); 
+	private final java.util.Set<String> pids = new java.util.LinkedHashSet<>();
 	
 	private final ParsersTools tools = new ParsersTools(new SimpleLog() {
 		
@@ -135,6 +135,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 	
 	@Override
 	public void run() {
+        if (DurableSftpQueue.enabled()) { this.running=false; return; } // XML and receipts survive shutdown; never flush concurrently.
 		attp.sendData();
 		sendData();
 		closeResources();
@@ -386,11 +387,22 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
     }
 
     public void flushPendingWrites() {
-        attp.sendData();
         sendData();
+        attp.sendData();
     }
     
 	public void runOnSftp() throws ParserConfigurationException, SAXException {
+        if (DurableSftpQueue.enabled()) {
+            final long[] loaded = {0};
+            DurableSftpQueue.run("ecc", "GenericXMLproducts", () -> running, (body, filename) -> {
+                if(System.currentTimeMillis()-loaded[0]>900000) { cargaLasCosas(); loaded[0]=System.currentTimeMillis(); }
+                skuSource=filename;
+                processFile(java.nio.file.Path.of(filename), DurableSftpQueue.bytes(body), null);
+                sendData();
+            }, this::log);
+            return;
+        }
+
 		qp.put("includeObjectsInProtocol", "false");
 		workshop.setBaseUrl(BASE_URL);
     	USE_CACHE = true;
@@ -514,6 +526,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 	                                }
 	                                if(!running)
 	                                	break;
+	                                flushPendingEntityWrites(); // Publish identities before looking up attribute destinations.
 	                                for (DirEntry ent : group) {
                                     	String name = ent.getFilename();
  	                            	    String filePath = REMOTE_DIR + "/" + name;
@@ -541,7 +554,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
  			                                    try (java.io.ByteArrayInputStream bais = new java.io.ByteArrayInputStream(out.toByteArray())) {
  			                                        parser.parse(bais, handler);
  							                        log("(Attributes) Processing: " + name);
- 					                            	attp.processFile(handler.getCollected());
+ 					                            	attp.processFile(handler.getCollected(), name);
  					                    		} catch (ParserConfigurationException | SAXException | IOException e) {
  					                    			logE(e);
  					                    			log("No se elimina remoto porque falló el procesamiento: " + name);
@@ -603,7 +616,62 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
         }
     }
 
-	public void processFile(java.nio.file.Path path, java.io.ByteArrayOutputStream baos, SftpClient sftp) throws ParserConfigurationException, SAXException, IOException, ServiceUnavailableException {
+	private void discardUncommittedFileBuffers() {
+        // The durable XML is retried in full; never carry buffered rows into another file.
+        clearWriteRows(requestStatus);
+        clearWriteRows(requestCommercialECC);
+        clearWriteRows(requestSKU);
+        clearWriteRows(requestSAP_BEHVO);
+        clearWriteRows(requestSKUA);
+        clearWriteRows(requestAltProductNo);
+        clearWriteRows(requestSupplierAltAID);
+        clearWriteRows(requestDir);
+        clearWriteRows(requestSec);
+        clearWriteRows(requestIgr);
+        clearWriteRows(requestBNa);
+        clearWriteRows(requestNeg);
+        clearWriteRows(requestSOT);
+        clearWriteRows(requestSID);
+        clearWriteRows(requestSPN);
+        clearWriteRows(request);
+        clearWriteRows(requestArticle);
+        for (org.json.JSONObject value : peticiones.values()) clearWriteRows(value);
+        for (org.json.JSONObject value : peticionesArticles.values()) clearWriteRows(value);
+        articleHigherLevelProduct.clear(); pids.clear();
+    }
+    private static void clearWriteRows(org.json.JSONObject request) {
+        org.json.JSONArray pending = request.optJSONArray("rows");
+        if (pending != null) while (pending.length() > 0) pending.remove(pending.length() - 1);
+    }
+    private mx.com.liverpool.p360.services.core.InboundSkuResolver inboundSkuResolver;
+    public void processFile(java.nio.file.Path path, java.io.ByteArrayOutputStream baos, SftpClient sftp)
+            throws ParserConfigurationException, SAXException, IOException, ServiceUnavailableException {
+        articleHigherLevelProduct.clear();
+        byte[] xml = baos != null ? baos.toByteArray() : java.nio.file.Files.readAllBytes(path);
+        try (mx.com.liverpool.p360.services.core.InboundSkuResolver guard =
+                mx.com.liverpool.p360.services.core.InboundSkuResolver.open(xml, this::log)) {
+            inboundSkuResolver = guard;
+            InboundIdentityBatch batch = InboundIdentityBatch.prepare(xml, guard, "LVP", this::log);
+            if (!batch.readyKeys.isEmpty()) {
+                java.io.ByteArrayOutputStream copy = new java.io.ByteArrayOutputStream(batch.xml.length);
+                copy.write(batch.xml);
+                if (path != null) skuSource = path.getFileName().toString();
+                processFileGuarded(path, copy, sftp);
+                sendData(); // Acknowledge records only after flushing all their queued P360 writes.
+            }
+            batch.completedWrites();
+        } catch (ParserConfigurationException | SAXException | IOException | ServiceUnavailableException e) {
+            discardUncommittedFileBuffers();
+            throw e;
+        } catch (Exception e) {
+            discardUncommittedFileBuffers();
+            log("SKU_GUARD_FILE_RETAINED source=" + (path == null ? skuSource : path.getFileName()) + " reason=" + e.getMessage());
+            throw new IOException("SKU identity resolution/write failed; retain and retry input", e);
+        } finally { inboundSkuResolver = null; }
+    }
+    private void processFileGuarded(java.nio.file.Path path, java.io.ByteArrayOutputStream baos, SftpClient sftp) throws ParserConfigurationException, SAXException, IOException, ServiceUnavailableException {
+		skuSource = path == null ? "unknown" : path.getFileName().toString();
+		skuPublications.begin(skuSource);
 		long init = System.currentTimeMillis();
 		java.util.Map<String, String> attributeValues = new java.util.TreeMap<>();
 		java.util.Map<String, java.util.Map<String, String>> newAttributeValues = new java.util.TreeMap<>();
@@ -655,6 +723,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 		java.util.List<String> nuevosValores = new java.util.ArrayList<>();
 		
 		for(Product122 p : products) {
+            attributeValues = new java.util.TreeMap<>(); unidades.clear();
 			znprst = p.getProposalId();
 			log("P: " + p.getProposalId());
 			for(Value vn : p.getValues()) {
@@ -697,12 +766,21 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 				articleSupplierAIDToSKU.put(znprst, sku);
 				skuToArticleSupplierAID.put(sku, znprst);
 			}
+            if ("01".equals(attyp)) znprst = chooseProperProductZNPRST(sku, isBlankId(znprst) ? "LVP" + sku : znprst);
+            else if ("02".equals(attyp)) znprst = chooseProperArticleZNPRST(sku, isBlankId(znprst) ? "LVP" + sku : znprst);
+            else if ("00".equals(attyp) || "10".equals(attyp)) {
+                String knownArticle = inboundSkuResolver.existing(1000, sku);
+                String knownProduct = inboundSkuResolver.existing(1100, sku);
+                if (knownArticle != null) znprst = knownArticle;
+                else if (knownProduct != null) znprst = knownProduct;
+                else znprst = inboundSkuResolver.redirect(1100, znprst);
+            }
 			String externalId = null;
 			String entity = "00".equals(attyp) || "10".equals(attyp) ? "Individual" : "01".equals(attyp) ? "Product2G" : "02".equals(attyp) ? "Article" : null;
 			
 			if("MARKETPLACE".equals(negocio)) {
 				info = tools.checkArticle(znprst);
-				if(info != null) {
+				if(info != null && sapBehvo != null && !sapBehvo.isBlank()) {
 					rowsSAP_BEHVO.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + info[0] + "'@1")).put("values", new org.json.JSONArray().put(sapBehvo)));
 					log("---> Added behvo: " + sapBehvo + " to " + info[0] + " from me: " + znprst);
 				}
@@ -711,13 +789,13 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 			if(znprst != null && !"".equals(znprst)) {
 				externalId = znprst;
 				log("Processing este: " + znprst);
-				info = tools.checkProduct(znprst);
+				info = "02".equals(attyp) ? null : tools.checkProduct(znprst);
 				if(info != null && ("MKP".equals(info[1]) || "1004".equals(info[3]))) {
 					log("Undoing...");
 					info = null;
 				}
 				if( info == null ) {
-					info = tools.checkArticle(znprst);
+					info = "01".equals(attyp) ? null : tools.checkArticle(znprst);
 					if( info != null ) {
 						znprst = resuelveEmpateDeArticulo(sku, znprst);
 						externalId = znprst;
@@ -740,7 +818,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 						
 						sendArticleSKUToAdmin(znprst, sku, dr);
 						log("PeléPe. SAPObjectType: " + info[1] + ", Business: " + info[2]);
-						if(( "00".equals(info[1]) || "10".equals(info[1]) ) && !"MKP".equals(info[2])) {
+						if(("00".equals(attyp) || "10".equals(attyp)) && ( "00".equals(info[1]) || "10".equals(info[1]) ) && !"MKP".equals(info[2])) {
 							entity = "Individual";
 							addValue("MensajeCreacionSKU", "Article", znprst, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format(new java.util.Date()) );
 							sendWriteRequest("Product2G", info[0], info[3], info[4]);
@@ -768,7 +846,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 							productZNPRST = znprst;
 							entity = "Individual";
 							addValue("SAPObjectType", "Product2G", znprst, attyp );
-							addValue("Business", "Product2G", znprst, "LVP" );
+							addValue("Business", "Product2G", znprst, mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.resolve(negocio, null, null, null));
 							sendWriteRequestProduct(znprst, matkl, pe000, negocio);
 							
 							znprst = chooseProperArticleZNPRST(sku, originalznprst);
@@ -791,7 +869,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 							znprst = chooseProperProductZNPRST(sku, znprst);
 							sendProductSKUToAdmin(znprst, sku, dr);
 							addValue("SAPObjectType", "Product2G", znprst, "01");
-							addValue("Business", "Product2G", znprst, "LVP" );
+							addValue("Business", "Product2G", znprst, mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.resolve(negocio, null, null, null));
 							sendWriteRequestProduct(znprst, matkl, pe000, negocio);
 							nuevosValores.add(znprst);
 							newAttributeValues.put(znprst, attributeValues);
@@ -970,14 +1048,14 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 								sendArticleSKUToAdmin(externalId, sku, dr);
 								entity = "Individual";
 								addValue("SAPObjectType", "Product2G", externalId, attyp );
-								addValue("Business", "Product2G", externalId, "LVP" );
+								addValue("Business", "Product2G", externalId, mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.resolve(negocio, null, null, null));
 								addValue("SAPObjectType", "Article", externalId, attyp );
 								sendWriteRequest("Article",   externalId, null, null);
 								sendWriteRequestProduct(externalId, matkl, pe000, negocio);
 								nuevosValores.add(externalId);
 								newAttributeValues.put(externalId, attributeValues);
 								articleHigherLevelProduct.put(externalId, externalId);
-								articleHigherLevelProductNotReadyYet.put(externalId, externalId);
+								articleHigherLevelProductNotReadyYet.put(externalId, sku);
 								org.json.JSONArray items = new org.json.JSONArray();
 								if(!"".equals(sku)) {
 									items.put(new org.json.JSONObject().put("productNo", externalId).put("sku", sku));
@@ -993,7 +1071,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 								sendProductSKUToAdmin(externalId, sku, dr);
 								entity = "Product2G";
 								addValue("SAPObjectType", entity, externalId, "01" );
-								addValue("Business", entity, externalId, "LVP" );
+								addValue("Business", entity, externalId, mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.resolve(negocio, null, null, null));
 								sendWriteRequestProduct(externalId, matkl, pe000, negocio);
 								nuevosValores.add(externalId);
 								newAttributeValues.put(externalId, attributeValues);
@@ -1042,7 +1120,20 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 					}
 				}
 			}
-			if(externalId != null && ("Product2G".equals(entity) || "Individual".equals(entity)) ) {
+			
+                if ("Product2G".equals(entity)) {
+                    skuPublications.add("Product2G", productId, sku, null);
+                } else if ("Individual".equals(entity)) {
+                    String resolvedParent = articleHigherLevelProduct.get(externalId);
+                    if (resolvedParent != null && !resolvedParent.isBlank()) productId = resolvedParent;
+                    skuPublications.add("Product2G", productId, sku, null);
+                    skuPublications.add("Article", externalId, sku, productId);
+                } else if ("Article".equals(entity)) {
+                    skuPublications.add("Article", externalId, sku, articleHigherLevelProduct.get(externalId));
+                }
+                skuPublications.flushIfReady();
+                if(externalId != null && ("Product2G".equals(entity) || "Individual".equals(entity)) ) {
+				queueOmsProduct(productId);
 				try {
 					calculaProductType(sapBehvo, matkl, fshId, "Liverpool", ae253, mtart, mtart, externalId, workshop);
 				} catch (KeyManagementException | NoSuchAlgorithmException | URISyntaxException | IOException e) {
@@ -1082,6 +1173,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 					log("Was trying with: BrandName -->" + brandName + "<-- LKP content -->" + (null == mapB.get("ZCOMALOV") ) + "<--" );
 				}
 			}else if("Article".equals(entity)) {
+				if (info != null && info.length > 0) queueOmsProduct(info[0]);
 				rowsArticle.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + externalId + "'@1")).put("values", new org.json.JSONArray()
 						.put(nvl( ean ))
 						.put(sku)
@@ -1187,7 +1279,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 			cnt++;
 			log(cnt + "/" + products.size());
 			if(!running) {
-				return;
+				throw new IllegalStateException("SKU_FILE_INTERRUPTED source=" + skuSource);
 			}
 		}
 		flushPendingIdentityRetirements();
@@ -1196,7 +1288,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 		org.json.JSONObject item = null;
 		String parentId = null;
 		for( java.util.Map.Entry<String, String> entry : articleHigherLevelProductNotReadyYet.entrySet() ) {
-			parentId = skuToArticleSupplierAID.get(entry.getValue());
+			parentId = inboundSkuResolver.existing(1100, entry.getValue());
 			if(parentId == null) {
 				log("En el archivo no estaba el padre referenciado por el valor de SKU: " + entry.getValue() + " para la variante con id de sistema: " + entry.getKey());
 				String response = dr.productBySKU( new org.json.JSONArray().put(entry.getValue()) );
@@ -1221,10 +1313,12 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 				item.put("supplierAID", entry.getKey());
 				item.put("sku", articleSupplierAIDToSKU.get(entry.getKey()));
 				item.put("productNo", parentId);
+				queueOmsProduct(parentId);
 				items.put(item);
 			}
 		}
 		dr.putSkuSupplierAID(items);
+		skuPublications.finish();
 		arremangalos(newAttributeValues, misniños);
 		log("Done processing file. [" + path.toString().replaceAll(".+" + java.util.regex.Pattern.quote( java.io.File.separator ), "") + "] " + rw.getRw().formatTime(System.currentTimeMillis() - init));
 	}
@@ -1291,6 +1385,8 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 	}
 
 	private String resolveProductIdBySku(String sku, DataRequestor dr) {
+        String canonicalParent = inboundSkuResolver.existing(1100, sku);
+        if (canonicalParent != null) return canonicalParent;
 	    if(sku == null || "".equals(sku)) {
 	        return null;
 	    }
@@ -1741,116 +1837,16 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 	}
 
 	private void mergeObjectMissing(org.json.JSONObject target, org.json.JSONObject source, java.util.Set<String> excludedKeys) {
-	    for(Object keyObject : source.keySet()) {
-	        String key = String.valueOf(keyObject);
-
-	        if(excludedKeys != null && excludedKeys.contains(key)) {
-	            continue;
-	        }
-
-	        Object sourceValue = source.opt(key);
-
-	        if(isEmptyJsonValue(sourceValue)) {
-	            continue;
-	        }
-
-	        Object targetValue = target.opt(key);
-
-	        if(isEmptyJsonValue(targetValue)) {
-	            target.put(key, cloneJsonValue(sourceValue));
-	            continue;
-	        }
-
-	        if(sourceValue instanceof org.json.JSONObject && targetValue instanceof org.json.JSONObject) {
-	            mergeObjectMissing((org.json.JSONObject) targetValue, (org.json.JSONObject) sourceValue, null);
-	            continue;
-	        }
-
-	        if(sourceValue instanceof org.json.JSONArray && targetValue instanceof org.json.JSONArray) {
-	            mergeArrayMissing(key, (org.json.JSONArray) targetValue, (org.json.JSONArray) sourceValue);
-	        }
-	    }
-	}
+        ProductDataReconciler.mergeObjectMissing(target, source, excludedKeys);
+    }
 	
 	private java.util.List<String> collectArticleObjectIdsByProduct(String productIdentifier) {
 		return dastub.getArticleObjectIdsByProduct(productIdentifier);
 	}
 	
-	private void mergeArrayMissing(String sectionName, org.json.JSONArray targetArray, org.json.JSONArray sourceArray) {
-	    java.util.Map<String, org.json.JSONObject> targetByKey = new java.util.LinkedHashMap<>();
 
-	    for(int i = 0; i < targetArray.length(); i++) {
-	        Object value = targetArray.opt(i);
 
-	        if(value instanceof org.json.JSONObject) {
-	            org.json.JSONObject object = (org.json.JSONObject) value;
-	            targetByKey.put(buildArrayItemKey(sectionName, object), object);
-	        }
-	    }
 
-	    for(int i = 0; i < sourceArray.length(); i++) {
-	        Object sourceValue = sourceArray.opt(i);
-
-	        if(!(sourceValue instanceof org.json.JSONObject)) {
-	            if(!arrayContainsEquivalentValue(targetArray, sourceValue)) {
-	                targetArray.put(cloneJsonValue(sourceValue));
-	            }
-	            continue;
-	        }
-
-	        org.json.JSONObject sourceObject = (org.json.JSONObject) sourceValue;
-	        String sourceKey = buildArrayItemKey(sectionName, sourceObject);
-	        org.json.JSONObject targetObject = targetByKey.get(sourceKey);
-
-	        if(targetObject == null) {
-	            targetArray.put(new org.json.JSONObject(sourceObject.toString()));
-	        } else {
-	            mergeObjectMissing(targetObject, sourceObject, null);
-	        }
-	    }
-	}
-
-	private String buildArrayItemKey(String sectionName, org.json.JSONObject object) {
-	    if("lang".equals(sectionName)) {
-	        return "lang|" + nestedValue(object, "_qualification.language._key");
-	    }
-
-	    if("structureGroupMap".equals(sectionName)) {
-	        return "structureGroupMap|" + objectKey(object.optJSONObject("_qualification"), "structureGroup");
-	    }
-
-	    if("attribute".equals(sectionName)) {
-	        String identifier = object.optString("identifier", "");
-	        if(!isBlank(identifier)) {
-	            return "attribute|" + identifier;
-	        }
-
-	        return "attribute|" + nestedValue(object, "_qualification.nameInKeyLang");
-	    }
-
-	    if("_characteristicRecords".equals(sectionName)) {
-	        String characteristic = objectKey(object.optJSONObject("_qualification"), "characteristic");
-	        String recordKey = nestedValue(object, "_qualification.recordKey");
-	        String parentRecordKey = nestedValue(object, "_qualification.parentRecordKey");
-	        return "_characteristicRecords|" + characteristic + "|" + recordKey + "|" + parentRecordKey;
-	    }
-
-	    if("productExtraData".equals(sectionName)) {
-	        return "productExtraData|" + objectKey(object.optJSONObject("_qualification"), "targetMarket");
-	    }
-
-	    if("value".equals(sectionName)) {
-	        String lang = nestedValue(object, "_qualification.language._key");
-	        String identifier = nestedValue(object, "_qualification.identifier");
-	        return "value|" + lang + "|" + identifier;
-	    }
-
-	    if("_recordLang".equals(sectionName)) {
-	        return "_recordLang|" + nestedValue(object, "_qualification.language._key");
-	    }
-
-	    return sectionName + "|" + object.toString();
-	}
 
 	private String objectKey(org.json.JSONObject parent, String childName) {
 	    if(parent == null) {
@@ -2108,78 +2104,21 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 	}
 	
 	private String chooseProperProductZNPRST(String sku, String incomingId) {
-		if(isBlankId(sku) || isBlankId(incomingId)) return incomingId;
-
-		String existingId = canonicalProductBySku.get(sku);
-		if(isBlankId(existingId)) {
-			String[] info = tools.checkProductBySKU(sku);
-			existingId = info != null ? info[0] : null;
-		}
-		if(isBlankId(existingId)) {
-			canonicalProductBySku.put(sku, incomingId);
-			return incomingId;
-		}
-		if(existingId.equals(incomingId)) {
-			canonicalProductBySku.put(sku, existingId);
-			return existingId;
-		}
-
-		/* El objeto que ya tenía el MATNR registra el ID alterno que acaba de llegar. */
-		queueProductAltId(existingId, incomingId);
-
-		String winner = decideProductWinner(incomingId, existingId);
-		String loser = winner.equals(incomingId) ? existingId : incomingId;
-		if(winner.equals(incomingId)) {
-			retireProductSku(loser, winner, sku);
-			log("Product2G promovido por identificador de mayor prioridad. sku=" + sku + ", old=" + loser + ", new=" + winner);
-		}else {
-			retireProductSkuIfExists(loser, winner, sku);
-			log("Product2G existente conservado por MATNR. sku=" + sku + ", canonical=" + winner + ", incomingAlt=" + incomingId);
-		}
-		canonicalProductBySku.put(sku, winner);
-		return winner;
+        return inboundSkuResolver.resolve(1100, sku, incomingId);
 	}
 	
 	private String chooseProperArticleZNPRST(String sku, String incomingId) {
-		if(isBlankId(sku) || isBlankId(incomingId)) return incomingId;
-
-		String existingId = canonicalArticleBySku.get(sku);
-		if(isBlankId(existingId)) existingId = tools.checkArticleBySKU(sku);
-		log("Article identity for sku=" + sku + ": incoming=" + incomingId + ", existing=" + existingId);
-
-		if(isBlankId(existingId)) {
-			canonicalArticleBySku.put(sku, incomingId);
-			return incomingId;
-		}
-		if(existingId.equals(incomingId)) {
-			canonicalArticleBySku.put(sku, existingId);
-			return existingId;
-		}
-
-		queueArticleAltId(existingId, incomingId);
-		String winner = decideProductWinner(incomingId, existingId);
-		String loser = winner.equals(incomingId) ? existingId : incomingId;
-		if(winner.equals(incomingId)) {
-			retireArticleSku(loser, winner, sku, isPrototypeId(loser));
-			log("Article promovido por identificador de mayor prioridad. sku=" + sku + ", old=" + loser + ", new=" + winner);
-		}else {
-			retireArticleSkuIfExists(loser, winner, sku);
-			log("Article existente conservado por MATNR. sku=" + sku + ", canonical=" + winner + ", incomingAlt=" + incomingId);
-		}
-		canonicalArticleBySku.put(sku, winner);
-		return winner;
+        return inboundSkuResolver.resolve(1000, sku, incomingId);
 	}
 	
 	private ProductMergeDecision resuelveEmpateDeProducto(String sku, String znprst) {
-		ProductMergeDecision decision = new ProductMergeDecision();
-		decision.productIdToUse = chooseProperProductZNPRST(sku, znprst);
-		decision.shouldMerge = false; // unificación lógica; no merge destructivo automático.
-		decision.manualReview = decision.productIdToUse == null;
-		decision.id1 = decision.productIdToUse;
-		decision.id2 = decision.productIdToUse != null && !decision.productIdToUse.equals(znprst) ? znprst : null;
-		decision.reason = decision.manualReview ? "Could not decide canonical Product2G"
-				: (decision.productIdToUse.equals(znprst) ? "Incoming Product2G is canonical" : "Existing Product2G is canonical; incoming stored as AltProductNo");
-		return decision;
+        ProductMergeDecision decision = new ProductMergeDecision();
+        decision.productIdToUse = chooseProperProductZNPRST(sku, znprst);
+        decision.shouldMerge = false;
+        decision.manualReview = decision.productIdToUse == null;
+        decision.id1 = decision.productIdToUse;
+        decision.reason = "Incoming changes routed to canonical SKU owner; retirement belongs to consolidation";
+        return decision;
 	}
 	
 	private String decideProductWinner(String currentId, String existingId) {
@@ -2366,7 +2305,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 	private void sendArticleSKUToAdmin(String supplierAID, String sku, DataRequestor dr) {
 		rowsSKUA.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + supplierAID + "'@1")).put("values", new org.json.JSONArray().put(sku)));
 		if(rowsSKUA.length() == 100) {
-			rw.writeData("list", "Article", null, qp, requestSKUA, this::log);
+			rw.writeData("list", "Article", null, qp, requestSKUA, this::logSkuWrite);
 		}
 		String r = dr.getArticleData(new org.json.JSONArray().put(supplierAID));
 		if(r != null) {
@@ -2382,10 +2321,10 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 	}
 	
 	private void sendProductSKUToAdmin(String productNo, String sku, DataRequestor dr) {
-		pids.add(productNo);
+		queueOmsProduct(productNo);
 		rowsSKU.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + productNo + "'@1")).put("values", new org.json.JSONArray().put(sku)));
 		if(rowsSKU.length() == 100) {
-			rw.writeData("list", "Product2G", null, qp, requestSKU, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestSKU, this::logSkuWrite);
 		}
 		String r = dr.getProductData(new org.json.JSONArray().put(productNo));
 		if(r != null) {
@@ -2413,6 +2352,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 			item.put("supplierAID", entry.getKey());
 			item.put("sku", articleSupplierAIDToSKU.get(entry.getKey()));
 			item.put("productNo", entry.getValue());
+			queueOmsProduct(entry.getValue());
 			items.put(item);
 			rows.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + entry.getKey() + "'@1")).put("qualification", new org.json.JSONObject().put("referencedSupplierAid", entry.getValue())).put("values", new org.json.JSONArray().put(entry.getValue())));
 			if(rows.length() == 5000) {
@@ -2424,12 +2364,65 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 		}
 	}
 	
+	private String skuSource = "unknown";
+    private final SkuPublicationBatch skuPublications = new SkuPublicationBatch(
+            (entity, request) -> rw.writeData("list", entity, null,
+                    java.util.Collections.singletonMap("includeObjectsInProtocol", "false"), request, this::logSkuWrite),
+            postProductsPubSub::publishMessage, this::lookupSkuParent, this::log);
+
+    private void logSkuWrite(String response) {
+        log(response);
+        SkuPublicationBatch.checkWrite(response); // Throw before RESTWrapper clears the rows.
+    }
+
+    private String lookupSkuParent(String articleId) {
+        String parent = articleHigherLevelProduct.get(articleId);
+        if (parent != null && !parent.isBlank() && !"null".equals(parent)) return parent;
+        String[] data = tools.checkArticle(articleId);
+        return data == null || data.length == 0 ? null : data[0];
+    }
+
+    private void publishProductDetails(org.json.JSONArray products) {
+        if (products.length() == 0) return;
+        for (int start = 0; start < products.length(); start += 100) {
+            org.json.JSONArray batch = new org.json.JSONArray();
+            for (int i = start; i < Math.min(start + 100, products.length()); i++) batch.put(products.get(i));
+            String messageId = postProductsPubSub.publishMessage(new org.json.JSONObject().put("products", batch).toString());
+            if (messageId == null || messageId.isBlank()) throw new IllegalStateException("PRODUCT_PUBSUB_UNCONFIRMED source=" + skuSource);
+            for (int i = 0; i < batch.length(); i++) log("PRODUCT_PUBSUB_CONFIRMED source=" + skuSource
+                    + " messageId=" + messageId + " product=" + batch.getJSONObject(i).optString("proposalId"));
+        }
+    }
+
+    private void queueOmsProduct(String productId) {
+		if (productId != null && !productId.trim().isEmpty() && !"null".equalsIgnoreCase(productId.trim())) {
+			pids.add(productId.trim());
+		}
+	}
+
 	private void sendData() {
+		flushPendingEntityWrites();
+		if (!pids.isEmpty()) {
+			String[] omsIds = pids.toArray(new String[0]);
+            if (DurableSftpQueue.enabled()) {
+                ParserOmsOutbox.enqueue("ecc", omsIds);
+                pids.clear();
+                return;
+            }
+			log("OMS_DISPATCH products=" + omsIds.length + " ids=" + java.util.Arrays.toString(omsIds));
+			RealExportProductsExpressOMS repO = new RealExportProductsExpressOMS();
+			String omsResponse = repO.doIt(omsIds, true);
+			log("OMS_DISPATCH_RESULT products=" + omsIds.length + " response=" + omsResponse);
+			pids.clear();
+		}
+	}
+
+	private void flushPendingEntityWrites() {
 		java.util.Map<String, String> qp = new java.util.HashMap<>();
 		qp.put("includeObjectsInProtocol", "false");
 		if(rowsSKU.length() > 0) { 
 			log("Sending skus (product): " + rowsSKU.length());
-			rw.writeData("list", "Product2G", null, qp, requestSKU, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestSKU, this::logSkuWrite);
 		}
 		if(rowsSAP_BEHVO.length() > 0) { 
 			log("Sending SAP_BEHVO (product): " + rowsSAP_BEHVO.length());
@@ -2437,7 +2430,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 		}
 		if(rowsSKUA.length() > 0) {
 			log("sending skus only (article): " + rowsSKUA.length() + "");
-			rw.writeData("list", "Article", null, qp, requestSKUA, this::log);
+			rw.writeData("list", "Article", null, qp, requestSKUA, this::logSkuWrite);
 		}
 		if(rowsAltProductNo.length() > 0) {
 			log("sending alternate ids (product): " + rowsAltProductNo.length());
@@ -2486,14 +2479,11 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 			}
 		}
 		sendParentChildRel();
-		RealExportProductsExpressOMS repO = new RealExportProductsExpressOMS();
-    	repO.doIt(pids.toArray(new String[] {}), true);
-    	pids.clear();
 	}
 	
 	private String determineBusiness(String negocio) {
-		return "".equals(negocio) ? null : "MARKETPLACE".equals(negocio) ? "Marketplace" : "Liverpool" ;
-	}
+        return mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.label(mx.com.liverpool.p360.services.core.temp.xml.local.StepBusinessResolver.resolve(negocio, null, null, null));
+    }
 	
 	private java.util.Map<String, String> readFieldSections() {
 		try {
@@ -2637,12 +2627,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 			}
 			productos.put(msgBody);
 		}
-		postProductsPubSub.publishMessage(
-		        new org.json.JSONObject()
-		                .put("products", productos)
-		                .toString()
-		);
-		log( "Sent." );
+		publishProductDetails(productos);
 	}
 	
 	private void closeResources() {
@@ -2726,9 +2711,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 		String externalId = forbiddenChalice(itemGroup, product);
 		log("FbC: " + externalId);
 		if(externalId != null) {
-			requestCommercialECC.getJSONArray("rows")
-				.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + id + "'@1")).put("values", new org.json.JSONArray().put(externalId)))
-			;
+			requestCommercialECC.getJSONArray("rows").put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + id + "'@1")).put("values", new org.json.JSONArray().put(externalId)));
 			if(requestCommercialECC.getJSONArray("rows").length() == 10000) {
 				rw.writeData("list", "Product2G", null, qp, requestCommercialECC, this::log);
 			}
@@ -2841,7 +2824,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 		}
 		if(requestStatus.getJSONArray("rows").length() == 100) {
 			log("Sending skus (" + rowsSKU.length() + ")");
-			rw.writeData("list", "Product2G", null, qp, requestSKU, this::log);
+			rw.writeData("list", "Product2G", null, qp, requestSKU, this::logSkuWrite);
 			log("sending block (product, " + rows.length() + ")");
 			rw.writeData("list", "Product2G", null, qp, request, this::log);
 			rw.writeData("list", "Product2G", null, qp, requestDir, this::log);
@@ -2972,7 +2955,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 			sendProductSKUToAdmin(productId, "999" + productId.substring(productId.startsWith("S") ? 1 : 7), dr);
 			rowsSKU.put(new org.json.JSONObject().put("object", new org.json.JSONObject().put("id", "'" + productId + "'@1")).put("values", new org.json.JSONArray().put("999" + productId.substring(productId.startsWith("S") ? 1 : 7))));
 			if(rowsSKU.length() == 2000) {
-				rw.writeData("list", "Product2G", null, qp, requestSKU, this::log);
+				rw.writeData("list", "Product2G", null, qp, requestSKU, this::logSkuWrite);
 			}
 			addValue("MensajeCreacionSKU", "Product2G", productId, "Actualizado " + new java.text.SimpleDateFormat("dd-MM-yyyy HH:mm:ss.SSSZ").format( new java.util.Date()) );
 			addValue("SKU", "Product2G", productId, "999" + productId.substring(productId.startsWith("S") ? 1 : 7) );
@@ -3013,7 +2996,7 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 					.put("values", new org.json.JSONArray().put(prevStatus).put(currentStatus).put(externalStatus)));
 			if(requestStatus.getJSONArray("rows").length() == 100) {
 				log("Sending skus (" + rowsSKU.length() + ")");
-				rw.writeData("list", "Product2G", null, qp, requestSKU, this::log);
+				rw.writeData("list", "Product2G", null, qp, requestSKU, this::logSkuWrite);
 				log("sending block (product, " + rows.length() + ")");
 				rw.writeData("list", "Product2G", null, qp, request, this::log);
 				rw.writeData("list", "Product2G", null, qp, requestDir, this::log);
@@ -3143,28 +3126,30 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 	}
 	
 	private void calculaProductType(String sapBehvo1, String itemGroup, String fshId, String negocio, String almacenamientoAtt, String skuType, String mtart, String externalId, RESTWorkshop rw) throws KeyManagementException, NoSuchAlgorithmException, UnsupportedEncodingException, URISyntaxException, IOException, ServiceUnavailableException {
-		String sapBehvo = null;
+		String sapBehvo = sapBehvo1 == null ? null : sapBehvo1.trim();
 		if("Liverpool".equals(negocio) || "Marketplace".equals(negocio)) {
 			int month = Integer.parseInt( new java.text.SimpleDateFormat("MM").format(new java.util.Date()) );
 			int year = Integer.parseInt( new java.text.SimpleDateFormat("yyyy").format(new java.util.Date()) ) + (month < 11 ? 0 : 1);
 			addValue("AnoEstacion", "Product2G", externalId, String.valueOf(year));
 			addValue("Temporada", "Product2G", externalId, "0003");
-			sapBehvo = lookupValue(itemGroup, "GpoArtVsEnvase", rw);
+
 		}else if("Suburbia".equals(negocio)) {
-			sapBehvo = lookupValue(itemGroup, "GpoArtVsEnvase_S4H", rw);
+
 			if(fshId != null && fshId.length() >= 4) {
 				addValue("FSH_SEASON_YEAR", "Product2G", externalId, fshId.subSequence(0, 4));
 			}
 		}
-		if(sapBehvo == null || "".equals(sapBehvo)) {
-			return;
-		}
-		sapBehvo = sapBehvo.substring(0,2);
-		if(sapBehvo1 == null || "".equals(sapBehvo1)) {
-			addValue("SAP_BEHVO", "Product2G", externalId, sapBehvo.substring(0,2));
-		}
-		if(sapBehvo != null && !"".equals(sapBehvo)) {
-			String thevalue = "1";
+        if (sapBehvo == null || sapBehvo.isEmpty()) {
+            log("[BEHVO] XML absent/blank; preserving SAP_BEHVO and ProductType for " + externalId);
+            return;
+        }
+        if (sapBehvo.length() < 2) {
+            log("[BEHVO] Invalid XML value; preserving SAP_BEHVO and ProductType for " + externalId);
+            return;
+        }
+        sapBehvo = sapBehvo.substring(0, 2);
+        addValue("SAP_BEHVO", "Product2G", externalId, sapBehvo);
+        String thevalue = null;
 			try{
 				org.json.JSONArray rws = new org.json.JSONObject( rw.getRc().getRequest("GET", rw.getBaseUrl() + "/list/StandardizationValue/bySearch"
 						+ "?dictionaryProxy=" + java.net.URLEncoder.encode("'BEHVO_LookupTable'", "UTF-8")
@@ -3177,18 +3162,13 @@ public class ParseECC122Response extends Thread implements SimpleLog, Closeable 
 			}catch(org.json.JSONException e) {
 				logE(e);
 			}
-			addValue("ProductType", "Product2G", externalId, thevalue);
-		} else {
-			if(almacenamientoAtt != null && !"".equals(almacenamientoAtt) && "0001".equals(almacenamientoAtt) && "SERV".equals(skuType)) {
-				addValue("ProductType", "Product2G", externalId, "6");
-			}else if("DIEN".equals(mtart) && "SB87516".equals(itemGroup)){
-				addValue("ProductType", "Product2G", externalId, "6");
-			}else {
-				addValue("ProductType", "Product2G", externalId, "1");
-			}
-		}
-	}
-	
+        if (thevalue != null && !thevalue.isBlank()) {
+            addValue("ProductType", "Product2G", externalId, thevalue);
+        } else {
+            log("[BEHVO] No mapping for " + sapBehvo + "; preserving ProductType for " + externalId);
+        }
+    }
+
 	private String lookupValue(String value, String standardizationDictionary, RESTWorkshop rw) throws KeyManagementException, NoSuchAlgorithmException, UnsupportedEncodingException, URISyntaxException, IOException {
 		String container = standardizationDictionary.replaceAll("/", "<::>");
 		String pieces0 = null;
